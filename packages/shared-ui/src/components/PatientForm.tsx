@@ -27,7 +27,7 @@ import type { Doctor, Patient, Appointment } from '@/lib/types';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { isWithinBookingWindow, buildBreakIntervals, applyBreakOffsets, parseTime as parseTimeUtil } from '@/lib/utils';
-import { getSessionEnd, getSessionBreakIntervals } from '@/lib/break-helpers';
+import { getSessionEnd, getSessionBreakIntervals } from '@kloqo/shared-core';
 import { calculateWalkInDetails } from '@/lib/walk-in.service';
 
 

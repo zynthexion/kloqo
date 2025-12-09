@@ -367,12 +367,6 @@ async function updateDoctorConsultationStatuses(clinicId: string): Promise<void>
 
         // REMOVED: Auto-set to 'Out' logic - doctors can now manually set status to 'In' before availability time
         // Status changes are now completely manual - no automatic 'Out' based on availability
-        // if (doctor.consultationStatus === 'In' && shouldBeOut) {
-        //   doctorsToUpdate.push({ id: docSnapshot.id, doctor });
-        //   (`Doctor ${doctor.name} should be marked as Out (outside availability)`);
-        // } else {
-        //   (`Doctor ${doctor.name} status is correct (${doctor.consultationStatus})`);
-        // }
     });
 
 

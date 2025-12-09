@@ -7,6 +7,10 @@
         "build": "turbo run build",
         "lint": "turbo run lint",
         "typecheck": "turbo run typecheck",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:ui": "vitest --ui",
+        "test:coverage": "vitest run --coverage",
         "clean": "turbo run clean && rm -rf node_modules",
         "dev:patient": "pnpm --filter patient-app dev",
         "dev:nurse": "pnpm --filter nurse-app dev",
@@ -14,8 +18,11 @@
         "dev:superadmin": "pnpm --filter superadmin dev"
     },
     "devDependencies": {
+        "@vitest/ui": "^4.0.15",
+        "happy-dom": "^20.0.11",
         "turbo": "^2.3.3",
-        "typescript": "^5.7.2"
+        "typescript": "^5.7.2",
+        "vitest": "^4.0.15"
     },
     "engines": {
         "node": ">=18.0.0",

@@ -1,0 +1,25 @@
+{
+    "name": "kloqo-monorepo",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "turbo run dev",
+        "build": "turbo run build",
+        "lint": "turbo run lint",
+        "typecheck": "turbo run typecheck",
+        "clean": "turbo run clean && rm -rf node_modules",
+        "dev:patient": "pnpm --filter patient-app dev",
+        "dev:nurse": "pnpm --filter nurse-app dev",
+        "dev:clinic": "pnpm --filter clinic-admin dev",
+        "dev:superadmin": "pnpm --filter superadmin dev"
+    },
+    "devDependencies": {
+        "turbo": "^2.3.3",
+        "typescript": "^5.7.2"
+    },
+    "engines": {
+        "node": ">=18.0.0",
+        "pnpm": ">=8.0.0"
+    },
+    "packageManager": "pnpm@8.15.0"
+}

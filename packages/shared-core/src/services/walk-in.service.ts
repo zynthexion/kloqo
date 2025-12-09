@@ -1,9 +1,9 @@
 import { collection, query, where, orderBy, getDocs, getDoc, Firestore, runTransaction, doc, serverTimestamp, type Transaction, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse } from 'date-fns';
-import type { Doctor, Appointment } from '@/lib/types';
-import { parseTime as parseTimeString } from '@/lib/utils';
-import { computeWalkInSchedule, type SchedulerAssignment } from '@/lib/walk-in-scheduler';
-import { logger } from '@/lib/logger';
+import type { Doctor, Appointment } from '@kloqo/shared-types';
+import { parseTime as parseTimeString } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
+import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
+import { logger } from '../lib/logger';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
@@ -80,7 +80,7 @@ async function loadDoctorAndSlots(
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseTimeString(session.from, date);
     let endTime = parseTimeString(session.to, date);
-    
+
     // If there is an extension for this specific session, use it
     if (extensionForDate?.sessions?.length) {
       const sessionExtension = extensionForDate.sessions.find(s => s.sessionIndex === sessionIndex);

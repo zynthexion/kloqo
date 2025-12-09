@@ -6,7 +6,7 @@
  */
 
 import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
-import type { Doctor, BreakPeriod, AvailabilitySlot } from './types';
+import type { Doctor, BreakPeriod, AvailabilitySlot } from '@kloqo/shared-types';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -41,7 +41,7 @@ export interface BreakValidationResult {
 // HELPER: Parse Time Utility
 // ============================================================================
 
-function parseTime(timeStr: string, referenceDate: Date): Date {
+export function parseTime(timeStr: string, referenceDate: Date): Date {
   return parse(timeStr, 'hh:mm a', referenceDate);
 }
 
@@ -58,10 +58,10 @@ export function getSessionBreaks(
   sessionIndex: number
 ): BreakPeriod[] {
   if (!doctor?.breakPeriods) return [];
-  
+
   const dateKey = format(date, 'd MMMM yyyy');
   const allBreaks = doctor.breakPeriods[dateKey] || [];
-  
+
   return allBreaks.filter(bp => bp.sessionIndex === sessionIndex);
 }
 
@@ -75,20 +75,20 @@ export function getSessionBreaks(
  */
 export function mergeAdjacentBreaks(breaks: BreakPeriod[]): BreakPeriod[] {
   if (breaks.length <= 1) return breaks;
-  
+
   // Sort by start time
-  const sorted = [...breaks].sort((a, b) => 
+  const sorted = [...breaks].sort((a, b) =>
     new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
   );
-  
+
   const merged: BreakPeriod[] = [];
   let current = { ...sorted[0] };
-  
+
   for (let i = 1; i < sorted.length; i++) {
     const next = sorted[i];
     const currentEnd = new Date(current.endTime);
     const nextStart = new Date(next.startTime);
-    
+
     // Check if adjacent (current end === next start)
     if (currentEnd.getTime() === nextStart.getTime()) {
       // Merge: extend current to include next
@@ -106,10 +106,10 @@ export function mergeAdjacentBreaks(breaks: BreakPeriod[]): BreakPeriod[] {
       current = { ...next };
     }
   }
-  
+
   // Push the last one
   merged.push(current);
-  
+
   return merged;
 }
 
@@ -131,42 +131,42 @@ export function validateBreakSlots(
   if (newBreakSlots.length === 0) {
     return { valid: false, error: 'No slots selected for break' };
   }
-  
+
   // Check: max 3 breaks per session
   if (existingBreaks.length >= 3) {
     return { valid: false, error: 'Maximum 3 breaks per session allowed' };
   }
-  
+
   // Sort new slots
   const sortedNewSlots = newBreakSlots.map(s => parseISO(s)).sort((a, b) => a.getTime() - b.getTime());
   const newStart = sortedNewSlots[0];
   const newEnd = sortedNewSlots[sortedNewSlots.length - 1];
-  
+
   // Check: slots are within session bounds
   if (isBefore(newStart, sessionStart) || isAfter(newEnd, sessionEnd)) {
     return { valid: false, error: 'Break slots must be within session time' };
   }
-  
+
   // Check: no overlap with existing breaks
   for (const existingBreak of existingBreaks) {
     const existingStart = parseISO(existingBreak.startTime);
     const existingEnd = parseISO(existingBreak.endTime);
-    
+
     // Check if new break overlaps with existing
     const overlaps = (
       (newStart >= existingStart && newStart < existingEnd) ||
       (newEnd > existingStart && newEnd <= existingEnd) ||
       (newStart <= existingStart && newEnd >= existingEnd)
     );
-    
+
     if (overlaps) {
-      return { 
-        valid: false, 
-        error: `Break overlaps with existing break (${existingBreak.startTimeFormatted} - ${existingBreak.endTimeFormatted})` 
+      return {
+        valid: false,
+        error: `Break overlaps with existing break (${existingBreak.startTimeFormatted} - ${existingBreak.endTimeFormatted})`
       };
     }
   }
-  
+
   return { valid: true };
 }
 
@@ -188,7 +188,7 @@ export function calculateSessionExtension(
 } {
   const totalMinutes = breaks.reduce((sum, bp) => sum + bp.duration, 0);
   const newEnd = addMinutes(originalSessionEnd, totalMinutes);
-  
+
   return {
     totalBreakMinutes: totalMinutes,
     newSessionEnd: newEnd,
@@ -210,29 +210,29 @@ export function getCurrentActiveSession(
   referenceDate: Date
 ): SessionInfo | null {
   if (!doctor?.availabilitySlots?.length) return null;
-  
+
   const dayOfWeek = format(referenceDate, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
-  
+
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) return null;
-  
+
   const sessions = availabilityForDay.timeSlots;
-  
+
   // Check each session to find active or next upcoming
   for (let i = 0; i < sessions.length; i++) {
     const session = sessions[i];
     const sessionStart = parseTime(session.from, referenceDate);
     const sessionEnd = parseTime(session.to, referenceDate);
-    
+
     // Get breaks for this session
     const breaks = getSessionBreaks(doctor, referenceDate, i);
-    
+
     // Check for stored extension (respects user's choice to extend or not)
     const dateKey = format(referenceDate, 'd MMMM yyyy');
     const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-      s => s.sessionIndex === i
+      (s: any) => s.sessionIndex === i
     );
-    
+
     let effectiveEnd: Date;
     let totalBreakMinutes: number;
     if (storedExtension) {
@@ -246,11 +246,11 @@ export function getCurrentActiveSession(
       totalBreakMinutes = breaks.reduce((sum, bp) => sum + bp.duration, 0);
       effectiveEnd = sessionEnd;
     }
-    
+
     // Walk-in window: 30 min before start to 15 min before effective end
     const walkInStart = subMinutes(sessionStart, 30);
     const walkInEnd = subMinutes(effectiveEnd, 15);
-    
+
     // Check if now is within walk-in window
     if (now >= walkInStart && now <= walkInEnd) {
       return {
@@ -265,22 +265,22 @@ export function getCurrentActiveSession(
       };
     }
   }
-  
+
   // If no active session, return next upcoming session
   for (let i = 0; i < sessions.length; i++) {
     const session = sessions[i];
     const sessionStart = parseTime(session.from, referenceDate);
     const sessionEnd = parseTime(session.to, referenceDate);
-    
+
     if (isAfter(sessionStart, now)) {
       const breaks = getSessionBreaks(doctor, referenceDate, i);
-      
+
       // Check for stored extension (respects user's choice to extend or not)
       const dateKey = format(referenceDate, 'd MMMM yyyy');
       const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-        s => s.sessionIndex === i
+        (s: any) => s.sessionIndex === i
       );
-      
+
       let effectiveEnd: Date;
       let totalBreakMinutes: number;
       if (storedExtension) {
@@ -294,7 +294,7 @@ export function getCurrentActiveSession(
         totalBreakMinutes = breaks.reduce((sum, bp) => sum + bp.duration, 0);
         effectiveEnd = sessionEnd;
       }
-      
+
       return {
         sessionIndex: i,
         session,
@@ -307,7 +307,7 @@ export function getCurrentActiveSession(
       };
     }
   }
-  
+
   return null;
 }
 
@@ -333,30 +333,30 @@ export function getAvailableBreakSlots(
     currentSessionSlots: [] as SlotInfo[],
     upcomingSessionSlots: new Map<number, SlotInfo[]>()
   };
-  
+
   if (!doctor?.availabilitySlots?.length) return result;
-  
+
   const currentSession = currentSessionOverride ?? getCurrentActiveSession(doctor, now, referenceDate);
   if (!currentSession) return result;
-  
+
   const dayOfWeek = format(referenceDate, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
   if (!availabilityForDay) return result;
-  
+
   const slotDuration = doctor.averageConsultingTime || 15;
-  
+
   // Generate slots for current session (from session start, showing all slots)
   const currentBreaks = currentSession.breaks;
   const takenSlots = new Set(currentBreaks.flatMap(b => b.slots));
-  
+
   // Start from session start, not current time, to show all slot times in slot format
   let currentTime = new Date(currentSession.sessionStart);
   const currentEndTime = currentSession.sessionEnd;
-  
+
   while (currentTime < currentEndTime) {
     const isoString = currentTime.toISOString();
     const isTaken = takenSlots.has(isoString);
-    
+
     result.currentSessionSlots.push({
       time: new Date(currentTime),
       timeFormatted: format(currentTime, 'hh:mm a'),
@@ -365,10 +365,10 @@ export function getAvailableBreakSlots(
       isTaken,
       sessionIndex: currentSession.sessionIndex
     });
-    
+
     currentTime = addMinutes(currentTime, slotDuration);
   }
-  
+
   // Generate slots for upcoming sessions
   for (let i = currentSession.sessionIndex + 1; i < availabilityForDay.timeSlots.length; i++) {
     const session = availabilityForDay.timeSlots[i];
@@ -376,14 +376,14 @@ export function getAvailableBreakSlots(
     const sessionEnd = parseTime(session.to, referenceDate);
     const sessionBreaks = getSessionBreaks(doctor, referenceDate, i);
     const takenSlotsForSession = new Set(sessionBreaks.flatMap(b => b.slots));
-    
+
     const sessionSlots: SlotInfo[] = [];
     let slotTime = new Date(sessionStart);
-    
+
     while (slotTime < sessionEnd) {
       const isoString = slotTime.toISOString();
       const isTaken = takenSlotsForSession.has(isoString);
-      
+
       sessionSlots.push({
         time: new Date(slotTime),
         timeFormatted: format(slotTime, 'hh:mm a'),
@@ -392,13 +392,13 @@ export function getAvailableBreakSlots(
         isTaken,
         sessionIndex: i
       });
-      
+
       slotTime = addMinutes(slotTime, slotDuration);
     }
-    
+
     result.upcomingSessionSlots.set(i, sessionSlots);
   }
-  
+
   return result;
 }
 
@@ -416,22 +416,22 @@ export function getSessionEnd(
   sessionIndex: number
 ): Date | null {
   if (!doctor?.availabilitySlots?.length) return null;
-  
+
   const dayOfWeek = format(date, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
-  
+
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) return null;
   if (sessionIndex >= availabilityForDay.timeSlots.length) return null;
-  
+
   const session = availabilityForDay.timeSlots[sessionIndex];
   let sessionEnd = parseTime(session.to, date);
-  
+
   // Check for extensions
   const dateKey = format(date, 'd MMMM yyyy');
   const extensions = doctor.availabilityExtensions?.[dateKey];
-  
+
   if (extensions?.sessions) {
-    const sessionExtension = extensions.sessions.find(s => s.sessionIndex === sessionIndex);
+    const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
     // Only extend if totalExtendedBy > 0 (user explicitly chose to extend)
     if (sessionExtension && sessionExtension.totalExtendedBy > 0 && sessionExtension.newEndTime) {
       try {
@@ -444,7 +444,7 @@ export function getSessionEnd(
       }
     }
   }
-  
+
   return sessionEnd;
 }
 
@@ -464,9 +464,9 @@ export function createBreakPeriod(
   const start = sortedSlots[0];
   const lastSlot = sortedSlots[sortedSlots.length - 1];
   const end = addMinutes(lastSlot, slotDuration);
-  
+
   const duration = differenceInMinutes(end, start);
-  
+
   return {
     id: `break-${start.getTime()}`,
     startTime: start.toISOString(),
@@ -498,15 +498,15 @@ export function buildBreakIntervalsFromPeriods(
   referenceDate: Date
 ): BreakInterval[] {
   if (!doctor?.breakPeriods) return [];
-  
+
   const dateKey = format(referenceDate, 'd MMMM yyyy');
   const breaks = doctor.breakPeriods[dateKey] || [];
-  
-  return breaks.map(bp => ({
+
+  return breaks.map((bp: BreakPeriod) => ({
     start: parseISO(bp.startTime),
     end: parseISO(bp.endTime),
     sessionIndex: bp.sessionIndex
-  })).sort((a, b) => a.start.getTime() - b.start.getTime());
+  })).sort((a: BreakInterval, b: BreakInterval) => a.start.getTime() - b.start.getTime());
 }
 
 /**

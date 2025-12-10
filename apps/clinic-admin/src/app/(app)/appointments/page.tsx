@@ -1174,6 +1174,7 @@ export default function AppointmentsPage() {
             time: actualTimeString,
             reservationId,
           } = await generateNextTokenAndReserveSlot(
+            db, // CRITICAL: First parameter must be firestore instance
             clinicId,
             selectedDoctor.name,
             date,
@@ -1253,7 +1254,6 @@ export default function AppointmentsPage() {
             numericToken: numericToken,
             slotIndex: actualSlotIndex, // Use the actual slotIndex returned from the function
             sessionIndex: actualSessionIndex,
-            treatment: "General Consultation",
             createdAt: serverTimestamp(),
             cutOffTime: cutOffTime,
             noShowTime: noShowTime,
@@ -1522,6 +1522,7 @@ export default function AppointmentsPage() {
           };
           try {
             tokenData = await generateNextTokenAndReserveSlot(
+              db, // CRITICAL: First parameter must be firestore instance
               clinicId,
               selectedDoctor.name,
               values.date,
@@ -1687,7 +1688,6 @@ export default function AppointmentsPage() {
             arriveByTime: arriveByTimeValue,
             department: values.department,
             status: isEditing ? editingAppointment!.status : "Pending",
-            treatment: "General Consultation",
             tokenNumber: tokenData.tokenNumber,
             numericToken: tokenData.numericToken,
             bookedVia: values.bookedVia,

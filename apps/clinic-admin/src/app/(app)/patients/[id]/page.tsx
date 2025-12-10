@@ -150,7 +150,6 @@ export default function PatientHistoryPage() {
                         <TableHead>Time</TableHead>
                         <TableHead>Doctor</TableHead>
                         <TableHead>Department</TableHead>
-                        <TableHead>Treatment</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -162,7 +161,6 @@ export default function PatientHistoryPage() {
                             <TableCell>{visit.time}</TableCell>
                             <TableCell>{visit.doctor}</TableCell>
                             <TableCell>{visit.department}</TableCell>
-                            <TableCell>{visit.treatment}</TableCell>
                             <TableCell>
                               <Badge
                                 variant={

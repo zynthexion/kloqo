@@ -257,6 +257,7 @@ export default function EditAppointmentPage({ params }: EditAppointmentPageProps
                 if (slotIndex !== -1) {
                     try {
                         const tokenData = await generateNextTokenAndReserveSlot(
+                            db, // CRITICAL: First parameter must be firestore instance
                             clinicId,
                             doctor.name,
                             newDate,

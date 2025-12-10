@@ -1010,7 +1010,6 @@ function BookingSummaryPage() {
                 arriveByTime: adjustedTimeString,
                 slotIndex: actualSlotIndex,
                 sessionIndex: resolvedSessionIndex,
-                treatment: "General Consultation",
                 tokenNumber,
                 numericToken,
                 createdAt: serverTimestamp(),

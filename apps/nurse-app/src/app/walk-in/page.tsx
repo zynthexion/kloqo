@@ -630,7 +630,6 @@ function WalkInRegistrationContent() {
         tokenNumber: previewTokenNumber,
         numericToken: numericToken,
         clinicId,
-        treatment: "General Consultation",
         slotIndex,
         sessionIndex,
         createdAt: serverTimestamp(),
@@ -720,6 +719,7 @@ function WalkInRegistrationContent() {
     try {
       const bookingDate = new Date();
       const reservation = await generateNextTokenAndReserveSlot(
+        db, // CRITICAL: First parameter must be firestore instance
         clinicId,
         doctor.name,
         bookingDate,
@@ -801,7 +801,6 @@ function WalkInRegistrationContent() {
         tokenNumber: reservation.tokenNumber,
         numericToken: reservation.numericToken,
         clinicId,
-        treatment: 'General Consultation',
         slotIndex: reservation.slotIndex,
         sessionIndex: sessionIndexForAppointment,
         createdAt: serverTimestamp(),

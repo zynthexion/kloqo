@@ -119,7 +119,6 @@ const formSchema = z.object({
     sex: z.string().min(1, { message: "Sex is required." }),
     department: z.string().optional(),
     doctor: z.string().optional(),
-    treatment: z.string().optional(),
     slot: z.string().min(1, { message: "A time slot is required." }),
 });
 
@@ -281,6 +280,7 @@ function AppointmentDetailsFormContent() {
             let tokenData: { tokenNumber: string; numericToken: number; slotIndex: number; reservationId?: string };
             try {
                 tokenData = await generateNextTokenAndReserveSlot(
+                    db, // CRITICAL: First parameter must be firestore instance
                     clinicId,
                     doctor.name,
                     selectedSlot,
@@ -454,7 +454,6 @@ function AppointmentDetailsFormContent() {
                 tokenNumber: tokenData.tokenNumber,
                 numericToken: tokenData.numericToken,
                 clinicId,
-                treatment: "General Consultation",
                 slotIndex: actualSlotIndex, // Use the actual slotIndex returned from the function
                 sessionIndex: sessionIndex,
                 createdAt: serverTimestamp(),

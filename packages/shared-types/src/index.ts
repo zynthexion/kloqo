@@ -97,7 +97,7 @@ export type Appointment = {
     arriveByTime?: string;
     department: string;
     status: 'Confirmed' | 'Pending' | 'Cancelled' | 'Completed' | 'No-show' | 'Skipped';
-    treatment: string;
+    treatment?: string; // Optional - not collected from users, kept for backward compatibility
     tokenNumber: string;
     numericToken: number;
     bookedVia: 'Advanced Booking' | 'Walk-in' | 'Online';
@@ -159,7 +159,7 @@ export type Visit = {
     time: string;
     doctor: string;
     department: string;
-    treatment: string;
+    treatment?: string; // Optional - not collected from users, kept for backward compatibility
     status: 'Confirmed' | 'Pending' | 'Cancelled' | 'Completed' | 'No-show';
 }
 

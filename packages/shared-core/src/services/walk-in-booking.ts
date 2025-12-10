@@ -300,7 +300,6 @@ export async function handleWalkInBooking(payload: WalkInPayload) {
                 numericToken,
                 slotIndex: actualSlotIndex,
                 sessionIndex,
-                treatment: 'General Consultation',
                 createdAt: serverTimestamp(),
                 cutOffTime: Timestamp.fromDate(cutOffTime),
                 noShowTime: Timestamp.fromDate(noShowTime),

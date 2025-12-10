@@ -367,7 +367,12 @@ function WalkInRegistrationContent() {
     const walkInCloseTime = subMinutes(activeSession.effectiveEnd, 15);
 
     // Check if current time is within walk-in window for this session
-    return currentTime >= walkInOpenTime && currentTime <= walkInCloseTime;
+    const isWithinNormalHours = currentTime >= walkInOpenTime && currentTime <= walkInCloseTime;
+    
+    // ✅ FORCE BOOKING: Also allow if within 15 minutes of closing (even if past normal close time)
+    const isInForceBookWindow = isWithin15MinutesOfClosing(doctor, currentTime);
+    
+    return isWithinNormalHours || isInForceBookWindow;
   }, [doctor, currentTime]);
 
   useEffect(() => {

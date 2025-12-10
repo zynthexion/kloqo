@@ -1,5 +1,5 @@
 {
     "framework": "nextjs",
-    "buildCommand": "cd ../.. && turbo run build --filter=nurse-app",
+    "buildCommand": "npm run build",
     "installCommand": "npm install"
 }

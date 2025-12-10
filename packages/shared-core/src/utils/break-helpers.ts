@@ -540,4 +540,43 @@ export function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]
   }, new Date(originalTime));
 }
 
+// ============================================================================
+// CHECK IF WITHIN 15 MINUTES OF CLOSING
+// ============================================================================
+
+/**
+ * Checks if current time is within 15 minutes of doctor's last session end time
+ * @param doctor Doctor profile with availability slots
+ * @param date Date to check (uses current time if today, otherwise returns false)
+ * @returns true if within 15 minutes of closing time
+ */
+export function isWithin15MinutesOfClosing(
+  doctor: Doctor | null,
+  date: Date
+): boolean {
+  if (!doctor?.availabilitySlots?.length) return false;
+
+  const now = new Date();
+  const dateStr = format(date, 'yyyy-MM-dd');
+  const todayStr = format(now, 'yyyy-MM-dd');
+
+  // Only check for today - future dates don't have closing time restrictions
+  if (dateStr !== todayStr) return false;
+
+  // Get day of week
+  const dayOfWeek = format(date, 'EEEE');
+  const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
+  
+  if (!availabilityForDay?.timeSlots?.length) return false;
+
+  // Get last session end time
+  const lastSession = availabilityForDay.timeSlots[availabilityForDay.timeSlots.length - 1];
+  const lastSessionEndTime = parseTime(lastSession.to, date);
+
+  // Check if we're within 15 minutes of closing
+  const fifteenMinutesBeforeClosing = subMinutes(lastSessionEndTime, 15);
+  
+  return isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
+}
+
 

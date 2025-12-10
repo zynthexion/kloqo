@@ -116,6 +116,7 @@ export type Appointment = {
     delay?: number; // Delay in minutes added when W tokens are inserted before this appointment
     doctorDelayMinutes?: number; // Delay in minutes due to doctor not starting on time (for display only, doesn't affect status transitions)
     cancellationReason?: string;
+    isForceBooked?: boolean; // True if walk-in was force booked outside normal availability
 };
 
 export type Patient = {

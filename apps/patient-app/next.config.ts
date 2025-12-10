@@ -234,10 +234,7 @@ const nextConfig: NextConfig = {
   },
 
   // Output configuration for better deployment
-  output: 'standalone',
-  
-  // Monorepo configuration for Vercel
-  outputFileTracingRoot: require('path').join(__dirname, '../../'),
+  // output: 'standalone', // Disabled for dev mode compatibility
 
   // CORS headers for API access
   async headers() {

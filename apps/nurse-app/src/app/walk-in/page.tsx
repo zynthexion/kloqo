@@ -8,10 +8,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, CheckCircle2, Clock, Users, Calendar, X } from 'lucide-react';
+import { ArrowLeft, Loader2, CheckCircle2, Clock, Users, Calendar, X, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -30,7 +31,7 @@ import { managePatient } from '@kloqo/shared-core';
 import { calculateWalkInDetails, generateNextTokenAndReserveSlot } from '@kloqo/shared-core';
 
 import PatientSearchResults from '@/components/clinic/patient-search-results';
-import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, type BreakInterval } from '@kloqo/shared-core';
+import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, type BreakInterval } from '@kloqo/shared-core';
 
 const formSchema = z
   .object({
@@ -196,6 +197,9 @@ function WalkInRegistrationContent() {
   const [loading, setLoading] = useState(true);
   const [appointmentToSave, setAppointmentToSave] = useState<UnsavedAppointment | null>(null);
 
+  // Force booking states
+  const [showForceBookDialog, setShowForceBookDialog] = useState(false);
+  const [pendingForceBookData, setPendingForceBookData] = useState<z.infer<typeof formSchema> | null>(null);
 
   // States for patient search
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -436,15 +440,63 @@ function WalkInRegistrationContent() {
       console.log('[NURSE:GET-TOKEN] Clinic data:', { walkInTokenAllotment, clinicId });
 
       console.log('[NURSE:GET-TOKEN] Step 2: Calculating walk-in details...');
-      const { estimatedTime, patientsAhead, slotIndex, sessionIndex, numericToken } = await calculateWalkInDetails(doctor, walkInTokenAllotment);
-      console.log('[NURSE:GET-TOKEN] Walk-in details calculated:', {
-        estimatedTime: estimatedTime?.toISOString(),
-        estimatedTimeFormatted: estimatedTime ? format(estimatedTime, 'hh:mm a') : 'N/A',
-        patientsAhead,
-        slotIndex,
-        sessionIndex,
-        numericToken,
-      });
+      let estimatedTime: Date;
+      let patientsAhead: number;
+      let slotIndex: number;
+      let sessionIndex: number;
+      let numericToken: number;
+      let isForceBooked = false;
+      
+      try {
+        const details = await calculateWalkInDetails(
+          db,
+          doctor, 
+          walkInTokenAllotment,
+          0,
+          false // Initially try without force booking
+        );
+        estimatedTime = details.estimatedTime;
+        patientsAhead = details.patientsAhead;
+        slotIndex = details.slotIndex;
+        sessionIndex = details.sessionIndex;
+        numericToken = details.numericToken;
+        isForceBooked = details.isForceBooked || false;
+        
+        console.log('[NURSE:GET-TOKEN] Walk-in details calculated:', {
+          estimatedTime: estimatedTime?.toISOString(),
+          estimatedTimeFormatted: estimatedTime ? format(estimatedTime, 'hh:mm a') : 'N/A',
+          patientsAhead,
+          slotIndex,
+          sessionIndex,
+          numericToken,
+          isForceBooked,
+        });
+      } catch (err: any) {
+        console.error('[NURSE:GET-TOKEN] Error calculating walk-in details:', err);
+        const errorMessage = err.message || "";
+        const isSlotUnavailable = errorMessage.includes("Unable to allocate walk-in slot") ||
+          errorMessage.includes("No walk-in slots are available");
+        
+        // Check if within 15 minutes of closing
+        const isNearClosing = isWithin15MinutesOfClosing(doctor, new Date());
+        
+        // If slots unavailable OR near closing, offer force booking
+        if (isSlotUnavailable || isNearClosing) {
+          console.log('[NURSE:FORCE-BOOK] Triggering force book dialog:', { isSlotUnavailable, isNearClosing });
+          setPendingForceBookData(values);
+          setShowForceBookDialog(true);
+          setIsSubmitting(false);
+          return;
+        }
+        
+        toast({
+          variant: "destructive",
+          title: "Walk-in Unavailable",
+          description: err.message || "Could not calculate walk-in details.",
+        });
+        setIsSubmitting(false);
+        return;
+      }
 
       console.log('[NURSE:GET-TOKEN] Step 3: Processing patient data...');
       const phoneDisabled = values.phoneDisabled ?? false;
@@ -578,7 +630,8 @@ function WalkInRegistrationContent() {
         consultationTime: doctor.averageConsultingTime || 15,
       });
 
-      if (sessionEffectiveEnd) {
+      // Skip session end validation for force booked appointments (they're intentionally outside availability)
+      if (sessionEffectiveEnd && !isForceBooked) {
         const consultationTime = doctor.averageConsultingTime || 15;
         const appointmentEndTime = addMinutes(adjustedEstimatedTime, consultationTime);
         console.log('[NURSE:GET-TOKEN] Appointment end calculation:', {
@@ -599,6 +652,8 @@ function WalkInRegistrationContent() {
           setIsSubmitting(false);
           return;
         }
+      } else if (isForceBooked) {
+        console.log('[NURSE:GET-TOKEN] ⚠️ Force booked - skipping session end validation');
       }
       console.log('[NURSE:GET-TOKEN] Step 7: Creating preview appointment...');
       const adjustedEstimatedTimeStr = format(adjustedEstimatedTime, "hh:mm a");
@@ -635,6 +690,7 @@ function WalkInRegistrationContent() {
         createdAt: serverTimestamp(),
         cutOffTime,
         noShowTime,
+        ...(isForceBooked && { isForceBooked: true }), // Mark as force booked
       };
 
       console.log('[NURSE:GET-TOKEN] Preview appointment created:', {
@@ -673,6 +729,137 @@ function WalkInRegistrationContent() {
       setIsSubmitting(false);
     }
   }
+
+  // Handle force booking confirmation
+  const handleForceBook = async () => {
+    if (!pendingForceBookData || !doctor || !clinicId) {
+      console.error('[NURSE:FORCE-BOOK] Missing data for force booking');
+      setShowForceBookDialog(false);
+      return;
+    }
+
+    setShowForceBookDialog(false);
+    setIsSubmitting(true);
+
+    const values = pendingForceBookData;
+
+    try {
+      console.log('[NURSE:FORCE-BOOK] Starting force booking flow');
+      const clinicDocRef = doc(db, 'clinics', clinicId);
+      const clinicSnap = await getDoc(clinicDocRef);
+      const clinicData = clinicSnap.data();
+      const walkInTokenAllotment = clinicData?.walkInTokenAllotment || 5;
+
+      // Retry with force booking enabled
+      const details = await calculateWalkInDetails(
+        db,
+        doctor,
+        walkInTokenAllotment,
+        0,
+        true // Force booking enabled
+      );
+      
+      const { estimatedTime, patientsAhead, slotIndex, sessionIndex, numericToken } = details;
+      const isForceBooked = details.isForceBooked || false;
+      
+      console.log('[NURSE:FORCE-BOOK] Overflow slot created:', {
+        slotIndex,
+        time: format(estimatedTime, 'hh:mm a'),
+        isForceBooked,
+      });
+
+      // Continue with normal booking flow (same as regular onSubmit)
+      const phoneDisabled = values.phoneDisabled ?? false;
+      let fullPhoneNumber = '';
+
+      if (!phoneDisabled && values.phone) {
+        const cleaned = values.phone.replace(/^\+91/, '').replace(/\D/g, '');
+        if (cleaned.length === 10) {
+          fullPhoneNumber = `+91${cleaned}`;
+        }
+      }
+
+      if (!phoneDisabled && !fullPhoneNumber) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Please enter a valid 10-digit phone number.' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const contactPhone = fullPhoneNumber || selectedPatient?.communicationPhone || selectedPatient?.phone || '';
+
+      const patientId = selectedPatientId || await managePatient({
+        phone: contactPhone,
+        name: values.patientName,
+        age: values.age,
+        place: values.place,
+        sex: values.sex as 'Male' | 'Female' | 'Other',
+        clinicId,
+        bookingFor: 'self',
+      });
+
+      const previewTokenNumber = `W${String(numericToken).padStart(3, '0')}`;
+      const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
+      const sessionBreakIntervals = getSessionBreakIntervals(doctor, appointmentDate, sessionIndex);
+      const adjustedEstimatedTime = sessionBreakIntervals.length > 0
+        ? sessionBreakIntervals.reduce((acc, interval) => {
+            if (acc.getTime() >= interval.start.getTime()) {
+              return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
+            }
+            return acc;
+          }, new Date(estimatedTime))
+        : estimatedTime;
+
+      const adjustedEstimatedTimeStr = format(adjustedEstimatedTime, "hh:mm a");
+      const cutOffTime = subMinutes(adjustedEstimatedTime, 15);
+      const noShowTime = addMinutes(adjustedEstimatedTime, 15);
+
+      const previewAppointment: UnsavedAppointment = {
+        patientId,
+        patientName: values.patientName,
+        age: values.age,
+        communicationPhone: contactPhone,
+        place: values.place,
+        sex: values.sex as any,
+        doctorId: doctor.id,
+        doctor: doctor.name,
+        department: doctor.department,
+        bookedVia: 'Walk-in',
+        date: format(appointmentDate, "d MMMM yyyy"),
+        time: format(estimatedTime, "hh:mm a"),
+        arriveByTime: adjustedEstimatedTimeStr,
+        status: 'Confirmed',
+        tokenNumber: previewTokenNumber,
+        numericToken: numericToken,
+        clinicId,
+        slotIndex,
+        sessionIndex,
+        createdAt: serverTimestamp(),
+        cutOffTime,
+        noShowTime,
+        isForceBooked: true, // Mark as force booked
+      };
+
+      console.log('[NURSE:FORCE-BOOK] Preview appointment created:', {
+        tokenNumber: previewTokenNumber,
+        time: previewAppointment.time,
+        isForceBooked: true,
+      });
+
+      setAppointmentToSave(previewAppointment);
+      setEstimatedConsultationTime(adjustedEstimatedTime);
+      setPatientsAhead(patientsAhead);
+      setGeneratedToken(previewTokenNumber);
+      setIsEstimateModalOpen(true);
+
+    } catch (error: any) {
+      console.error('[NURSE:FORCE-BOOK] Failed to prepare force booking:', error);
+      if (error.name !== 'FirestorePermissionError') {
+        toast({ variant: 'destructive', title: 'Error', description: (error as Error).message || "Could not complete force booking." });
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const resolveSlotDetails = useCallback(
     (slotIndex: number, referenceDate: Date) => {
@@ -1361,6 +1548,43 @@ function WalkInRegistrationContent() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Force Book Confirmation Dialog */}
+        <AlertDialog open={showForceBookDialog} onOpenChange={setShowForceBookDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                Force Book Walk-in?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <p>
+                  {isWithin15MinutesOfClosing(doctor, new Date()) 
+                    ? "Walk-in booking is closing soon (within 15 minutes)." 
+                    : "All available slots are fully booked."}
+                </p>
+                <p className="font-semibold text-foreground">
+                  This booking will go outside the doctor's normal availability time. 
+                  Do you want to accommodate this patient?
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  The patient will be assigned a token after all currently scheduled appointments.
+                </p>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setPendingForceBookData(null);
+                setShowForceBookDialog(false);
+              }}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={handleForceBook} className="bg-amber-600 hover:bg-amber-700">
+                Force Book Patient
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppFrameLayout>
   );

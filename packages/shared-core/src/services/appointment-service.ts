@@ -1,4 +1,5 @@
 import { db } from '@kloqo/shared-firebase';
+import type { Firestore } from 'firebase/firestore';
 import {
   collection,
   query,
@@ -48,6 +49,7 @@ interface LoadedDoctor {
 }
 
 async function loadDoctorAndSlots(
+  firestore: Firestore,
   clinicId: string,
   doctorName: string,
   date: Date,
@@ -56,7 +58,7 @@ async function loadDoctorAndSlots(
   let doctor: Doctor | null = null;
 
   if (doctorId) {
-    const doctorRef = doc(db, 'doctors', doctorId);
+    const doctorRef = doc(firestore, 'doctors', doctorId);
     const doctorSnap = await getDoc(doctorRef);
     if (doctorSnap.exists()) {
       doctor = { id: doctorSnap.id, ...doctorSnap.data() } as Doctor;
@@ -64,7 +66,7 @@ async function loadDoctorAndSlots(
   }
 
   if (!doctor) {
-    const doctorsRef = collection(db, 'doctors');
+    const doctorsRef = collection(firestore, 'doctors');
     const doctorQuery = query(
       doctorsRef,
       where('clinicId', '==', clinicId),
@@ -487,6 +489,7 @@ export async function generateNextToken(
 }
 
 export async function generateNextTokenAndReserveSlot(
+  firestore: Firestore,
   clinicId: string,
   doctorName: string,
   date: Date,
@@ -511,15 +514,16 @@ export async function generateNextTokenAndReserveSlot(
   const counterDocId = `${clinicId}_${doctorName}_${dateStr}${type === 'W' ? '_W' : ''}`
     .replace(/\s+/g, '_')
     .replace(/[^a-zA-Z0-9_]/g, '');
-  const counterRef = doc(db, 'token-counters', counterDocId);
+  const counterRef = doc(firestore, 'token-counters', counterDocId);
   let walkInSpacingValue = 0;
   if (type === 'W') {
-    const clinicSnap = await getDoc(doc(db, 'clinics', clinicId));
+    const clinicSnap = await getDoc(doc(firestore, 'clinics', clinicId));
     const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
     walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
   }
 
   const { doctor: doctorProfile, slots } = await loadDoctorAndSlots(
+    firestore,
     clinicId,
     doctorName,
     date,
@@ -551,7 +555,7 @@ export async function generateNextTokenAndReserveSlot(
     maximumAdvanceTokens += sessionAdvanceCapacity;
   });
 
-  const appointmentsRef = collection(db, 'appointments');
+  const appointmentsRef = collection(firestore, 'appointments');
   const appointmentsQuery = query(
     appointmentsRef,
     where('clinicId', '==', clinicId),
@@ -562,10 +566,10 @@ export async function generateNextTokenAndReserveSlot(
 
   for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
-    const appointmentDocRefs = appointmentsSnapshot.docs.map(docSnap => doc(db, 'appointments', docSnap.id));
+    const appointmentDocRefs = appointmentsSnapshot.docs.map(docSnap => doc(firestore, 'appointments', docSnap.id));
 
     try {
-      return await runTransaction(db, async transaction => {
+      return await runTransaction(firestore, async transaction => {
         // CRITICAL: Only prepare counter for walk-ins, not for advance bookings
         // Advance bookings use slotIndex + 1 for tokens, so counter is not needed
         let counterState: TokenCounterState | null = null;
@@ -952,7 +956,7 @@ export async function generateNextTokenAndReserveSlot(
           }
 
           const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, finalSlotIndex);
-          const reservationDocRef = doc(db, 'slot-reservations', reservationId);
+          const reservationDocRef = doc(firestore, 'slot-reservations', reservationId);
 
           // CRITICAL: Check existingReservations map (already read in prepareAdvanceShift)
           // This avoids violating Firestore's "all reads before all writes" transaction rule
@@ -1026,7 +1030,7 @@ export async function generateNextTokenAndReserveSlot(
             }
 
             const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
-            const reservationDocRef = doc(db, 'slot-reservations', reservationId);
+            const reservationDocRef = doc(firestore, 'slot-reservations', reservationId);
             const reservationSnapshot = await transaction.get(reservationDocRef);
 
             if (reservationSnapshot.exists()) {
@@ -1218,6 +1222,7 @@ export async function generateNextTokenAndReserveSlot(
 }
 
 const prepareAdvanceShift = async ({
+  firestore,
   transaction,
   clinicId,
   doctorName,
@@ -1230,6 +1235,7 @@ const prepareAdvanceShift = async ({
   totalSlots,
   newWalkInNumericToken,
 }: {
+  firestore: Firestore;
   transaction: Transaction;
   clinicId: string;
   doctorName: string;
@@ -1293,7 +1299,7 @@ const prepareAdvanceShift = async ({
 
   for (let slotIdx = 0; slotIdx <= maxSlotToRead; slotIdx += 1) {
     const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIdx);
-    const reservationRef = doc(db, 'slot-reservations', reservationId);
+    const reservationRef = doc(firestore, 'slot-reservations', reservationId);
     const reservationSnapshot = await transaction.get(reservationRef);
 
     if (reservationSnapshot.exists()) {
@@ -1577,7 +1583,7 @@ const prepareAdvanceShift = async ({
     // Read the potential bucket reservation BEFORE any writes
     if (potentialBucketSlotIndex !== null) {
       const bucketReservationId = buildReservationDocId(clinicId, doctorName, dateStr, potentialBucketSlotIndex);
-      potentialBucketReservationRef = doc(db, 'slot-reservations', bucketReservationId);
+      potentialBucketReservationRef = doc(firestore, 'slot-reservations', bucketReservationId);
       potentialBucketReservationSnapshot = await transaction.get(potentialBucketReservationRef);
     }
   }
@@ -2147,7 +2153,7 @@ const prepareAdvanceShift = async ({
       // Conflicts will be detected via effectiveAppointments check and on retry if another transaction
       // also tries to create the same reservation.
       const bucketReservationId = buildReservationDocId(clinicId, doctorName, dateStr, newSlotIndex);
-      bucketReservationRef = doc(db, 'slot-reservations', bucketReservationId);
+      bucketReservationRef = doc(firestore, 'slot-reservations', bucketReservationId);
       currentBucketReservationSnapshot = null; // We didn't read it, so we don't have a snapshot
     }
 
@@ -2585,7 +2591,7 @@ const prepareAdvanceShift = async ({
         continue;
       }
 
-      const appointmentRef = doc(db, 'appointments', appointment.id);
+      const appointmentRef = doc(firestore, 'appointments', appointment.id);
       appointmentUpdates.push({
         appointmentId: appointment.id,
         docRef: appointmentRef,
@@ -2639,7 +2645,7 @@ const prepareAdvanceShift = async ({
         continue;
       }
 
-      const appointmentRef = doc(db, 'appointments', appointment.id);
+      const appointmentRef = doc(firestore, 'appointments', appointment.id);
       appointmentUpdates.push({
         appointmentId: appointment.id,
         docRef: appointmentRef,

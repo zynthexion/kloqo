@@ -244,3 +244,4 @@ describe('Token Counter Edge Cases', () => {
     expect(token2).toBeTruthy();
   });
 });
+

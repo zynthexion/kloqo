@@ -195,3 +195,4 @@ describe('Slot Reservation Validation', () => {
     expect(isSlotAvailable(50)).toBe(true);
   });
 });
+

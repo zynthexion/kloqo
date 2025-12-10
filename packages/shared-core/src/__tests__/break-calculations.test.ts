@@ -271,3 +271,4 @@ describe('Break Calculation Edge Cases', () => {
     expect(adjusted2).toEqual(parse('2024-01-15 11:00 AM', 'yyyy-MM-dd hh:mm a', new Date()));
   });
 });
+

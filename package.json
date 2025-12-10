@@ -16,10 +16,10 @@
         "test:ui": "vitest --ui",
         "test:coverage": "vitest run --coverage",
         "clean": "turbo run clean && rm -rf node_modules",
-        "dev:patient": "pnpm --filter patient-app dev",
-        "dev:nurse": "pnpm --filter nurse-app dev",
-        "dev:clinic": "pnpm --filter clinic-admin dev",
-        "dev:superadmin": "pnpm --filter superadmin dev"
+        "dev:patient": "npm run dev --workspace=patient-app",
+        "dev:nurse": "npm run dev --workspace=nurse-app",
+        "dev:clinic": "npm run dev --workspace=clinic-admin",
+        "dev:superadmin": "npm run dev --workspace=superadmin"
     },
     "devDependencies": {
         "@vitest/ui": "^4.0.15",

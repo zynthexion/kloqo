@@ -15,9 +15,9 @@
     "add-malayalam-departments": "node scripts/add-malayalam-departments.js"
   },
   "dependencies": {
-    "@kloqo/shared-core": "file:../../packages/shared-core",
-    "@kloqo/shared-types": "file:../../packages/shared-types",
-    "@kloqo/shared-firebase": "file:../../packages/shared-firebase",
+    "@kloqo/shared-core": "*",
+    "@kloqo/shared-types": "*",
+    "@kloqo/shared-firebase": "*",
     "@genkit-ai/googleai": "^1.14.1",
     "@genkit-ai/next": "^1.14.1",
     "@hookform/resolvers": "^4.1.3",

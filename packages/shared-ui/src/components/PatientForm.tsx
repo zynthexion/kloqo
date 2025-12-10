@@ -1002,13 +1002,30 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
 
                         batch.set(newRelatedPatientRef, newRelatedPatientData);
 
+                        console.log('[DEBUG] About to update primary patient', {
+                            primaryPatientId: primaryPatient.id,
+                            firestoreInstance: firestore,
+                            firestoreConstructor: firestore?.constructor?.name
+                        });
+
                         const primaryPatientRef = doc(firestore, 'patients', primaryPatient.id);
+                        
+                        console.log('[DEBUG] Created primaryPatientRef', {
+                            refPath: primaryPatientRef.path,
+                            refFirestore: primaryPatientRef.firestore,
+                            refFirestoreConstructor: primaryPatientRef.firestore?.constructor?.name,
+                            batchFirestore: (batch as any)._firestore,
+                            batchFirestoreConstructor: (batch as any)._firestore?.constructor?.name
+                        });
+                        
                         // Always add to primary's relatedPatientIds, regardless of whether relative has a phone
                         // Even if relative has a unique phone and becomes isPrimary: true, they are still a relative of the primary patient
                         batch.update(primaryPatientRef, {
                             relatedPatientIds: arrayUnion(newRelatedPatientRef.id),
                             updatedAt: serverTimestamp()
                         });
+                        
+                        console.log('[DEBUG] batch.update called successfully');
 
                         patientForAppointmentId = newRelatedPatientRef.id;
                     }

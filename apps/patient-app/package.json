@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kloqo/shared-core": "*",
-    "@kloqo/shared-types": "*",
-    "@kloqo/shared-ui": "*",
-    "@kloqo/shared-firebase": "*",
+    "@kloqo/shared-core": "file:../../packages/shared-core",
+    "@kloqo/shared-types": "file:../../packages/shared-types",
+    "@kloqo/shared-ui": "file:../../packages/shared-ui",
+    "@kloqo/shared-firebase": "file:../../packages/shared-firebase",
     "@genkit-ai/google-genai": "^1.20.0",
     "@genkit-ai/next": "^1.20.0",
     "@hookform/resolvers": "^4.1.3",

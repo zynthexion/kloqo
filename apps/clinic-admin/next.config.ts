@@ -58,7 +58,13 @@ const nextConfig: NextConfig = {
   },
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-  }
+  },
+  
+  // Output configuration for better deployment
+  output: 'standalone',
+  
+  // Monorepo configuration for Vercel
+  outputFileTracingRoot: require('path').join(__dirname, '../../'),
 };
 
 export default nextConfig;

@@ -93,7 +93,10 @@ const nextConfig: NextConfig = {
   },
 
   // Output configuration for better deployment
-  // output: 'standalone', // Temporarily disabled for dev mode
+  output: 'standalone',
+  
+  // Monorepo configuration for Vercel
+  outputFileTracingRoot: require('path').join(__dirname, '../../'),
 
   // PWA configuration for nurse app
   async headers() {

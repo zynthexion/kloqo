@@ -1,0 +1,27 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>API Documentation</title><link rel="stylesheet" href="../assets/css/documentation.css"></head><body><header class="header"><div class="header-content"><h1>🔌 API Documentation</h1><nav class="header-nav"><a href="../index.html">Home</a></nav></div></header><div class="container"><aside class="sidebar"><h3>Sections</h3><ul><li><a href="#style">API style</a></li><li><a href="#routes">Key endpoints</a></li><li><a href="#auth">Auth</a></li><li><a href="#errors">Errors</a></li><li><a href="#webhooks">Webhooks</a></li></ul></aside><main class="main-content"><div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> API</div>
+<h2 id="style">Architecture</h2><ul><li>Primary data access via Firebase client SDK; minimal REST via Next.js API routes per app.</li><li>Server actions used for AI and some protected flows.</li><li>All sensitive writes should go through shared-core services to preserve transactions.</li></ul>
+<h2 id="routes">Key API Routes</h2><table><thead><tr><th>Route</th><th>Method</th><th>Purpose</th><th>Auth</th></tr></thead><tbody>
+<tr><td>app/clinic-admin/api/send-sms</td><td>POST</td><td>Send SMS/WhatsApp via Twilio</td><td>Server-side (env TWILIO_*)</td></tr>
+<tr><td>app/clinic-admin/api/upload-avatar</td><td>GET/POST</td><td>Test & upload to Firebase Storage with Admin SDK</td><td>Requires GOOGLE_SERVICE_ACCOUNT_JSON</td></tr>
+<tr><td>patient-app/api/appointments</td><td>GET</td><td>List patient appointments</td><td>Firebase Auth token</td></tr>
+<tr><td>patient-app/api/bookings/walk-in</td><td>POST</td><td>Create walk-in booking via shared-core</td><td>Auth</td></tr>
+<tr><td>patient-app/api/send-notification</td><td>POST</td><td>FCM push helper used by notification-service</td><td>Internal</td></tr>
+</tbody></table>
+
+<h3>Request/Response Example (Twilio SMS)</h3><pre><code>POST /api/send-sms
+{
+  "to": "+911234567890",
+  "message": "Your token W012 is called",
+  "channel": "sms" | "whatsapp"
+}
+// 200 { success: true, sid }
+// 500 { success: false, error }
+</code></pre>
+
+<h2 id="auth">Authentication & Authorization</h2><ul><li>Firebase Auth (phone/email). Role stored in `users` collection.</li><li>Security rules in Firestore enforce clinicAdmin access to appointments/patients.</li><li>API routes rely on server-side secrets; do not expose private keys to client.</li></ul>
+
+<h2 id="errors">Error Handling</h2><ul><li>API routes return JSON `{ success: false, error }` with HTTP status.</li><li>Twilio route simulates success when placeholder creds are used.</li><li>Notification errors are non-blocking (booking continues if FCM token missing).</li></ul>
+
+<h2 id="webhooks">Webhooks</h2><p>No external webhooks defined. Future: add Twilio status callbacks and FCM delivery reporting.</p>
+<div class="alert alert-info">Prefer using shared-core for domain operations; API routes are thin wrappers for external services.</div>
+</main></div><footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer><a href="#top" id="back-to-top" class="back-to-top">↑</a><script src="../assets/js/navigation.js"></script></body></html>

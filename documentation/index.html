@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kloqo Technical Documentation</title>
+    <link rel="stylesheet" href="assets/css/documentation.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1>🏥 Kloqo Technical Documentation</h1>
+            <nav class="header-nav">
+                <a href="index.html">Home</a>
+                <a href="pages/00-overview.html">Overview</a>
+                <a href="pages/01-architecture.html">Architecture</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <aside class="sidebar">
+            <h3>Documentation</h3>
+            <input type="text" id="search-box" class="search-box" placeholder="Search documentation...">
+            <ul>
+                <li><a href="index.html" class="active">Home</a></li>
+                <li><a href="pages/00-overview.html">00. Overview & Getting Started</a></li>
+                <li><a href="pages/01-architecture.html">01. Architecture & System Design</a></li>
+                <li><a href="pages/02-business-logic.html">02. Core Business Logic</a></li>
+                <li><a href="pages/03-database.html">03. Database & Data Model</a></li>
+                <li><a href="pages/04-api.html">04. API Documentation</a></li>
+                <li><a href="pages/05-frontend.html">05. Frontend Documentation</a></li>
+                <li><a href="pages/06-backend.html">06. Backend Documentation</a></li>
+                <li><a href="pages/07-security.html">07. Security Implementation</a></li>
+                <li><a href="pages/08-deployment.html">08. Deployment & DevOps</a></li>
+                <li><a href="pages/09-testing.html">09. Testing Strategy</a></li>
+                <li><a href="pages/10-troubleshooting.html">10. Troubleshooting Guide</a></li>
+                <li><a href="pages/11-maintenance.html">11. Maintenance & Operations</a></li>
+                <li><a href="pages/12-reference.html">12. Reference & Glossary</a></li>
+            </ul>
+        </aside>
+
+        <main class="main-content">
+            <h1>Welcome to Kloqo Technical Documentation</h1>
+            
+            <div class="alert alert-info">
+                <strong>📚 Comprehensive Documentation:</strong> This documentation covers all aspects of the Kloqo healthcare appointment management system, designed to help new development teams understand and work with the codebase effectively.
+            </div>
+
+            <h2>About This Documentation</h2>
+            <p>
+                This technical documentation provides a complete reference for the <strong>Kloqo</strong> healthcare appointment management system. 
+                It covers architecture, business logic, APIs, database schemas, security, deployment, and more.
+            </p>
+
+            <h2>Documentation Structure</h2>
+            <div class="toc">
+                <h3>Table of Contents</h3>
+                <ul>
+                    <li><a href="pages/00-overview.html"><strong>00. Overview & Getting Started</strong></a>
+                        <ul>
+                            <li>Application purpose and business domain</li>
+                            <li>Technology stack</li>
+                            <li>System architecture overview</li>
+                            <li>Quick start guide</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/01-architecture.html"><strong>01. Architecture & System Design</strong></a>
+                        <ul>
+                            <li>Monorepo structure</li>
+                            <li>Frontend and backend architecture</li>
+                            <li>Design patterns</li>
+                            <li>Third-party integrations</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/02-business-logic.html"><strong>02. Core Business Logic</strong></a>
+                        <ul>
+                            <li>Appointment booking workflows</li>
+                            <li>Walk-in scheduling</li>
+                            <li>Token management</li>
+                            <li>Status transitions</li>
+                            <li>Capacity calculations</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/03-database.html"><strong>03. Database & Data Model</strong></a>
+                        <ul>
+                            <li>Firestore collections</li>
+                            <li>Data relationships</li>
+                            <li>Indexes and queries</li>
+                            <li>Data migration</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/04-api.html"><strong>04. API Documentation</strong></a>
+                        <ul>
+                            <li>API endpoints</li>
+                            <li>Request/response formats</li>
+                            <li>Authentication</li>
+                            <li>Error handling</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/05-frontend.html"><strong>05. Frontend Documentation</strong></a>
+                        <ul>
+                            <li>Component structure</li>
+                            <li>State management</li>
+                            <li>Routing</li>
+                            <li>UI/UX patterns</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/06-backend.html"><strong>06. Backend Documentation</strong></a>
+                        <ul>
+                            <li>Service layer</li>
+                            <li>Firebase integration</li>
+                            <li>Background jobs</li>
+                            <li>Notification system</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/07-security.html"><strong>07. Security Implementation</strong></a>
+                        <ul>
+                            <li>Authentication mechanisms</li>
+                            <li>Authorization rules</li>
+                            <li>Data encryption</li>
+                            <li>Security best practices</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/08-deployment.html"><strong>08. Deployment & DevOps</strong></a>
+                        <ul>
+                            <li>Deployment process</li>
+                            <li>CI/CD pipeline</li>
+                            <li>Environment configuration</li>
+                            <li>Monitoring</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/09-testing.html"><strong>09. Testing Strategy</strong></a>
+                        <ul>
+                            <li>Unit testing</li>
+                            <li>Integration testing</li>
+                            <li>Test coverage</li>
+                            <li>Testing best practices</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/10-troubleshooting.html"><strong>10. Troubleshooting Guide</strong></a>
+                        <ul>
+                            <li>Common issues</li>
+                            <li>Debug procedures</li>
+                            <li>Error resolution</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/11-maintenance.html"><strong>11. Maintenance & Operations</strong></a>
+                        <ul>
+                            <li>Routine tasks</li>
+                            <li>Database maintenance</li>
+                            <li>Version upgrades</li>
+                        </ul>
+                    </li>
+                    <li><a href="pages/12-reference.html"><strong>12. Reference & Glossary</strong></a>
+                        <ul>
+                            <li>Terminology</li>
+                            <li>Acronyms</li>
+                            <li>Quick reference</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+
+            <h2>Quick Links</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0;">
+                <div class="card">
+                    <div class="card-header">🚀 Getting Started</div>
+                    <p>New to the project? Start here to understand the system architecture and setup.</p>
+                    <a href="pages/00-overview.html" class="btn btn-primary">View Overview</a>
+                </div>
+                <div class="card">
+                    <div class="card-header">🏗️ Architecture</div>
+                    <p>Understand the system design, patterns, and technology choices.</p>
+                    <a href="pages/01-architecture.html" class="btn btn-primary">View Architecture</a>
+                </div>
+                <div class="card">
+                    <div class="card-header">💼 Business Logic</div>
+                    <p>Learn about appointment workflows, token management, and business rules.</p>
+                    <a href="pages/02-business-logic.html" class="btn btn-primary">View Business Logic</a>
+                </div>
+                <div class="card">
+                    <div class="card-header">🗄️ Database</div>
+                    <p>Explore the Firestore schema, collections, and data relationships.</p>
+                    <a href="pages/03-database.html" class="btn btn-primary">View Database</a>
+                </div>
+            </div>
+
+            <h2>System Overview</h2>
+            <p>
+                <strong>Kloqo</strong> is a comprehensive healthcare appointment management system built as a monorepo 
+                with multiple Next.js applications. The system manages appointments, walk-ins, patient records, 
+                doctor schedules, and real-time queue management for healthcare clinics.
+            </p>
+
+            <h3>Key Features</h3>
+            <ul>
+                <li><strong>Multi-App Architecture:</strong> Separate applications for patients, nurses, clinic admins, and superadmins</li>
+                <li><strong>Advanced Booking:</strong> Patients can book appointments in advance with 85/15 capacity split</li>
+                <li><strong>Walk-in Management:</strong> Real-time walk-in scheduling with intelligent slot assignment</li>
+                <li><strong>Token System:</strong> A-tokens (advanced) and W-tokens (walk-in) with automatic generation</li>
+                <li><strong>Status Management:</strong> Automatic status transitions (Pending → Skipped → No-show)</li>
+                <li><strong>Queue Management:</strong> Real-time consultation queue with position tracking</li>
+                <li><strong>Notifications:</strong> Push notifications for appointment updates</li>
+                <li><strong>Break Management:</strong> Doctor break periods with schedule adjustments</li>
+                <li><strong>Multi-language Support:</strong> English and Malayalam support</li>
+            </ul>
+
+            <h3>Technology Stack</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Technology</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Frontend Framework</strong></td>
+                        <td>Next.js 15.3.3 (React 18.3.1)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Language</strong></td>
+                        <td>TypeScript 5.7.2</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Backend</strong></td>
+                        <td>Firebase (Firestore, Auth, Storage, Cloud Messaging)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Styling</strong></td>
+                        <td>Tailwind CSS 3.4.1</td>
+                    </tr>
+                    <tr>
+                        <td><strong>UI Components</strong></td>
+                        <td>Radix UI</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Build System</strong></td>
+                        <td>Turborepo 2.3.3</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Package Manager</strong></td>
+                        <td>pnpm 8.15.0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Form Handling</strong></td>
+                        <td>React Hook Form 7.54.2 + Zod 3.24.2</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Date Handling</strong></td>
+                        <td>date-fns 3.6.0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Testing</strong></td>
+                        <td>Vitest 4.0.15</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="alert alert-warning">
+                <strong>⚠️ Important:</strong> This documentation is generated from the codebase analysis. 
+                Some sections may require manual review and updates as the system evolves.
+            </div>
+
+            <h2>Documentation Version</h2>
+            <p>
+                <strong>Version:</strong> 1.0.0<br>
+                <strong>Last Updated:</strong> <span id="last-updated"></span><br>
+                <strong>Codebase Version:</strong> 1.0.0
+            </p>
+        </main>
+    </div>
+
+    <footer class="footer">
+        <p>Kloqo Technical Documentation &copy; 2024 | Generated from codebase analysis</p>
+    </footer>
+
+    <a href="#top" id="back-to-top" class="back-to-top" title="Back to top">↑</a>
+
+    <script src="assets/js/navigation.js"></script>
+    <script>
+        document.getElementById('last-updated').textContent = new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Testing Strategy</title><link rel="stylesheet" href="../assets/css/documentation.css"></head><body><header class="header"><div class="header-content"><h1>🧪 Testing</h1><nav class="header-nav"><a href="../index.html">Home</a></nav></div></header><div class="container"><aside class="sidebar"><h3>Sections</h3><ul><li><a href="#strategy">Strategy</a></li><li><a href="#coverage">Coverage focus</a></li><li><a href="#commands">Commands</a></li><li><a href="#scenarios">Scenarios</a></li></ul></aside><main class="main-content"><div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> Testing</div>
+<h2 id="strategy">Strategy</h2><ul><li>Unit/integration tests with Vitest (see `packages/shared-core/src/__tests__`).</li><li>Focus on deterministic business logic (booking, walk-in scheduling, status updates, breaks).</li><li>Manual E2E via app flows; add Playwright/Cypress in future.</li></ul>
+
+<h2 id="coverage">Critical Coverage (from TEST_SCENARIOS.md)</h2><ul><li>Walk-in token generation/sequencing/reset.</li><li>Advance booking capacity (85/15) and double-book prevention.</li><li>Break calculations and session extensions.</li><li>Status transitions Pending→Skipped→No-show respecting doctor availability.</li><li>Queue ordering and skipped rejoin logic.</li></ul>
+
+<h2 id="commands">Commands</h2><pre><code>pnpm test           # run vitest
+pnpm test:watch     # watch mode
+pnpm test:coverage  # coverage
+pnpm typecheck
+pnpm lint
+</code></pre>
+
+<h2 id="scenarios">Sample Test (Token Generation)</h2><pre><code>test('sequential tokens unique', async () => {
+  const [t1,t2] = await Promise.all([
+    generateNextToken(clinicId, doctorName, date, 'A'),
+    generateNextToken(clinicId, doctorName, date, 'A')
+  ]);
+  expect(new Set([t1,t2]).size).toBe(2);
+});
+</code></pre>
+<div class="alert alert-info">Add E2E for booking + queue flows per role to prevent regressions.</div>
+</main></div><footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer><a href="#top" id="back-to-top" class="back-to-top">↑</a><script src="../assets/js/navigation.js"></script></body></html>

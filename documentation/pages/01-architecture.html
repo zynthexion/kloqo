@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture & System Design - Kloqo</title>
+  <link rel="stylesheet" href="../assets/css/documentation.css">
+</head>
+<body>
+<header class="header">
+  <div class="header-content">
+    <h1>🏗️ Architecture & System Design</h1>
+    <nav class="header-nav">
+      <a href="../index.html">Home</a>
+      <a href="00-overview.html">Overview</a>
+      <a href="01-architecture.html" class="active">Architecture</a>
+    </nav>
+  </div>
+</header>
+<div class="container">
+  <aside class="sidebar">
+    <h3>Sections</h3>
+    <ul>
+      <li><a href="#monorepo">Monorepo structure</a></li>
+      <li><a href="#patterns">Architecture patterns</a></li>
+      <li><a href="#frontend">Frontend architecture</a></li>
+      <li><a href="#backend">Backend & services</a></li>
+      <li><a href="#database">Database design</a></li>
+      <li><a href="#integrations">Third-party integrations</a></li>
+      <li><a href="#api">API architecture</a></li>
+      <li><a href="#files">File/folder map</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> Architecture</div>
+    <h1 id="monorepo">Monorepo Structure</h1>
+    <div class="diagram"><pre>apps/
+  patient-app/       # patient UX (Next.js)
+  nurse-app/         # queue + bookings
+  clinic-admin/      # admin dashboard
+  superadmin/        # system oversight
+packages/
+  shared-core/       # business logic (appointments, walk-in, queue)
+  shared-types/      # domain types (Appointment, Doctor, Patient)
+  shared-ui/         # shared React components
+  shared-firebase/   # firebase config/helpers
+  shared-config/     # tooling configs
+</pre></div>
+
+    <h2 id="patterns">Architecture Patterns</h2>
+    <ul>
+      <li><strong>Frontend:</strong> Next.js App Router, route groups for public/(public) and protected/(app) areas; server actions for AI flows.</li>
+      <li><strong>Backend:</strong> Firebase-first (Firestore, Auth, Storage, FCM) with Next.js API routes for SMS/Uploads; business logic isolated in shared-core services.</li>
+      <li><strong>Domain Modules:</strong> appointment-service, walk-in.service, queue-management, capacity-service, notification-service, status-update-service.</li>
+      <li><strong>Data Flow:</strong> UI → shared-core service → Firestore transaction → notifications.</li>
+      <li><strong>Concurrency Safety:</strong> runTransaction for token counters and slot reservations; slot-reservations collection to prevent double booking.</li>
+    </ul>
+
+    <h2 id="frontend">Frontend Architecture</h2>
+    <h3>Component & State</h3>
+    <ul>
+      <li>UI kit via Radix + Tailwind; shared components in `packages/shared-ui` (e.g., `PatientForm`).</li>
+      <li>Forms: React Hook Form + Zod schemas for validation (e.g., appointments form in clinic-admin).</li>
+      <li>Routing: App Router with grouped layouts; patient/nurse/clinic use their own `app/` trees.</li>
+      <li>State: local state + hooks (`useAppointmentStatusUpdater`, `useQueueManagement`); SWR in patient-app for data fetching; Firebase listeners for real-time updates.</li>
+    </ul>
+    <h3>Performance</h3>
+    <ul>
+      <li>Code-splitting via dynamic imports (e.g., patient app consult-today loads `PatientForm` lazily).</li>
+      <li>Memoized data tables and charts; pagination/filtering in dashboard tables.</li>
+      <li>Next.js image optimization; PWA config in nurse/patient apps.</li>
+    </ul>
+
+    <h2 id="backend">Backend & Services</h2>
+    <p>Backend logic lives in `shared-core` and is consumed by all apps.</p>
+    <ul>
+      <li><strong>appointment-service.ts:</strong> advanced booking, token generation (`generateNextTokenAndReserveSlot`), slot reservation, rebalance with walk-ins, status transitions.</li>
+      <li><strong>walk-in.service.ts / walk-in-booking.ts:</strong> walk-in placement, spacing rules, bucket slots, rebalancing.</li>
+      <li><strong>capacity-service.ts:</strong> 85/15 split per session (`calculateSessionCapacity`, `canBookAToken`).</li>
+      <li><strong>queue-management-service.ts:</strong> consultation counters, buffer queue, skipped token reinsertion, queue ordering.</li>
+      <li><strong>status-update-service.ts:</strong> time-based transitions Pending→Skipped, Skipped→No-show using cutOff/noShow time and doctor status.</li>
+      <li><strong>notification-service.ts:</strong> FCM push for booking/skip/call/doctor running late, with patient-user resolution.</li>
+      <li><strong>break-helpers.ts:</strong> session-aware break calculation, merging breaks, extensions, offsetting slots.</li>
+    </ul>
+
+    <h2 id="database">Database Design (Firestore)</h2>
+    <ul>
+      <li><strong>Collections:</strong> users, patients, clinics, doctors, appointments, slot-reservations, token-counters, consultation-counters, master-departments, mobile-app.</li>
+      <li><strong>Relationships:</strong>
+        <ul>
+          <li>patients ↔ users via `primaryUserId` and phone lookup.</li>
+          <li>appointments link `clinicId`, `doctor`/`doctorId`, `patientId`; status and token fields.</li>
+          <li>slot-reservations keyed by clinic/doctor/date/slot to prevent double booking.</li>
+          <li>token-counters keyed per clinic/doctor/date and token type (A/W).</li>
+        </ul>
+      </li>
+      <li><strong>Indexes:</strong> queries on appointments by clinic/date/status; doctors by clinic; master-departments public readable.</li>
+    </ul>
+
+    <h2 id="integrations">Third-Party Integrations</h2>
+    <ul>
+      <li><strong>Firebase:</strong> Auth, Firestore, Storage, Messaging. Config from env vars via `shared-firebase`.</li>
+      <li><strong>Twilio:</strong> SMS/WhatsApp sending in `apps/clinic-admin/src/app/api/send-sms/route.ts` using env `TWILIO_*`.</li>
+      <li><strong>Genkit AI:</strong> doctor availability analysis flows in clinic-admin and patient/nurse apps.</li>
+      <li><strong>PDF/Export:</strong> `jspdf`, `html2canvas` for reports in clinic-admin.</li>
+    </ul>
+
+    <h2 id="api">API Architecture</h2>
+    <ul>
+      <li>Next.js API routes per app for edge cases (SMS, uploads, notifications).</li>
+      <li>Primary data via Firestore client SDK; server actions used for AI and some mutations.</li>
+      <li>Authentication: Firebase Auth (phone/email) with role stored in Firestore `users` docs.</li>
+    </ul>
+
+    <h2 id="files">File/Folder Map</h2>
+    <div class="diagram"><pre>apps/clinic-admin/src/app/(app)/appointments/page.tsx  # booking UI
+apps/clinic-admin/src/app/api/send-sms/route.ts        # Twilio SMS/WA
+apps/clinic-admin/src/app/api/upload-clinic-document/  # uploads
+packages/shared-core/src/services/                     # domain services
+packages/shared-core/src/utils/break-helpers.ts        # break logic
+packages/shared-core/src/utils/errors.ts               # Firestore errors
+packages/shared-firebase/src/config.ts                 # firebase env mapping
+</pre></div>
+
+    <div class="alert alert-info">
+      Use `shared-core` services in any app to keep business logic consistent. All token/slot writes must stay transactional to avoid double booking.
+    </div>
+  </main>
+</div>
+<footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer>
+<a href="#top" id="back-to-top" class="back-to-top">↑</a>
+<script src="../assets/js/navigation.js"></script>
+</body>
+</html>

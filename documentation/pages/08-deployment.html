@@ -1,0 +1,18 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Deployment & DevOps</title><link rel="stylesheet" href="../assets/css/documentation.css"></head><body><header class="header"><div class="header-content"><h1>🚢 Deployment & DevOps</h1><nav class="header-nav"><a href="../index.html">Home</a></nav></div></header><div class="container"><aside class="sidebar"><h3>Sections</h3><ul><li><a href="#process">Process</a></li><li><a href="#env">Environment</a></li><li><a href="#cicd">CI/CD</a></li><li><a href="#infra">Infra</a></li><li><a href="#monitoring">Monitoring</a></li></ul></aside><main class="main-content"><div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> Deployment</div>
+<h2 id="process">Deployment Process (Vercel)</h2><ol>
+<li>Create 3 Vercel projects with root directories: patient-app, nurse-app, clinic-admin. (superadmin optional).</li>
+<li>Add env vars (all `NEXT_PUBLIC_FIREBASE_*`, Twilio keys where needed, `GOOGLE_SERVICE_ACCOUNT_JSON` for uploads).</li>
+<li>Run `pnpm build` locally to verify.</li>
+<li>Push to main; Vercel builds per project.</li>
+<li>Test preview; then promote to production domains: app.kloqo.com, nurse.kloqo.com, clinic.kloqo.com.</li>
+</ol>
+
+<h2 id="env">Environments</h2><ul><li>Dev: `.env.local` in each app (ignored). Use test Firebase project.</li><li>Prod: Vercel env settings; same keys for build/runtime.</li><li>Feature flags: none formal; use env toggles (e.g., `NEXT_PUBLIC_DEBUG_BOOKING`).</li></ul>
+
+<h2 id="cicd">CI/CD</h2><ul><li>Recommended GitHub Actions (see NEXT_STEPS.md snippet): install, test, typecheck, lint, build.</li><li>Turbo caching for builds; set `globalDependencies` = `**/.env.*local` (see turbo.json).</li></ul>
+
+<h2 id="infra">Infrastructure Notes</h2><ul><li>Firebase project: Firestore, Auth, Storage, FCM. Ensure Firestore rules locked down.</li><li>Storage bucket: `kloqo-clinic-multi-33968-4c50b` referenced in upload route.</li><li>SMS: Twilio credentials needed for production.</li></ul>
+
+<h2 id="monitoring">Monitoring & DR</h2><ul><li>Logging currently console-based; add Sentry/LogRocket for prod.</li><li>Backups: use Firebase export for Firestore; version scripts for reference data seeds.</li><li>Uptime: add external monitors (Pingdom/UptimeRobot).</li></ul>
+<div class="alert alert-warning">Before production, run the checklists in NEXT_STEPS.md (envs, rules, builds, tests).</div>
+</main></div><footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer><a href="#top" id="back-to-top" class="back-to-top">↑</a><script src="../assets/js/navigation.js"></script></body></html>

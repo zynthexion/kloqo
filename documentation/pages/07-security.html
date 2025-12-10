@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Security Implementation</title><link rel="stylesheet" href="../assets/css/documentation.css"></head><body><header class="header"><div class="header-content"><h1>🔒 Security</h1><nav class="header-nav"><a href="../index.html">Home</a></nav></div></header><div class="container"><aside class="sidebar"><h3>Sections</h3><ul><li><a href="#auth">Authentication</a></li><li><a href="#authz">Authorization</a></li><li><a href="#data">Data protection</a></li><li><a href="#api">API security</a></li><li><a href="#headers">Headers</a></li><li><a href="#hardening">Hardening</a></li></ul></aside><main class="main-content"><div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> Security</div>
+<h2 id="auth">Authentication</h2><ul><li>Firebase Auth (phone/email). Apps initialize client SDK from env-configured firebaseConfig.</li><li>Server-side uploads use Firebase Admin with `GOOGLE_SERVICE_ACCOUNT_JSON` secret.</li></ul>
+
+<h2 id="authz">Authorization & Rules</h2><pre><code>// clinic-admin/firestore.rules (excerpt)
+function isClinicAdmin() {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'clinicAdmin';
+}
+match /appointments/{id} {
+  allow read, write: if isClinicAdmin();
+}
+</code></pre><ul><li>Patients limited to own user doc; clinic admins manage clinic data.</li><li>Security TODO: tighten nurse-app rules (see NEXT_STEPS.md critical note).</li></ul>
+
+<h2 id="data">Data Protection</h2><ul><li>Transport: HTTPS via Next.js/Vercel.</li><li>At rest: Firebase-managed encryption.</li><li>Secrets: `.env.local` per app; never commit. Admin JSON passed via env variable.</li></ul>
+
+<h2 id="api">API Security</h2><ul><li>Twilio/SMS route checks for configured creds; rejects when missing.</li><li>Upload routes require admin credentials; sanitize filenames.</li><li>FCM tokens stored on user docs; notification failures are logged but non-blocking.</li></ul>
+
+<h2 id="headers">Security Headers</h2><ul><li>Next.js config sets `Permissions-Policy` and standard headers (see `next.config.ts`).</li><li>CSRF: primarily API-less Firebase reads; ensure auth token use for mutations.</li></ul>
+
+<h2 id="hardening">Hardening Checklist</h2><ul><li>Update Firestore rules for nurse/patient apps to least privilege.</li><li>Add rate limiting on Twilio SMS endpoint if exposed.</li><li>Enable App Check for Firebase if mobile clients used.</li><li>Add Sentry for error visibility.</li><li>Periodically rotate service account keys.</li></ul>
+<div class="alert alert-danger">Critical: tighten any permissive Firestore rules before production. See NEXT_STEPS.md.</div>
+</main></div><footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer><a href="#top" id="back-to-top" class="back-to-top">↑</a><script src="../assets/js/navigation.js"></script></body></html>

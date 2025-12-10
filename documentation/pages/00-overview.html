@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overview & Getting Started - Kloqo Documentation</title>
+    <link rel="stylesheet" href="../assets/css/documentation.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1>🏥 Kloqo Technical Documentation</h1>
+            <nav class="header-nav">
+                <a href="../index.html">Home</a>
+                <a href="00-overview.html">Overview</a>
+                <a href="01-architecture.html">Architecture</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <aside class="sidebar">
+            <h3>Navigation</h3>
+            <ul>
+                <li><a href="../index.html">Home</a></li>
+                <li><a href="00-overview.html" class="active">00. Overview</a></li>
+                <li><a href="01-architecture.html">01. Architecture</a></li>
+                <li><a href="02-business-logic.html">02. Business Logic</a></li>
+                <li><a href="03-database.html">03. Database</a></li>
+                <li><a href="04-api.html">04. API</a></li>
+                <li><a href="05-frontend.html">05. Frontend</a></li>
+                <li><a href="06-backend.html">06. Backend</a></li>
+                <li><a href="07-security.html">07. Security</a></li>
+                <li><a href="08-deployment.html">08. Deployment</a></li>
+                <li><a href="09-testing.html">09. Testing</a></li>
+                <li><a href="10-troubleshooting.html">10. Troubleshooting</a></li>
+                <li><a href="11-maintenance.html">11. Maintenance</a></li>
+                <li><a href="12-reference.html">12. Reference</a></li>
+            </ul>
+        </aside>
+
+        <main class="main-content">
+            <div class="breadcrumbs">
+                <a href="../index.html">Home</a> <span>/</span> <span>Overview & Getting Started</span>
+            </div>
+
+            <h1>00. Overview & Getting Started</h1>
+
+            <div class="toc">
+                <h3>Table of Contents</h3>
+                <ul>
+                    <li><a href="#application-purpose">Application Purpose</a></li>
+                    <li><a href="#business-domain">Business Domain</a></li>
+                    <li><a href="#key-features">Key Features</a></li>
+                    <li><a href="#technology-stack">Technology Stack</a></li>
+                    <li><a href="#system-architecture">System Architecture</a></li>
+                    <li><a href="#data-flow">High-Level Data Flow</a></li>
+                    <li><a href="#user-roles">User Roles & Permissions</a></li>
+                    <li><a href="#quick-start">Quick Start Guide</a></li>
+                </ul>
+            </div>
+
+            <h2 id="application-purpose">Application Purpose</h2>
+            <p>
+                <strong>Kloqo</strong> is a comprehensive healthcare appointment management system designed to streamline 
+                clinic operations, patient scheduling, and queue management. The system serves healthcare clinics 
+                by providing:
+            </p>
+            <ul>
+                <li><strong>Multi-channel Booking:</strong> Patients can book appointments in advance or walk in for immediate consultation</li>
+                <li><strong>Real-time Queue Management:</strong> Live tracking of consultation queues with position updates</li>
+                <li><strong>Intelligent Scheduling:</strong> Automatic slot assignment with capacity management (85% advance, 15% walk-in)</li>
+                <li><strong>Status Automation:</strong> Automatic status transitions based on time and doctor availability</li>
+                <li><strong>Multi-role Support:</strong> Separate interfaces for patients, nurses, clinic administrators, and superadmins</li>
+                <li><strong>Notification System:</strong> Real-time push notifications for appointment updates</li>
+            </ul>
+
+            <h2 id="business-domain">Business Domain</h2>
+            <p>
+                Kloqo operates in the <strong>healthcare appointment management</strong> domain, specifically targeting:
+            </p>
+            <ul>
+                <li><strong>Healthcare Clinics:</strong> Private clinics, hospitals, and medical facilities</li>
+                <li><strong>Multi-doctor Practices:</strong> Clinics with multiple doctors and departments</li>
+                <li><strong>Walk-in & Appointment-based Services:</strong> Facilities that handle both scheduled and walk-in patients</li>
+                <li><strong>Token-based Queue Systems:</strong> Clinics using token numbers for patient management</li>
+            </ul>
+
+            <h2 id="key-features">Key Features & Capabilities</h2>
+
+            <h3>1. Appointment Management</h3>
+            <ul>
+                <li><strong>Advanced Booking:</strong> Patients can book appointments days in advance</li>
+                <li><strong>Walk-in Booking:</strong> Real-time walk-in scheduling with intelligent slot placement</li>
+                <li><strong>Token System:</strong> A-tokens (advanced) and W-tokens (walk-in) with automatic generation</li>
+                <li><strong>Slot Reservation:</strong> Atomic slot locking to prevent double booking</li>
+                <li><strong>Status Management:</strong> Pending → Confirmed → Skipped → No-show → Completed</li>
+            </ul>
+
+            <h3>2. Queue Management</h3>
+            <ul>
+                <li><strong>Real-time Queue:</strong> Live consultation queue with position tracking</li>
+                <li><strong>Buffer Queue:</strong> Top 2 patients ready for consultation</li>
+                <li><strong>Skipped Token Rejoin:</strong> Automatic reinsertion of skipped tokens</li>
+                <li><strong>Consultation Counter:</strong> Track completed consultations per doctor/session</li>
+            </ul>
+
+            <h3>3. Doctor & Schedule Management</h3>
+            <ul>
+                <li><strong>Availability Slots:</strong> Day-wise availability with multiple sessions</li>
+                <li><strong>Break Management:</strong> Doctor break periods with automatic schedule adjustment</li>
+                <li><strong>Availability Extensions:</strong> Extend sessions beyond normal hours</li>
+                <li><strong>Leave Management:</strong> Block specific dates/slots for doctor leaves</li>
+            </ul>
+
+            <h3>4. Patient Management</h3>
+            <ul>
+                <li><strong>Patient Profiles:</strong> Complete patient information with visit history</li>
+                <li><strong>Relative Management:</strong> Link family members to primary patient</li>
+                <li><strong>Multi-clinic Support:</strong> Patients can visit multiple clinics</li>
+                <li><strong>Kloqo Membership:</strong> Track registered vs non-registered patients</li>
+            </ul>
+
+            <h3>5. Notifications</h3>
+            <ul>
+                <li><strong>Push Notifications:</strong> Real-time updates via Firebase Cloud Messaging</li>
+                <li><strong>SMS Integration:</strong> Twilio integration for SMS notifications</li>
+                <li><strong>Notification Types:</strong> Booking confirmations, token calls, break updates, appointment cancellations</li>
+            </ul>
+
+            <h2 id="technology-stack">Technology Stack</h2>
+
+            <h3>Frontend</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Technology</th>
+                        <th>Version</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Next.js</strong></td>
+                        <td>15.3.3</td>
+                        <td>React framework with SSR, routing, and API routes</td>
+                    </tr>
+                    <tr>
+                        <td><strong>React</strong></td>
+                        <td>18.3.1</td>
+                        <td>UI library for building interactive interfaces</td>
+                    </tr>
+                    <tr>
+                        <td><strong>TypeScript</strong></td>
+                        <td>5.7.2</td>
+                        <td>Type-safe JavaScript for better code quality</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Tailwind CSS</strong></td>
+                        <td>3.4.1</td>
+                        <td>Utility-first CSS framework</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Radix UI</strong></td>
+                        <td>Latest</td>
+                        <td>Accessible component primitives</td>
+                    </tr>
+                    <tr>
+                        <td><strong>React Hook Form</strong></td>
+                        <td>7.54.2</td>
+                        <td>Form state management and validation</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Zod</strong></td>
+                        <td>3.24.2</td>
+                        <td>Schema validation for forms and APIs</td>
+                    </tr>
+                    <tr>
+                        <td><strong>date-fns</strong></td>
+                        <td>3.6.0</td>
+                        <td>Date manipulation and formatting</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Backend</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Firebase Firestore</strong></td>
+                        <td>NoSQL database for all application data</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firebase Authentication</strong></td>
+                        <td>User authentication and authorization</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firebase Storage</strong></td>
+                        <td>File storage for avatars and documents</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firebase Cloud Messaging</strong></td>
+                        <td>Push notifications to mobile devices</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Twilio</strong></td>
+                        <td>SMS and WhatsApp messaging</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Development Tools</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tool</th>
+                        <th>Version</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Turborepo</strong></td>
+                        <td>2.3.3</td>
+                        <td>Monorepo build system</td>
+                    </tr>
+                    <tr>
+                        <td><strong>pnpm</strong></td>
+                        <td>8.15.0</td>
+                        <td>Fast, disk-efficient package manager</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Vitest</strong></td>
+                        <td>4.0.15</td>
+                        <td>Unit and integration testing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>ESLint</strong></td>
+                        <td>Latest</td>
+                        <td>Code linting and quality checks</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 id="system-architecture">System Architecture</h2>
+
+            <h3>Monorepo Structure</h3>
+            <p>
+                Kloqo is organized as a <strong>monorepo</strong> using Turborepo, allowing shared code 
+                and independent deployment of multiple applications:
+            </p>
+
+            <div class="diagram">
+<pre>
+kloqo-monorepo/
+├── apps/
+│   ├── patient-app/        # Patient-facing web app
+│   ├── nurse-app/          # Nurse interface for queue management
+│   ├── clinic-admin/       # Clinic administration dashboard
+│   └── superadmin/         # Superadmin panel
+│
+├── packages/
+│   ├── shared-core/        # Business logic & services
+│   ├── shared-types/       # TypeScript type definitions
+│   ├── shared-ui/          # Shared React components
+│   ├── shared-firebase/   # Firebase configuration
+│   └── shared-config/      # Shared tooling configs
+│
+└── documentation/          # This documentation
+</pre>
+            </div>
+
+            <h3>Application Architecture</h3>
+            <p>
+                Each application follows a <strong>Next.js App Router</strong> architecture:
+            </p>
+
+            <div class="diagram">
+<pre>
+Application Structure:
+┌─────────────────────────────────────┐
+│         Next.js App Router          │
+├─────────────────────────────────────┤
+│  app/                               │
+│  ├── (app)/          # Protected    │
+│  │   ├── dashboard/  # routes       │
+│  │   └── ...                        │
+│  ├── (public)/       # Public       │
+│  │   ├── login/      # routes       │
+│  │   └── signup/                    │
+│  └── api/            # API routes   │
+│      └── ...                        │
+├─────────────────────────────────────┤
+│  components/         # React        │
+│  ├── ui/             # components   │
+│  └── ...                           │
+├─────────────────────────────────────┤
+│  lib/                # Utilities   │
+│  ├── firebase.ts     # & services  │
+│  └── ...                           │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│      Shared Packages                │
+├─────────────────────────────────────┤
+│  @kloqo/shared-core                 │
+│  ├── services/                      │
+│  │   ├── appointment-service.ts     │
+│  │   ├── walk-in-service.ts         │
+│  │   └── ...                        │
+│  └── utils/                         │
+│                                      │
+│  @kloqo/shared-firebase             │
+│  └── config.ts                      │
+│                                      │
+│  @kloqo/shared-types                │
+│  └── index.ts                       │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│         Firebase Services            │
+├─────────────────────────────────────┤
+│  • Firestore (Database)              │
+│  • Authentication                   │
+│  • Storage                          │
+│  • Cloud Messaging                  │
+└─────────────────────────────────────┘
+</pre>
+            </div>
+
+            <h2 id="data-flow">High-Level Data Flow</h2>
+
+            <h3>Appointment Booking Flow</h3>
+            <div class="diagram">
+<pre>
+Patient/Staff Books Appointment
+         │
+         ▼
+┌────────────────────────┐
+│  Validate Input Data   │
+│  (Name, Phone, etc.)    │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Check Doctor           │
+│  Availability           │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Calculate Capacity    │
+│  (85% A, 15% W)        │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Reserve Slot          │
+│  (Atomic Transaction)   │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Generate Token        │
+│  (A1, A2, W1, etc.)    │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Create Appointment    │
+│  Document              │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Send Notification     │
+│  to Patient           │
+└────────────────────────┘
+</pre>
+            </div>
+
+            <h3>Status Update Flow</h3>
+            <div class="diagram">
+<pre>
+App Opens / Periodic Check
+         │
+         ▼
+┌────────────────────────┐
+│  Query Pending/        │
+│  Skipped Appointments  │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Check Current Time    │
+│  vs Cut-off/No-show    │
+│  Times                 │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Check Doctor Status   │
+│  (In/Out)              │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Update Status:        │
+│  Pending → Skipped     │
+│  Skipped → No-show     │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│  Rebalance Walk-in     │
+│  Schedule (if needed)  │
+└────────────────────────┘
+</pre>
+            </div>
+
+            <h2 id="user-roles">User Roles & Permissions</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Role</th>
+                        <th>Application</th>
+                        <th>Permissions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Patient</strong></td>
+                        <td>patient-app</td>
+                        <td>
+                            <ul>
+                                <li>View own appointments</li>
+                                <li>Book advanced appointments</li>
+                                <li>View queue position</li>
+                                <li>Update profile</li>
+                                <li>Manage relatives</li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Nurse</strong></td>
+                        <td>nurse-app</td>
+                        <td>
+                            <ul>
+                                <li>View consultation queue</li>
+                                <li>Manage appointments (create, update, cancel)</li>
+                                <li>Call tokens</li>
+                                <li>Mark consultations complete</li>
+                                <li>Schedule doctor breaks</li>
+                                <li>View live status</li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Clinic Admin</strong></td>
+                        <td>clinic-admin</td>
+                        <td>
+                            <ul>
+                                <li>All nurse permissions</li>
+                                <li>Manage doctors</li>
+                                <li>Manage departments</li>
+                                <li>View analytics and reports</li>
+                                <li>Manage clinic settings</li>
+                                <li>Patient management</li>
+                                <li>Upload clinic documents</li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Superadmin</strong></td>
+                        <td>superadmin</td>
+                        <td>
+                            <ul>
+                                <li>System-wide access</li>
+                                <li>Manage all clinics</li>
+                                <li>System analytics</li>
+                                <li>User management</li>
+                            </ul>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 id="quick-start">Quick Start Guide</h2>
+
+            <h3>Prerequisites</h3>
+            <ul>
+                <li><strong>Node.js:</strong> >= 18.0.0</li>
+                <li><strong>pnpm:</strong> >= 8.0.0</li>
+                <li><strong>Firebase Account:</strong> With project configured</li>
+            </ul>
+
+            <h3>Installation</h3>
+            <pre><code># Install pnpm globally (if not installed)
+npm install -g pnpm
+
+# Clone the repository
+git clone [repository-url]
+cd Kloqo-Production
+
+# Install dependencies
+pnpm install
+
+# Set up environment variables
+# Copy .env.example to .env.local in each app directory
+# apps/patient-app/.env.local
+# apps/nurse-app/.env.local
+# apps/clinic-admin/.env.local
+</code></pre>
+
+            <h3>Environment Variables</h3>
+            <p>Each app requires Firebase configuration:</p>
+            <pre><code>NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+</code></pre>
+
+            <h3>Running the Applications</h3>
+            <pre><code># Run all apps in development mode
+pnpm dev
+
+# Or run specific apps
+pnpm dev:patient      # Patient app (http://localhost:3000)
+pnpm dev:nurse        # Nurse app (http://localhost:3001)
+pnpm dev:clinic       # Clinic admin (http://localhost:3002)
+pnpm dev:superadmin   # Superadmin (http://localhost:3003)
+</code></pre>
+
+            <h3>Building for Production</h3>
+            <pre><code># Build all apps
+pnpm build
+
+# Type check
+pnpm typecheck
+
+# Run tests
+pnpm test
+</code></pre>
+
+            <div class="alert alert-info">
+                <strong>💡 Tip:</strong> For detailed setup instructions, see the 
+                <a href="08-deployment.html">Deployment & DevOps</a> section.
+            </div>
+
+            <h2>Next Steps</h2>
+            <p>Now that you understand the overview, explore:</p>
+            <ul>
+                <li><a href="01-architecture.html">Architecture & System Design</a> - Deep dive into system architecture</li>
+                <li><a href="02-business-logic.html">Core Business Logic</a> - Understand appointment workflows</li>
+                <li><a href="03-database.html">Database & Data Model</a> - Learn about Firestore collections</li>
+            </ul>
+        </main>
+    </div>
+
+    <footer class="footer">
+        <p>Kloqo Technical Documentation &copy; 2024</p>
+    </footer>
+
+    <a href="#top" id="back-to-top" class="back-to-top" title="Back to top">↑</a>
+    <script src="../assets/js/navigation.js"></script>
+</body>
+</html>

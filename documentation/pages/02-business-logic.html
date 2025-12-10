@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Core Business Logic - Kloqo</title><link rel="stylesheet" href="../assets/css/documentation.css"></head>
+<body>
+<header class="header"><div class="header-content"><h1>💼 Core Business Logic</h1><nav class="header-nav"><a href="../index.html">Home</a><a href="01-architecture.html">Architecture</a></nav></div></header>
+<div class="container">
+<aside class="sidebar"><h3>Sections</h3><ul>
+<li><a href="#workflows">Major workflows</a></li>
+<li><a href="#rules">Business rules</a></li>
+<li><a href="#validation">Validation logic</a></li>
+<li><a href="#tokens">Token generation</a></li>
+<li><a href="#walkin">Walk-in scheduling</a></li>
+<li><a href="#status">Status transitions</a></li>
+<li><a href="#queue">Queue management</a></li>
+<li><a href="#notifications">Notifications</a></li>
+</ul></aside>
+<main class="main-content">
+<div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> Business Logic</div>
+<h1 id="workflows">Major Business Workflows</h1>
+
+<h2>Advanced Appointment Booking</h2>
+<ol>
+<li>Validate patient input (name, phone, age, doctor, department, time) using Zod (clinic-admin UI).</li>
+<li>Load doctor availability and slots (`loadDoctorAndSlots`).</li>
+<li>Check 85% capacity for A-tokens (`canBookAToken`).</li>
+<li>Reserve slot + generate token in Firestore transaction (`generateNextTokenAndReserveSlot`).</li>
+<li>Create appointment doc with status Pending/Confirmed; compute `cutOffTime` (time-15m) and `noShowTime` (time+15m).</li>
+<li>Send patient notification (`sendAppointmentBookedByStaffNotification`).</li>
+</ol>
+
+<h2 id="walkin">Walk-in Booking</h2>
+<ol>
+<li>Compute walk-in placement using scheduler (`computeWalkInSchedule`, `previewWalkInPlacement`).</li>
+<li>Honor walk-in spacing per clinic (`walkInTokenAllotment`) and 15% reserved slots per session.</li>
+<li>Reserve bucket slot and generate W-token via transaction (`generateNextTokenAndReserveSlot` with type 'W').</li>
+<li>Rebalance schedule if W-token inserted before existing A-tokens (`rebalanceWalkInSchedule`).</li>
+<li>Return estimated time, patients ahead, and session index.</li>
+</ol>
+
+<h2 id="status">Status Transitions</h2>
+<ul>
+<li><strong>Pending → Skipped:</strong> when current time >= cutOffTime (appointment time - 15m). If doctor is Out and availability not started yet, skip is deferred.</li>
+<li><strong>Skipped → No-show:</strong> when current time >= noShowTime (appointment time + 15m) and doctor is In.</li>
+<li>Implemented in `status-update-service.ts` (`updateAppointmentAndDoctorStatuses`).</li>
+</ul>
+
+<h2 id="queue">Queue Management</h2>
+<ul>
+<li>`computeQueues` builds arrived queue (Confirmed), buffer queue (top 2), skipped queue, current consultation.</li>
+<li>Consultation counters per clinic/doctor/date/session in `consultation-counters` collection.</li>
+<li>Skipped token reinsertion order via `calculateSkippedTokenRejoinPosition`.</li>
+<li>Ordering uses token type and numeric order (`compareTokens`).</li>
+</ul>
+
+<h2 id="tokens">Token Generation & Reservation</h2>
+<ul>
+<li>`generateNextToken` / `generateNextTokenAndReserveSlot` use Firestore `runTransaction` on `token-counters` docs with id pattern `${clinic}_${doctor}_${date}_${type}`.</li>
+<li>A-tokens and W-tokens kept separate; numbers padded to 3 digits (A001, W001).</li>
+<li>Slot reservation uses `slot-reservations` to avoid double booking; reservation id includes clinic/doctor/date/slot.</li>
+<li>Capacity split per session: `calculateSessionCapacity` → advancedCapacity/walkInCapacity; `isSlotInAdvancedZone` determines zone.</li>
+</ul>
+
+<h2 id="validation">Validation Logic</h2>
+<ul>
+<li>Clinic-admin appointment form Zod schema: name min 3 alphabetic, phone exactly 10 digits (after stripping +91), age 1-120, bookedVia enum, doctor/department required, date/time required for advanced bookings.</li>
+<li>Break validation: max 3 breaks per session, within session bounds, no overlap (`validateBreakSlots`).</li>
+<li>Patient management: checks existing patient by phone/email; links relatives; ensures unique user-phone pairing (`managePatient`).</li>
+</ul>
+
+<h2 id="rules">Business Rules & Constraints</h2>
+<ul>
+<li>85% of future slots per session reserved for advanced bookings; at least one slot for walk-in when total>0.</li>
+<li>Walk-in spacing configurable per clinic; bucket slots defer walk-ins into reserved zone.</li>
+<li>Breaks extend session end time; availability extensions supported per date/session.</li>
+<li>Notifications only if user has `notificationsEnabled` and valid FCM token; failure does not block booking.</li>
+</ul>
+
+<h2 id="notifications">Notification Flows</h2>
+<ul>
+<li>Booking confirmation (staff): `sendAppointmentBookedByStaffNotification` → FCM; display time = arriveByTime-15m.</li>
+<li>Token called: `sendTokenCalledNotification` when consultation starts.</li>
+<li>Break updates & running late: `sendBreakUpdateNotification`, `sendDoctorRunningLateNotification`.</li>
+<li>Skipped / People ahead / Session start: `sendAppointmentSkippedNotification`, `sendPeopleAheadNotification`, `notifySessionPatientsOfConsultationStart`.</li>
+</ul>
+
+<div class="alert alert-success">Use shared-core services for all booking/status updates to keep transactions and capacity rules consistent across apps.</div>
+</main></div>
+<footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer>
+<a href="#top" id="back-to-top" class="back-to-top">↑</a>
+<script src="../assets/js/navigation.js"></script>
+</body></html>

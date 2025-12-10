@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Database & Data Model</title><link rel="stylesheet" href="../assets/css/documentation.css"></head><body><header class="header"><div class="header-content"><h1>🗄️ Database & Data Model</h1><nav class="header-nav"><a href="../index.html">Home</a></nav></div></header><div class="container"><aside class="sidebar"><h3>Sections</h3><ul><li><a href="#collections">Collections</a></li><li><a href="#fields">Key fields</a></li><li><a href="#relations">Relationships</a></li><li><a href="#indexes">Indexes & queries</a></li><li><a href="#migrations">Migration & backups</a></li><li><a href="#samples">Sample queries</a></li></ul></aside><main class="main-content"><div class="breadcrumbs"><a href="../index.html">Home</a> <span>/</span> Database</div><h2 id="collections">Firestore Collections</h2><table><thead><tr><th>Collection</th><th>Purpose</th><th>Key Fields</th></tr></thead><tbody><tr><td>users</td><td>Auth profile & role</td><td>phone, role (clinicAdmin/patient), clinicId, patientId, fcmToken, notificationsEnabled</td></tr><tr><td>patients</td><td>Patient record</td><td>name, age, sex, phone, communicationPhone, clinicIds[], relatedPatientIds[], totalAppointments</td></tr><tr><td>clinics</td><td>Clinic info</td><td>name, address, walkInTokenAllotment, logoUrl</td></tr><tr><td>doctors</td><td>Doctor profile</td><td>name, department, availabilitySlots[], breakPeriods{date:[...]}, averageConsultingTime, consultationStatus</td></tr><tr><td>appointments</td><td>Appointments</td><td>clinicId, patientId, doctor, date, time, status, tokenNumber, numericToken, bookedVia, slotIndex, sessionIndex, arriveByTime, cutOffTime, noShowTime</td></tr><tr><td>slot-reservations</td><td>Atomic slot lock</td><td>clinicId, doctor, date, slotIndex, sessionIndex</td></tr><tr><td>token-counters</td><td>A/W token counters</td><td>clinicId, doctor, date, type, nextNumber</td></tr><tr><td>consultation-counters</td><td>Consult count</td><td>clinicId, doctorId, date, sessionIndex, count</td></tr><tr><td>master-departments</td><td>Reference departments</td><td>name, description, icon</td></tr><tr><td>mobile-app</td><td>Mobile app creds</td><td>username, password, clinicId</td></tr></tbody></table>
+<h2 id="relations">Relationships</h2><ul><li>users.uid → patients.primaryUserId (for notifications)</li><li>appointments.clinicId → clinics.id</li><li>appointments.doctor (name) / doctorId → doctors</li><li>appointments.patientId → patients</li><li>slot-reservations/token-counters keyed by clinic+doctor+date to avoid collisions</li></ul>
+<h2 id="indexes">Indexes & Query Patterns</h2><ul><li>Appointments by clinic/date/status (`where clinicId ==, date ==, status in ['Pending','Skipped']`).</li><li>Doctors by clinic (`where clinicId ==`).</li><li>Patients by phone for dedupe (`where phone ==`).</li><li>Users by phone/role for notification lookup.</li></ul>
+<h2 id="migrations">Data Migration & Backup</h2><ul><li>Seed scripts in `apps/clinic-admin/scripts/seed-master-departments.js` and `add-malayalam-departments.js` for reference data.</li><li>For schema changes, add fields with defaults; avoid destructive writes; use Firebase console exports for backups.</li><li>Document env vars for Firebase Admin when running scripts (`GOOGLE_SERVICE_ACCOUNT_JSON`).</li></ul>
+<h2 id="samples">Sample Queries</h2><pre><code>// Get today's pending/skipped appointments for clinic
+const q = query(
+  collection(db, 'appointments'),
+  where('clinicId', '==', clinicId),
+  where('date', '==', today),
+  where('status', 'in', ['Pending','Skipped'])
+);
+
+// Find patient user for notifications
+const usersQuery = query(
+  collection(db, 'users'),
+  where('phone', '==', communicationPhone),
+  where('role', '==', 'patient')
+);
+</code></pre>
+<div class="alert alert-warning">Security rules must enforce role-based access; see 07-security.</div>
+</main></div><footer class="footer"><p>Kloqo Technical Documentation © 2024</p></footer><a href="#top" id="back-to-top" class="back-to-top">↑</a><script src="../assets/js/navigation.js"></script></body></html>

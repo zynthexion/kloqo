@@ -146,7 +146,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Transpile workspace packages for monorepo
   transpilePackages: ['@kloqo/shared-core', '@kloqo/shared-types', '@kloqo/shared-ui', '@kloqo/shared-firebase'],
-  
+
   // Enable compression for better performance
   compress: true,
   // Disable production source maps to prevent source code exposure
@@ -254,5 +254,5 @@ const nextConfig: NextConfig = {
 };
 
 // Temporarily disable PWA wrapper for development testing
-export default nextConfig;
-// export default withPWA(nextConfig);
+// export default nextConfig;
+export default withPWA(nextConfig);

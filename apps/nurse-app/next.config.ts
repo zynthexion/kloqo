@@ -1,22 +1,29 @@
 
 import type { NextConfig } from 'next';
 
+const withPWA = require("@ducanh2912/next-pwa").default({
+  dest: "public",
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === "development",
+});
+
 const nextConfig: NextConfig = {
   // Enable compression for better performance
   compress: true,
-  
+
   // SWC minification is enabled by default in Next.js 15
-  
+
   // TypeScript configuration
   typescript: {
     ignoreBuildErrors: true, // Temporarily disable for build
   },
-  
+
   // ESLint configuration
   eslint: {
     ignoreDuringBuilds: process.env.NODE_ENV === 'development',
   },
-  
+
   // Image optimization
   images: {
     formats: ['image/webp', 'image/avif'],
@@ -56,19 +63,19 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  
+
   // Experimental features for better performance
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs'],
   },
-  
+
   // Webpack optimizations
   webpack: (config, { dev, isServer }) => {
     // Only apply optimizations in production
     if (!dev) {
       config.optimization.usedExports = true;
       config.optimization.sideEffects = false;
-      
+
       // Bundle analyzer
       if (!isServer && process.env.ANALYZE === 'true') {
         const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
@@ -81,13 +88,13 @@ const nextConfig: NextConfig = {
         );
       }
     }
-    
+
     return config;
   },
-  
+
   // Output configuration for better deployment
   // output: 'standalone', // Temporarily disabled for dev mode
-  
+
   // PWA configuration for nurse app
   async headers() {
     return [
@@ -104,4 +111,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPWA(nextConfig);

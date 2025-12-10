@@ -901,7 +901,19 @@ export default function AppointmentsPage() {
           timestamp: new Date().toISOString()
         });
         setWalkInEstimate(details);
-        setWalkInEstimateUnavailable(false);
+        
+        // ✅ FIX: Check if within 15 min of closing even if slots available
+        const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
+        
+        if (isNearClosing) {
+          // Within closing window - show Force Book option alongside normal estimate
+          setWalkInEstimateUnavailable(true);
+          console.log('[WALK-IN DEBUG] Within 15 minutes of closing - force book option enabled');
+        } else {
+          // Normal slots available, not near closing
+          setWalkInEstimateUnavailable(false);
+        }
+        
         setIsCalculatingEstimate(false);
       }).catch(err => {
         console.error('[WALK-IN DEBUG] Error calculating walk-in details:', err);

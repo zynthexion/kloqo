@@ -1,0 +1,64 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isClinicAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'clinicAdmin';
+    }
+
+    // Allow creating a user if the admin is creating a patient role, or if a user is creating their own doc.
+    match /users/{userId} {
+      allow create: if (isClinicAdmin() && request.resource.data.role == 'patient') || isOwner(userId);
+      allow read, update: if isOwner(userId) || isClinicAdmin();
+    }
+
+    match /patients/{patientId} {
+      // Allow admins to create, read, update, and delete patient records.
+      allow read, write, delete: if isClinicAdmin();
+    }
+
+    match /clinics/{clinicId} {
+      allow read: if true; // Publicly readable for setup
+      allow write: if isClinicAdmin();
+    }
+
+    match /doctors/{doctorId} {
+      allow read: if true;
+      allow write: if isClinicAdmin();
+    }
+
+    match /appointments/{appointmentId} {
+      allow read, write, delete: if isClinicAdmin();
+    }
+
+    match /consultation-counters/{counterId} {
+      allow read, write: if isClinicAdmin();
+    }
+
+    match /master-departments/{departmentId} {
+      allow read: if true;
+    }
+
+    match /mobile-app/{credId} {
+      allow read, write: if isClinicAdmin();
+    }
+    
+    // Slot reservations collection - Used for atomic slot locking during appointment booking
+    match /slot-reservations/{reservationId} {
+      // Allow clinic admins to read and write slot reservations
+      // These are temporary documents used to prevent double booking
+      allow read, write: if isClinicAdmin();
+    }
+    
+    // Token counters collection - Used for atomic token generation
+    match /token-counters/{counterId} {
+      // Allow clinic admins to read and write token counters
+      allow read, write: if isClinicAdmin();
+    }
+  }
+}

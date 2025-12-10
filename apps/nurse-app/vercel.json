@@ -1,0 +1,7 @@
+{
+    "buildCommand": "cd ../.. && pnpm install && pnpm run build --filter=nurse-app",
+    "devCommand": "cd ../.. && pnpm run dev --filter=nurse-app",
+    "installCommand": "cd ../.. && pnpm install",
+    "framework": "nextjs",
+    "outputDirectory": ".next"
+}

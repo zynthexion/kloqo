@@ -1,0 +1,68 @@
+# Kloqo Nurse App .gitignore
+
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Environment files
+.env*
+!.env.example
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Development artifacts
+.idx/
+nextn@*
+node
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Genkit
+.genkit/*
+
+# Firebase
+firebase-debug.log
+firestore-debug.log
+.firebase/
+
+# Service account keys
+service-account-key.json
+*-service-account*.json
+
+# Firebase rules backups
+*_RULES.txt
+firestore-shared-credentials.rules

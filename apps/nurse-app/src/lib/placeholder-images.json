@@ -1,0 +1,10 @@
+{
+  "placeholderImages": [
+    {
+      "id": "qr-code",
+      "description": "A placeholder QR code for patient registration.",
+      "imageUrl": "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://firebase.google.com/",
+      "imageHint": "qr code"
+    }
+  ]
+}

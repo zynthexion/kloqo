@@ -1,0 +1,706 @@
+
+'use client';
+
+import { useState, useMemo, useEffect, useCallback, useRef, useTransition } from 'react';
+import type { Appointment, Doctor } from '@/lib/types';
+import { useToast } from '@/hooks/use-toast';
+import { format, isWithinInterval, addMinutes, parse, isAfter, isBefore } from 'date-fns';
+import { collection, getDocs, query, onSnapshot, doc, updateDoc, where, writeBatch, getDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Search, WifiOff, Repeat } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import ClinicHeader from './header';
+import AppointmentList from './appointment-list';
+import { useRouter } from 'next/navigation';
+import { errorEmitter } from '@kloqo/shared-core';
+import { FirestorePermissionError } from '@kloqo/shared-core';
+import { parseTime } from '@/lib/utils';
+import { computeQueues, type QueueState } from '@kloqo/shared-core';
+import { CheckCircle2, Clock } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+
+export default function LiveDashboard() {
+  const router = useRouter();
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [selectedDoctor, setSelectedDoctor] = useState<string>('');
+  const [isOnline, setIsOnline] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('pending');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [clinicId, setClinicId] = useState<string | null>(null);
+  const [clinicDetails, setClinicDetails] = useState<any>(null);
+  const { toast } = useToast();
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [isPending, startTransition] = useTransition();
+  const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000); // Update every minute
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const id = localStorage.getItem('clinicId');
+    if (!id) {
+      router.push('/login');
+      return;
+    }
+    setClinicId(id);
+
+    const fetchInitialData = async () => {
+      if (!id) return;
+      try {
+        // Fetch clinic details
+        const clinicDoc = await getDoc(doc(db, 'clinics', id));
+        if (clinicDoc.exists()) {
+          setClinicDetails(clinicDoc.data());
+        }
+
+        const doctorsQuery = query(collection(db, 'doctors'), where('clinicId', '==', id));
+
+        const unsubscribe = onSnapshot(doctorsQuery, (snapshot) => {
+          const fetchedDoctors = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Doctor[];
+          setDoctors(fetchedDoctors);
+
+          const storedDoctorId = localStorage.getItem('selectedDoctorId');
+          if (fetchedDoctors.length > 0) {
+            if (storedDoctorId && fetchedDoctors.some(d => d.id === storedDoctorId)) {
+              setSelectedDoctor(storedDoctorId);
+            } else {
+              const firstDoctorId = fetchedDoctors[0].id;
+              setSelectedDoctor(firstDoctorId);
+              localStorage.setItem('selectedDoctorId', firstDoctorId);
+            }
+          }
+        }, (error) => {
+          console.error('Error fetching doctors in real-time:', error);
+        });
+
+        return () => unsubscribe();
+      } catch (error: any) {
+        if (error.name !== 'FirestorePermissionError') {
+          console.error('Error setting up doctor listener:', error);
+        }
+      }
+    };
+    fetchInitialData();
+  }, [toast, router]);
+
+  const handleDoctorChange = (doctorId: string) => {
+    setSelectedDoctor(doctorId);
+    localStorage.setItem('selectedDoctorId', doctorId);
+  }
+
+  const currentDoctor = useMemo(() => doctors.find(d => d.id === selectedDoctor), [doctors, selectedDoctor]);
+
+  const consultationStatus = currentDoctor?.consultationStatus || 'Out';
+
+  useEffect(() => {
+    if (!isOnline || !selectedDoctor || !clinicId) {
+      setAppointments([]);
+      return;
+    }
+
+    const doctor = doctors.find(d => d.id === selectedDoctor);
+    if (!doctor) return;
+
+    const today = format(new Date(), 'd MMMM yyyy');
+
+    const q = query(
+      collection(db, "appointments"),
+      where("doctor", "==", doctor.name),
+      where("date", "==", today),
+      where("clinicId", "==", clinicId)
+    );
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      const fetchedAppointments: Appointment[] = [];
+      querySnapshot.forEach((docSnap: any) => {
+        fetchedAppointments.push({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as Appointment);
+      });
+
+      setAppointments(fetchedAppointments.sort(compareAppointmentsByTime));
+
+    }, async (serverError) => {
+      const permissionError = new FirestorePermissionError({
+        path: 'appointments',
+        operation: 'list'
+      });
+      errorEmitter.emit('permission-error', permissionError);
+    });
+
+    return () => unsubscribe();
+  }, [selectedDate, toast, isOnline, selectedDoctor, doctors, clinicId]);
+
+  const previousConsultationStatusRef = useRef<'In' | 'Out'>();
+
+  useEffect(() => {
+    if (previousConsultationStatusRef.current === 'Out' && consultationStatus === 'In') {
+      // Doctor just came back online or a new session started.
+      const batch = writeBatch(db);
+      const skippedToNoShow = appointments.filter(apt => apt.status === 'Skipped');
+
+      if (skippedToNoShow.length > 0) {
+        skippedToNoShow.forEach(apt => {
+          const appointmentRef = doc(db, 'appointments', apt.id);
+          batch.update(appointmentRef, { status: 'No-show' });
+        });
+
+        batch.commit().then(() => {
+          toast({
+            title: "Queue Cleaned",
+            description: `${skippedToNoShow.length} skipped appointment(s) from the previous session marked as 'No-show'.`
+          });
+        }).catch(e => console.error("Failed to update skipped to no-show", e));
+      }
+    }
+    previousConsultationStatusRef.current = consultationStatus;
+  }, [consultationStatus, appointments, toast]);
+
+  const handleUpdateStatus = useCallback(async (id: string, status: 'completed' | 'Cancelled' | 'No-show' | 'Skipped' | 'Confirmed') => {
+    const appointmentRef = doc(db, 'appointments', id);
+    const appointment = appointments.find(a => a.id === id);
+
+    let updateData: any = { status: status.charAt(0).toUpperCase() + status.slice(1) };
+
+    if (status === 'completed') {
+      updateData.completedAt = serverTimestamp();
+
+      // Increment consultation counter
+      if (appointment && currentDoctor && appointment.sessionIndex !== undefined) {
+        try {
+          const { incrementConsultationCounter } = await import('@kloqo/shared-core');
+          await incrementConsultationCounter(
+            appointment.clinicId,
+            currentDoctor.id,
+            appointment.date,
+            appointment.sessionIndex
+          );
+        } catch (counterError) {
+          console.error('Error incrementing consultation counter:', counterError);
+          // Don't fail the status update if counter update fails
+        }
+      }
+    }
+
+    if (status === 'Skipped') {
+      updateData = {
+        status: 'Skipped',
+        skippedAt: serverTimestamp()
+      };
+
+      // Update local state to move skipped to end (same as clinic app)
+      setAppointments(prev => {
+        const updated = prev.map(a => a.id === id ? { ...a, status: 'Skipped' as const } : a);
+        return [
+          ...updated.filter(a => a.status !== 'Skipped'),
+          ...updated.filter(a => a.status === 'Skipped'),
+        ] as Appointment[];
+      });
+    }
+
+    try {
+      await updateDoc(appointmentRef, updateData);
+
+      // Send notifications to next patients when appointment is completed
+      if (status === 'completed' && appointment) {
+        try {
+          const { notifyNextPatientsWhenCompleted } = await import('@kloqo/shared-core');
+          const { getDoc } = await import('firebase/firestore');
+          const clinicDocRef = doc(db, 'clinics', appointment.clinicId);
+          const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
+          const clinicName = clinicDoc?.data()?.name || 'The clinic';
+
+          await notifyNextPatientsWhenCompleted({
+            firestore: db,
+            completedAppointmentId: appointment.id,
+            completedAppointment: appointment,
+            clinicName,
+          });
+          console.log('Notifications sent to next patients in queue');
+        } catch (notifError) {
+          console.error('Failed to send notifications to next patients:', notifError);
+          // Don't fail the status update if notification fails
+        }
+      }
+
+      // Send cancellation notification when appointment is cancelled
+      if (status === 'Cancelled' && appointment) {
+        try {
+          const { sendAppointmentCancelledNotification } = await import('@kloqo/shared-core');
+          const { getDoc } = await import('firebase/firestore');
+          const clinicDocRef = doc(db, 'clinics', appointment.clinicId);
+          const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
+          const clinicName = clinicDoc?.data()?.name || 'The clinic';
+
+          await sendAppointmentCancelledNotification({
+            firestore: db,
+            patientId: appointment.patientId,
+            appointmentId: appointment.id,
+            doctorName: appointment.doctor,
+            clinicName,
+            date: appointment.date,
+            time: appointment.time,
+            arriveByTime: appointment.arriveByTime,
+            cancelledBy: 'clinic',
+          });
+          console.log('Cancellation notification sent to patient');
+        } catch (notifError) {
+          console.error('Failed to send cancellation notification:', notifError);
+          // Don't fail the status update if notification fails
+        }
+      }
+      toast({ title: `Appointment ${status === 'completed' ? 'marked as completed' : status === 'Cancelled' ? 'cancelled' : status === 'No-show' ? 'marked as No-show' : 'skipped'}.` });
+    } catch (error) {
+      console.error(`Error updating appointment status to ${status}:`, error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update appointment status.' });
+    }
+  }, [appointments, currentDoctor, toast]);
+
+  const handleAddToQueue = (appointment: Appointment) => {
+    setAppointmentToAddToQueue(appointment);
+  };
+
+  const confirmAddToQueue = () => {
+    if (!appointmentToAddToQueue || !clinicId) return;
+
+    // Only process if status is still 'Pending'
+    if (appointmentToAddToQueue.status !== 'Pending') {
+      toast({
+        variant: "destructive",
+        title: "Cannot Add to Queue",
+        description: "This appointment is no longer in Pending status."
+      });
+      setAppointmentToAddToQueue(null);
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await updateDoc(doc(db, 'appointments', appointmentToAddToQueue.id), {
+          status: 'Confirmed',
+        });
+
+        toast({
+          title: "Patient Added to Queue",
+          description: `${appointmentToAddToQueue.patientName} has been confirmed and added to the queue.`
+        });
+        setAppointmentToAddToQueue(null);
+      } catch (error: any) {
+        console.error("Error adding to queue:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Could not add patient to queue."
+        });
+        setAppointmentToAddToQueue(null);
+      }
+    });
+  };
+
+  const handleRejoinQueue = (appointment: Appointment) => {
+    startTransition(async () => {
+      if (!clinicId) return;
+
+      const recurrence = clinicDetails?.skippedTokenRecurrence || 3;
+      const today = new Date();
+      const todayStr = format(today, 'd MMMM yyyy');
+
+      try {
+        // Helper function to parse appointment time
+        const parseAppointmentTime = (apt: Appointment): Date => {
+          try {
+            const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
+            return parseTime(apt.time, appointmentDate);
+          } catch {
+            return new Date(0); // Fallback for invalid dates
+          }
+        };
+
+        // Get skipped appointment's original time
+        const skippedOriginalTime = parseAppointmentTime(appointment);
+
+        // Get arrived queue: Confirmed appointments for same doctor and date, sorted by time
+        const arrivedQueue = appointments
+          .filter(a =>
+            a.doctor === appointment.doctor &&
+            a.date === todayStr &&
+            a.status === 'Confirmed' &&
+            a.id !== appointment.id // Exclude the skipped appointment itself
+          )
+          .sort((a, b) => {
+            const timeA = parseAppointmentTime(a);
+            const timeB = parseAppointmentTime(b);
+            return timeA.getTime() - timeB.getTime();
+          });
+
+        // Filter confirmed appointments to only those that come AFTER skipped appointment's original time
+        const appointmentsAfterSkipped = arrivedQueue.filter(a => {
+          const appointmentTime = parseAppointmentTime(a);
+          return appointmentTime.getTime() > skippedOriginalTime.getTime();
+        });
+
+        // Calculate base time based on skippedTokenRecurrence using filtered list
+        let baseTime: Date;
+        if (appointmentsAfterSkipped.length >= recurrence) {
+          // Use the time of the appointment at position 'recurrence' (0-indexed: recurrence - 1) in filtered list
+          const referenceAppointment = appointmentsAfterSkipped[recurrence - 1];
+          baseTime = parseAppointmentTime(referenceAppointment);
+        } else if (appointmentsAfterSkipped.length > 0) {
+          // Use the time of the last appointment in filtered list
+          const lastAppointment = appointmentsAfterSkipped[appointmentsAfterSkipped.length - 1];
+          baseTime = parseAppointmentTime(lastAppointment);
+        } else if (arrivedQueue.length > 0) {
+          // No appointments after skipped time, use the last appointment in arrived queue
+          const lastAppointment = arrivedQueue[arrivedQueue.length - 1];
+          baseTime = parseAppointmentTime(lastAppointment);
+        } else {
+          // Arrived queue is empty, use current time + 1 minute
+          baseTime = addMinutes(today, 1);
+        }
+
+        // Add 1 minute to base time
+        let newTime = addMinutes(baseTime, 1);
+
+        // Check for existing rejoined appointments (status='Confirmed' AND has skippedAt field)
+        const rejoinedAppointments = appointments
+          .filter(a =>
+            a.doctor === appointment.doctor &&
+            a.date === todayStr &&
+            a.status === 'Confirmed' &&
+            a.skippedAt && // Only appointments that were previously skipped
+            a.id !== appointment.id
+          )
+          .sort((a, b) => {
+            // Sort by time (descending) to get the latest
+            const timeA = parseAppointmentTime(a);
+            const timeB = parseAppointmentTime(b);
+            return timeB.getTime() - timeA.getTime();
+          });
+
+        // If there are existing rejoined appointments, use the latest one's time + 1 minute
+        if (rejoinedAppointments.length > 0) {
+          const latestRejoined = rejoinedAppointments[0];
+          const latestRejoinedTime = parseAppointmentTime(latestRejoined);
+          newTime = addMinutes(latestRejoinedTime, 1);
+        }
+
+        // Format the new time
+        const newTimeString = format(newTime, 'hh:mm a');
+
+        // Update the skipped appointment: only change status and time, keep everything else
+        const appointmentRef = doc(db, 'appointments', appointment.id);
+        await updateDoc(appointmentRef, {
+          status: 'Confirmed',
+          time: newTimeString,
+          updatedAt: serverTimestamp()
+        });
+
+        // Update local state
+        setAppointments(prev => {
+          return prev.map(a => {
+            if (a.id === appointment.id) {
+              return {
+                ...a,
+                status: 'Confirmed' as const,
+                time: newTimeString
+              };
+            }
+            return a;
+          });
+        });
+
+        toast({
+          title: "Patient Re-joined Queue",
+          description: `${appointment.patientName} has been added back to the queue at position after ${recurrence} patient(s).`
+        });
+      } catch (error: any) {
+        console.error("Error re-joining queue:", error);
+        const errorMessage = error?.message || "Could not re-join the patient to the queue.";
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: errorMessage
+        });
+      }
+    });
+  };
+
+  const filteredAppointments = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return appointments;
+    }
+    return appointments.filter((appointment) =>
+      appointment.patientName?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [appointments, searchTerm]);
+
+  // Compute queues for each doctor/session combination
+  const [queuesByDoctor, setQueuesByDoctor] = useState<Record<string, QueueState>>({});
+
+  useEffect(() => {
+    const computeAllQueues = async () => {
+      if (!clinicId || !doctors.length || !currentDoctor) return;
+
+      const today = format(new Date(), 'd MMMM yyyy');
+      const filteredForToday = filteredAppointments.filter(apt => apt.date === today);
+      const doctorAppointments = filteredForToday.filter(apt => apt.doctor === currentDoctor.name);
+
+      if (doctorAppointments.length === 0) {
+        setQueuesByDoctor({});
+        return;
+      }
+
+      // For queue computation, we'll use sessionIndex 0 for now (or compute per session)
+      const sessionIndex = 0; // Default to first session
+
+      try {
+        const queueState = await computeQueues(
+          doctorAppointments,
+          currentDoctor.name,
+          currentDoctor.id,
+          clinicId,
+          today,
+          sessionIndex
+        );
+
+        setQueuesByDoctor({ [currentDoctor.name]: queueState });
+      } catch (error) {
+        console.error(`Error computing queues for ${currentDoctor.name}:`, error);
+        setQueuesByDoctor({});
+      }
+    };
+
+    computeAllQueues();
+  }, [filteredAppointments, clinicId, doctors, currentDoctor]);
+
+  // Get buffer queue for current doctor (first 2 from arrived queue)
+  const getBufferQueue = (): Appointment[] => {
+    if (!currentDoctor) return [];
+    const queueState = queuesByDoctor[currentDoctor.name];
+    if (!queueState) return [];
+    return queueState.bufferQueue;
+  };
+
+  // Check if appointment is in buffer queue
+  const isInBufferQueue = (appointment: Appointment): boolean => {
+    const bufferQueue = getBufferQueue();
+    return bufferQueue.some(apt => apt.id === appointment.id);
+  };
+
+  const confirmedAppointments = useMemo(() => {
+    const confirmed = filteredAppointments.filter(a => a.status === 'Confirmed');
+    return confirmed.sort(compareAppointmentsByTime);
+  }, [filteredAppointments]);
+
+  // Calculate next sessionIndex for current doctor
+  const nextSessionIndex = useMemo(() => {
+    if (!currentDoctor?.availabilitySlots) return undefined;
+
+    const now = currentTime;
+    const todayDay = format(now, 'EEEE');
+    const todayAvailability = currentDoctor.availabilitySlots.find(slot => slot.day === todayDay);
+
+    if (!todayAvailability?.timeSlots) return undefined;
+
+    // Find the next session (first session that hasn't ended yet)
+    for (let i = 0; i < todayAvailability.timeSlots.length; i++) {
+      const session = todayAvailability.timeSlots[i];
+      try {
+        const sessionStart = parseTime(session.from, now);
+        const sessionEnd = parseTime(session.to, now);
+
+        // If current time is before session end, this is the next session
+        if (isBefore(now, sessionEnd) || now.getTime() === sessionEnd.getTime()) {
+          return i;
+        }
+      } catch {
+        // Skip if parsing fails
+        continue;
+      }
+    }
+
+    return undefined;
+  }, [currentDoctor, currentTime]);
+
+  const pendingAppointments = useMemo(() => {
+    let pending = filteredAppointments.filter(a => a.status === 'Pending');
+
+    // Filter to only show appointments from the next sessionIndex for current doctor
+    if (nextSessionIndex !== undefined && currentDoctor) {
+      pending = pending.filter(apt => {
+        // If appointment doesn't have sessionIndex, include it (for backward compatibility)
+        if (apt.sessionIndex === undefined) return true;
+
+        // Only include if appointment's sessionIndex matches the next sessionIndex
+        // and appointment is for the current doctor
+        return apt.sessionIndex === nextSessionIndex && apt.doctor === currentDoctor.name;
+      });
+    }
+
+    return pending.sort(compareAppointmentsByTime);
+  }, [filteredAppointments, nextSessionIndex, currentDoctor]);
+
+  const skippedAppointments = useMemo(() => {
+    const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
+    return skipped.sort(compareAppointmentsByTime);
+  }, [filteredAppointments]);
+
+
+  return (
+    <div className="flex flex-col h-full bg-muted/20">
+      <ClinicHeader
+        doctors={doctors}
+        selectedDoctor={selectedDoctor}
+        onDoctorChange={handleDoctorChange}
+        showLogo={false}
+        showSettings={false}
+        pageTitle="Live Queue"
+        consultationStatus={consultationStatus}
+      />
+      {isOnline ? (
+        <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">
+          <div className="p-4 border-b space-y-4">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search patient..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 h-10 w-full focus-visible:ring-red-500"
+              />
+            </div>
+
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="w-full grid grid-cols-2">
+                <TabsTrigger value="pending">Pending ({pendingAppointments.length})</TabsTrigger>
+                <TabsTrigger value="skipped" data-state-active-yellow>Skipped ({skippedAppointments.length})</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+              <TabsContent value="pending" className="flex-1 overflow-y-auto m-0 p-4 space-y-6">
+                {/* Arrived Section (Confirmed) */}
+                <div>
+                  <div className="mb-3 flex items-center gap-2 px-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <h3 className="font-semibold text-sm">Arrived ({confirmedAppointments.length})</h3>
+                  </div>
+                  <AppointmentList
+                    appointments={confirmedAppointments}
+                    onUpdateStatus={handleUpdateStatus}
+                    onRejoinQueue={handleRejoinQueue}
+                    onAddToQueue={handleAddToQueue}
+                    showTopRightActions={false}
+                    clinicStatus={consultationStatus}
+                    currentTime={currentTime}
+                    isInBufferQueue={isInBufferQueue}
+                  />
+                </div>
+
+                {/* Pending Section */}
+                <div>
+                  <div className="mb-3 flex items-center gap-2 px-2">
+                    <Clock className="h-4 w-4 text-orange-600" />
+                    <h3 className="font-semibold text-sm">Pending ({pendingAppointments.length})</h3>
+                  </div>
+                  <AppointmentList
+                    appointments={pendingAppointments}
+                    onUpdateStatus={handleUpdateStatus}
+                    onRejoinQueue={handleRejoinQueue}
+                    onAddToQueue={handleAddToQueue}
+                    showTopRightActions={false}
+                    clinicStatus={consultationStatus}
+                    currentTime={currentTime}
+                  />
+                </div>
+              </TabsContent>
+              <TabsContent value="skipped" className="flex-1 overflow-y-auto m-0">
+                <AppointmentList
+                  appointments={skippedAppointments}
+                  onUpdateStatus={handleUpdateStatus}
+                  onRejoinQueue={handleRejoinQueue}
+                  onAddToQueue={handleAddToQueue}
+                  showTopRightActions={false}
+                  clinicStatus={consultationStatus}
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
+        </main>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-muted-foreground bg-muted/20">
+          <WifiOff className="h-16 w-16 mb-4" />
+          <h2 className="text-xl font-semibold text-foreground">You are Offline</h2>
+          <p>Please switch the toggle to 'Online' to view today's appointments.</p>
+        </div>
+      )}
+      <AlertDialog open={!!appointmentToAddToQueue && appointmentToAddToQueue.status === 'Pending'} onOpenChange={(open) => !open && setAppointmentToAddToQueue(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Patient Arrived at Clinic?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirm that "{appointmentToAddToQueue?.patientName}" has arrived at the clinic. This will change their status to "Confirmed" and add them to the queue.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setAppointmentToAddToQueue(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-blue-500 hover:bg-blue-600"
+              onClick={confirmAddToQueue}
+            >
+              Yes, Confirm Arrival
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function compareAppointmentsByTime(a: Appointment, b: Appointment): number {
+  const dateA = parseAppointmentDate(a.date);
+  const dateB = parseAppointmentDate(b.date);
+
+  if (dateA && dateB && dateA.getTime() !== dateB.getTime()) {
+    return dateA.getTime() - dateB.getTime();
+  }
+
+  const dateTimeA = dateA && a.time ? parseTime(a.time, dateA) : null;
+  const dateTimeB = dateB && b.time ? parseTime(b.time, dateB) : null;
+
+  if (dateTimeA && dateTimeB) {
+    return dateTimeA.getTime() - dateTimeB.getTime();
+  }
+
+  if (dateTimeA) return -1;
+  if (dateTimeB) return 1;
+
+  return (a.numericToken || 0) - (b.numericToken || 0);
+}
+
+function parseAppointmentDate(dateStr?: string): Date | null {
+  if (!dateStr) return null;
+  try {
+    const parsedDate = parse(dateStr, 'd MMMM yyyy', new Date());
+    return isNaN(parsedDate.getTime()) ? null : parsedDate;
+  } catch {
+    return null;
+  }
+}

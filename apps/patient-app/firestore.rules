@@ -1,0 +1,173 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isClinicAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'clinicAdmin';
+    }
+    
+    function isPatient() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'patient';
+    }
+    
+    function belongsToUserClinic(clinicId) {
+      return isClinicAdmin() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.clinicId == clinicId;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Users collection - User profile management
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId);
+      // Clinic admins can read all users
+      allow read: if isClinicAdmin();
+      // Patients can read their own profile
+      allow read: if isPatient() && isOwner(userId);
+      
+      // Allow list for clinic admins
+      allow list: if isClinicAdmin();
+      
+      // Allow create with proper validation
+      allow create: if isAuthenticated() && 
+        request.resource.data.uid == userId &&
+        request.resource.data.role is string &&
+        request.resource.data.phone is string;
+      
+      // Users can update their own profile
+      allow update: if isOwner(userId);
+      // Clinic admins can delete users
+      allow delete: if isClinicAdmin();
+    }
+    
+    // Clinics collection - Public read, clinic admin write
+    match /clinics/{clinicId} {
+      allow read: if isAuthenticated();
+      allow write: if isClinicAdmin() && belongsToUserClinic(clinicId);
+    }
+    
+    // Doctors collection - All authenticated users can read and list
+    match /doctors/{doctorId} {
+      allow read, list: if isAuthenticated();
+      allow write: if isClinicAdmin() && 
+        belongsToUserClinic(resource.data.clinicId);
+    }
+    
+    // Patients collection - Clinic-specific access
+    match /patients/{patientId} {
+      // Patients can read their own patient document
+      allow read: if isPatient() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.patientId == patientId;
+      
+      // Patients can create their own profile during login
+      // Allow any authenticated user to create a patient document (during registration)
+      allow create: if isAuthenticated() && 
+        request.resource.data.phone is string &&
+        request.resource.data.communicationPhone is string &&
+        request.resource.data.primaryUserId is string &&
+        request.resource.data.totalAppointments is int;
+      
+      // Patients can update their own patient document
+      allow update: if isPatient() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.patientId == patientId;
+      
+      // Clinic admins can read all patients
+      allow read: if isClinicAdmin();
+      
+      // Clinic admins can create patients (even with empty clinicIds for new patients)
+      allow create: if isClinicAdmin();
+      
+      // Clinic admins can update patients in their clinic
+      allow update: if isClinicAdmin() && 
+        resource.data.clinicIds is list &&
+        resource.data.clinicIds.size() > 0 &&
+        belongsToUserClinic(resource.data.clinicIds[0]);
+      
+      // Clinic admins can delete patients in their clinic
+      allow delete: if isClinicAdmin() && 
+        resource.data.clinicIds is list &&
+        resource.data.clinicIds.size() > 0 &&
+        belongsToUserClinic(resource.data.clinicIds[0]);
+    }
+    
+    // Appointments collection - Complex access control
+    match /appointments/{appointmentId} {
+      // Patients can read their own appointments
+      allow read: if isPatient() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.patientId == resource.data.patientId;
+      
+      // Patients can create walk-in appointments
+      allow create: if isPatient() && 
+        request.resource.data.patientId is string &&
+        request.resource.data.patientName is string &&
+        request.resource.data.clinicId is string &&
+        request.resource.data.phone is string &&
+        request.resource.data.doctor is string &&
+        request.resource.data.status is string &&
+        request.resource.data.time is string &&
+        request.resource.data.date is string &&
+        request.resource.data.createdAt is string &&
+        request.resource.data.bookedVia is string;
+      
+      // Patients can update their own appointments
+      allow update: if isPatient() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.patientId == resource.data.patientId;
+      
+      // Clinic admins can read/write all appointments in their clinic
+      allow read, write: if isClinicAdmin() && 
+        resource.data.clinicId is string &&
+        belongsToUserClinic(resource.data.clinicId);
+    }
+    
+    // Consultation counters collection - Clinic-specific access
+    match /consultation-counters/{counterId} {
+      // Allow read for authenticated users (needed for queue computation)
+      allow read: if isAuthenticated();
+      
+      // Allow write (create/update) for clinic admins
+      allow write: if isClinicAdmin() && 
+        (request.resource.data.clinicId is string || resource.data.clinicId is string);
+    }
+    
+    // Master departments - Public read for authenticated users
+    match /master-departments/{departmentId} {
+      allow read: if isAuthenticated();
+    }
+    
+    // Mobile app credentials - Clinic-specific access
+    match /mobile-app/{credId} {
+      allow read, write: if isClinicAdmin() && 
+        belongsToUserClinic(resource.data.clinicId);
+    }
+    
+    // Slot reservations collection - Used for atomic slot locking during appointment booking
+    match /slot-reservations/{reservationId} {
+      // Allow authenticated users to read and write slot reservations
+      // These are temporary documents used to prevent double booking
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Token counters collection - Used for atomic token generation
+    match /token-counters/{counterId} {
+      // Allow authenticated users to read and write token counters
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

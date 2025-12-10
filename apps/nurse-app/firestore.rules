@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow clinic staff to manage users and patients
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    match /patients/{patientId} {
+      allow read, write: if true;
+    }
+    
+    match /mobile-app/{credentialId} {
+      allow read, write: if true;
+    }
+    
+    match /doctors/{doctorId} {
+        allow read, write: if true;
+    }
+    
+    match /appointments/{appointmentId} {
+        allow read, write: if true;
+    }
+    
+    match /consultation-counters/{counterId} {
+        allow read, write: if true;
+    }
+    
+    // Slot reservations collection - Used for atomic slot locking during appointment booking
+    match /slot-reservations/{reservationId} {
+      // Allow all authenticated users to read and write slot reservations
+      // These are temporary documents used to prevent double booking
+      allow read, write: if true;
+    }
+    
+    // Token counters collection - Used for atomic token generation
+    match /token-counters/{counterId} {
+      // Allow all authenticated users to read and write token counters
+      allow read, write: if true;
+    }
+  }
+}

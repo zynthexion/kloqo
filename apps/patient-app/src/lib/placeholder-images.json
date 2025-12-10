@@ -1,0 +1,16 @@
+{
+  "placeholderImages": [
+    {
+      "id": "doctor-profile",
+      "description": "A friendly male doctor smiling",
+      "imageUrl": "https://picsum.photos/seed/docprofile/128/128",
+      "imageHint": "doctor portrait"
+    },
+    {
+      "id": "doctor-profile-female",
+      "description": "A friendly female doctor smiling",
+      "imageUrl": "https://picsum.photos/seed/femaledoc/600/800",
+      "imageHint": "female doctor portrait"
+    }
+  ]
+}

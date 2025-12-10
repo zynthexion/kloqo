@@ -1,0 +1,74 @@
+{
+  "placeholderImages": [
+    {
+      "id": "dr_smith",
+      "description": "Portrait of Dr. Emily Smith",
+      "imageUrl": "https://images.unsplash.com/photo-1537368910025-70035079f326?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8OHx8ZG9jdG9yfGVufDB8fDB8fHww"
+    },
+    {
+      "id": "dr_jones",
+      "description": "Portrait of Dr. Michael Jones",
+      "imageUrl": "https://images.unsplash.com/photo-1651133339395-909c065005b4?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MzJ8fGRvY3RvcnxlbnwwfHwwfHx8MA%3D%3D"
+    },
+    {
+      "id": "dr_chen",
+      "description": "Portrait of Dr. Linda Chen",
+      "imageUrl": "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MjZ8fGRvY3RvcnxlbnwwfHwwfHx8MA%3D%3D"
+    },
+    {
+      "id": "dr_rodriguez",
+      "description": "Portrait of Dr. Carlos Rodriguez",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1661757234299-a8c8b217596a?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MXx8ZG9jdG9yfGVufDB8fDB8fHww"
+    },
+    {
+      "id": "user_avatar",
+      "description": "Avatar for the current user",
+      "imageUrl": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8dXNlciUyMGF2YXRhcnxlbnwwfHwwfHx8MA%3D%3D"
+    },
+    {
+      "id": "general_medicine",
+      "description": "Stethoscope and pills representing general medicine.",
+      "imageUrl": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWVkaWNpbmV8ZW58MHx8MHx8fDA%3D"
+    },
+    {
+      "id": "cardiology",
+      "description": "Anatomical model of a human heart.",
+      "imageUrl": "https://images.unsplash.com/photo-1530026405182-271453396975?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MjZ8fG1lZGljaW5lfGVufDB8fDB8fHww"
+    },
+    {
+      "id": "pediatrics",
+      "description": "Doctor examining a baby.",
+      "imageUrl": "https://images.unsplash.com/photo-1599586120429-48281b6f0ece?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTR8fGNoaWxkcmVuJTIwZG9jdG9yfGVufDB8fDB8fHww"
+    },
+    {
+      "id": "dermatology",
+      "description": "Close-up of skin care treatment.",
+      "imageUrl": "https://images.unsplash.com/photo-1631894959934-396b3a8d11b3?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fGRlcm1hdG9sb2d5fGVufDB8fDB8fHww"
+    },
+    {
+      "id": "internal_medicine",
+      "description": "Doctor pointing to an anatomical model of the digestive system.",
+      "imageUrl": "https://images.unsplash.com/photo-1551191980-492a71b1626a?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8aW50ZXJuYWwlMjBtZWRpY2luZXxlbnwwfHwwfHx8MA%3D%3D"
+    },
+    {
+      "id": "orthopedics",
+      "description": "Doctor applying a brace to a patient's wrist.",
+      "imageUrl": "https://images.unsplash.com/photo-1681878096238-31e1388b0a99?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8b3J0aG9wZWRpY3N8ZW58MHx8MHx8fDA%3D"
+    },
+    {
+      "id": "neurology",
+      "description": "Doctor pointing to a model of the human brain.",
+      "imageUrl": "https://images.unsplash.com/photo-1695423589949-c9a56f626245?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8bmV1cm9sb2d5fGVufDB8fDB8fHww"
+    },
+    {
+      "id": "oncology",
+      "description": "Hands holding a cancer awareness ribbon with a stethoscope.",
+      "imageUrl": "https://plus.unsplash.com/premium_photo-1676999081594-81498a442a22?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MXx8b25jb2xvZ3l8ZW58MHx8MHx8fDA%3D"
+    },
+    {
+      "id": "obgyn",
+      "description": "A pregnant woman holding supplements.",
+      "imageUrl": "https://images.unsplash.com/photo-1576089182512-a8ce7c001a88?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTF8fHByZWduYW5jeXxlbnwwfHwwfHx8MA%3D%3D"
+    }
+  ]
+}

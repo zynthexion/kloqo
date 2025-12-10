@@ -10,8 +10,8 @@
     "dependencies": {
         "date-fns": "^3.6.0",
         "firebase": "^11.9.1",
-        "@kloqo/shared-firebase": "workspace:*",
-        "@kloqo/shared-types": "workspace:*"
+        "@kloqo/shared-firebase": "*",
+        "@kloqo/shared-types": "*"
     },
     "devDependencies": {
         "@types/node": "^20",

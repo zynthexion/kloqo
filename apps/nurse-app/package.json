@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kloqo/shared-core": "workspace:*",
-    "@kloqo/shared-types": "workspace:*",
-    "@kloqo/shared-firebase": "workspace:*",
+    "@kloqo/shared-core": "*",
+    "@kloqo/shared-types": "*",
+    "@kloqo/shared-firebase": "*",
     "@ducanh2912/next-pwa": "^10.2.7",
     "@genkit-ai/core": "^1.21.0",
     "@genkit-ai/googleai": "^1.14.1",

@@ -633,6 +633,7 @@ export async function generateNextTokenAndReserveSlot(
           }
           const nextWalkInNumericToken = totalSlots + counterState.nextNumber;
           const shiftPlan = await prepareAdvanceShift({
+            firestore: db,
             transaction,
             clinicId,
             doctorName,
@@ -2689,7 +2690,7 @@ export async function rebalanceWalkInSchedule(
   const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
   const walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
 
-  const { slots } = await loadDoctorAndSlots(doctor.clinicId || '', doctor.name, date, doctor.id);
+  const { slots } = await loadDoctorAndSlots(db, doctor.clinicId || '', doctor.name, date, doctor.id);
   const averageConsultingTime = doctor.averageConsultingTime || 15;
   const appointments = await fetchDayAppointments(doctor.clinicId || '', doctor.name, date);
 
@@ -2860,6 +2861,7 @@ export async function calculateWalkInDetails(
   const date = now;
 
   const { slots } = await loadDoctorAndSlots(
+    db,
     doctor.clinicId || '',
     doctor.name,
     date,
@@ -2944,6 +2946,7 @@ export async function calculateSkippedTokenRejoinSlot(
   const clinicId = appointment.clinicId || doctor.clinicId || '';
   const doctorName = appointment.doctor || doctor.name;
   const { slots } = await loadDoctorAndSlots(
+    db,
     clinicId,
     doctorName,
     referenceDate,

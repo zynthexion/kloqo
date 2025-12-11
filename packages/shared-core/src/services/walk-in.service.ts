@@ -1,7 +1,7 @@
 import { collection, query, where, orderBy, getDocs, getDoc, Firestore, runTransaction, doc, serverTimestamp, type Transaction, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
-import { parseTime as parseTimeString } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
+import { parseTime as parseTimeString, getSessionEnd } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
 
@@ -2862,48 +2862,28 @@ export async function calculateWalkInDetails(
     futureFreeSlots.sort((a, b) => a.time.getTime() - b.time.getTime())[0] ||
     allFreeSlots.sort((a, b) => a.time.getTime() - b.time.getTime())[0];
 
-  if (!chosenSlot) {
-    // If forceBook is enabled, create an overflow slot after the last booked token
-    if (forceBook) {
-      console.log('[FORCE BOOK] No slots available - creating overflow slot');
+  // Force booking logic: first try available slots, then overflow if none found
+  if (forceBook) {
+    console.log('[FORCE BOOK] Force booking enabled - checking for available slots first');
+    
+    // First priority: Check if there are available slots within the 15-minute closing window
+    if (chosenSlot) {
+      console.log('[FORCE BOOK] Found available slot within closing window:', {
+        slotIndex: chosenSlot.index,
+        time: format(chosenSlot.time, 'hh:mm a'),
+        sessionIndex: chosenSlot.sessionIndex
+      });
       
-      // Find the last slot index from all appointments and slots
-      const allSlotIndices = [
-        ...appointments
-          .filter(apt => typeof apt.slotIndex === 'number')
-          .map(apt => apt.slotIndex as number),
-        ...slots.map(s => s.index)
-      ];
-      
-      const maxSlotIndex = allSlotIndices.length > 0 ? Math.max(...allSlotIndices) : -1;
-      const overflowSlotIndex = maxSlotIndex + 1;
-      
-      // Find last slot time or use last session end time
-      let overflowTime: Date;
-      const consultationTime = doctor.averageConsultingTime || 15;
-      
-      if (slots.length > 0) {
-        const lastSlot = slots[slots.length - 1];
-        overflowTime = addMinutes(lastSlot.time, consultationTime);
-      } else {
-        // No slots exist, use current time
-        overflowTime = addMinutes(now, consultationTime);
-      }
-      
-      // Determine session index (use last session)
-      const dayOfWeek = format(date, 'EEEE');
-      const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-      const lastSessionIndex = availabilityForDay?.timeSlots?.length 
-        ? availabilityForDay.timeSlots.length - 1 
-        : 0;
-      
-      // Count patients ahead (all active appointments)
+      // Use the available slot, but mark as force booked
       const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
-      const patientsAhead = appointments.filter(appointment => 
-        allActiveStatuses.has(appointment.status)
-      ).length;
-      
-      // Numeric token: next after max existing W or slots length
+      const patientsAhead = appointments.filter(appointment => {
+        return (
+          typeof appointment.slotIndex === 'number' &&
+          appointment.slotIndex < chosenSlot.index &&
+          allActiveStatuses.has(appointment.status)
+        );
+      }).length;
+
       const existingNumericTokens = appointments
         .filter(appointment => appointment.bookedVia === 'Walk-in')
         .map(appointment => {
@@ -2917,26 +2897,97 @@ export async function calculateWalkInDetails(
 
       const numericToken =
         (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
-      
-      console.log('[FORCE BOOK] Created overflow slot:', {
-        slotIndex: overflowSlotIndex,
-        time: format(overflowTime, 'hh:mm a'),
-        sessionIndex: lastSessionIndex,
-        numericToken,
-        patientsAhead
-      });
-      
+
       return {
-        estimatedTime: overflowTime,
+        estimatedTime: chosenSlot.time,
         patientsAhead,
         numericToken,
-        slotIndex: overflowSlotIndex,
-        sessionIndex: lastSessionIndex,
-        actualSlotTime: overflowTime,
-        isForceBooked: true,
+        slotIndex: chosenSlot.index,
+        sessionIndex: chosenSlot.sessionIndex,
+        actualSlotTime: chosenSlot.time,
+        isForceBooked: true, // Mark as force booked even though slot is available
       };
     }
     
+    // Second priority: No slots available - create overflow slot after session end time
+    console.log('[FORCE BOOK] No available slots found - creating overflow slot after session end time');
+    
+    const dayOfWeek = format(date, 'EEEE');
+    const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
+    
+    if (!availabilityForDay?.timeSlots?.length) {
+      throw new Error('Doctor availability information is missing for force booking.');
+    }
+    
+    // Get the last session index
+    const lastSessionIndex = availabilityForDay.timeSlots.length - 1;
+    
+    // Get effective session end time (includes extensions, considers breaks)
+    const effectiveSessionEnd = getSessionEnd(doctor, date, lastSessionIndex);
+    
+    if (!effectiveSessionEnd) {
+      throw new Error('Could not determine session end time for force booking.');
+    }
+    
+    const consultationTime = doctor.averageConsultingTime || 15;
+    
+    // Overflow slot starts at effective session end time
+    const overflowTime = effectiveSessionEnd;
+    
+    // Find the max slot index
+    const allSlotIndices = [
+      ...appointments
+        .filter(apt => typeof apt.slotIndex === 'number')
+        .map(apt => apt.slotIndex as number),
+      ...slots.map(s => s.index)
+    ];
+    
+    const maxSlotIndex = allSlotIndices.length > 0 ? Math.max(...allSlotIndices) : -1;
+    const overflowSlotIndex = maxSlotIndex + 1;
+    
+    // Count patients ahead (all active appointments)
+    const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
+    const patientsAhead = appointments.filter(appointment => 
+      allActiveStatuses.has(appointment.status)
+    ).length;
+    
+    // Numeric token: next after max existing W or slots length
+    const existingNumericTokens = appointments
+      .filter(appointment => appointment.bookedVia === 'Walk-in')
+      .map(appointment => {
+        if (typeof appointment.numericToken === 'number') {
+          return appointment.numericToken;
+        }
+        const parsed = Number(appointment.numericToken);
+        return Number.isFinite(parsed) ? parsed : 0;
+      })
+      .filter(token => token > 0);
+
+    const numericToken =
+      (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
+    
+    console.log('[FORCE BOOK] Created overflow slot after session end time:', {
+      effectiveSessionEnd: format(effectiveSessionEnd, 'hh:mm a'),
+      overflowEndTime: format(addMinutes(overflowTime, consultationTime), 'hh:mm a'),
+      slotIndex: overflowSlotIndex,
+      sessionIndex: lastSessionIndex,
+      numericToken,
+      patientsAhead,
+      consultationTime
+    });
+    
+    return {
+      estimatedTime: overflowTime,
+      patientsAhead,
+      numericToken,
+      slotIndex: overflowSlotIndex,
+      sessionIndex: lastSessionIndex,
+      actualSlotTime: overflowTime,
+      isForceBooked: true,
+    };
+  }
+
+  if (!chosenSlot) {
     throw new Error('No walk-in slots are available at this time.');
   }
 

@@ -880,14 +880,23 @@ export default function AppointmentsPage() {
     return now >= walkInOpenTime && now <= walkInCloseTime;
   }, [appointmentType, selectedDoctor]);
 
+  // Check if force booking window is active (within 15 min of closing)
+  const isForceBookWindow = useMemo(() => {
+    if (appointmentType !== 'Walk-in' || !selectedDoctor) return false;
+    return isWithin15MinutesOfClosing(selectedDoctor, new Date());
+  }, [appointmentType, selectedDoctor, currentTime]);
+
   useEffect(() => {
-    if (appointmentType === 'Walk-in' && selectedDoctor && isWalkInAvailable) {
+    // Run if normal walk-in is available OR if we're in force booking window
+    if (appointmentType === 'Walk-in' && selectedDoctor && (isWalkInAvailable || isForceBookWindow)) {
       setIsCalculatingEstimate(true);
       const allotment = clinicDetails?.walkInTokenAllotment || 3;
       console.log('[WALK-IN DEBUG] Starting walk-in details calculation', {
         doctor: selectedDoctor.name,
         clinicId: clinicId ?? selectedDoctor.clinicId,
         walkInTokenAllotment: allotment,
+        isWalkInAvailable,
+        isForceBookWindow,
         timestamp: new Date().toISOString()
       });
       calculateWalkInDetails(db, selectedDoctor, allotment, 0, false).then(details => {
@@ -940,8 +949,9 @@ export default function AppointmentsPage() {
       });
     } else {
       setWalkInEstimate(null);
+      setWalkInEstimateUnavailable(false);
     }
-  }, [appointmentType, selectedDoctor, isWalkInAvailable, clinicDetails, toast]);
+  }, [appointmentType, selectedDoctor, isWalkInAvailable, isForceBookWindow, clinicDetails, toast]);
 
   // Handle force booking for walk-in estimate
   const handleForceBookEstimate = useCallback(async () => {
@@ -3784,50 +3794,60 @@ export default function AppointmentsPage() {
                                       </FormItem>
                                     )} />
                                   ) : (
-                                    <Card className={cn("mt-4", walkInEstimate ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>
+                                    <Card className={cn("mt-4", walkInEstimate ? "bg-green-50 border-green-200" : walkInEstimateUnavailable ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200")}>
                                       <CardHeader className="flex-row items-start gap-3 space-y-0 p-4">
-                                        <Info className={cn("w-6 h-6 mt-1", walkInEstimate ? "text-green-600" : "text-red-600")} />
+                                        <Info className={cn("w-6 h-6 mt-1", walkInEstimate ? "text-green-600" : walkInEstimateUnavailable ? "text-amber-600" : "text-red-600")} />
                                         <div>
                                           {(() => {
-                                            if (!walkInEstimate || !selectedDoctor) {
-                                              // Check if estimate is unavailable but force booking is possible
-                                              if (walkInEstimateUnavailable) {
-                                                const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
-                                                return (
-                                                  <div className="space-y-3">
-                                                    <div>
-                                                      <CardTitle className="text-base text-amber-700">Walk-in Booking Closed</CardTitle>
-                                                      <CardDescription className="text-xs text-amber-800">
-                                                        {isNearClosing 
-                                                          ? "Within 15 minutes of closing time." 
-                                                          : "All available slots are fully booked."}
-                                                      </CardDescription>
-                                                    </div>
-                                                    <Button 
-                                                      onClick={handleForceBookEstimate}
-                                                      variant="outline"
-                                                      size="sm"
-                                                      className="w-full border-amber-500 text-amber-700 hover:bg-amber-50"
-                                                      disabled={isCalculatingEstimate}
-                                                    >
-                                                      {isCalculatingEstimate ? (
-                                                        <>
-                                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                          Processing...
-                                                        </>
-                                                      ) : (
-                                                        <>
-                                                          <AlertTriangle className="mr-2 h-4 w-4" />
-                                                          Force Book
-                                                        </>
-                                                      )}
-                                                    </Button>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      Patient will be scheduled outside normal hours
-                                                    </p>
+                                            // Show force book option if unavailable flag is set, regardless of estimate
+                                            if (walkInEstimateUnavailable && selectedDoctor) {
+                                              const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
+                                              return (
+                                                <div className="space-y-3">
+                                                  <div>
+                                                    <CardTitle className="text-base text-amber-700">
+                                                      {walkInEstimate ? "Walk-in Closing Soon" : "Walk-in Booking Closed"}
+                                                    </CardTitle>
+                                                    <CardDescription className="text-xs text-amber-800">
+                                                      {isNearClosing
+                                                        ? "Within 15 minutes of closing time."
+                                                        : "All available slots are fully booked."}
+                                                    </CardDescription>
                                                   </div>
-                                                );
-                                              }
+                                                  {walkInEstimate && (
+                                                    <div className="text-sm text-amber-900 py-2 px-3 bg-amber-100 rounded-md">
+                                                      <p className="font-medium">Current Estimate:</p>
+                                                      <p>Token: {walkInEstimate.token}</p>
+                                                      <p>Time: {format(walkInEstimate.estimatedTime, 'hh:mm a')}</p>
+                                                    </div>
+                                                  )}
+                                                  <Button
+                                                    onClick={handleForceBookEstimate}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full border-amber-500 text-amber-700 hover:bg-amber-50"
+                                                    disabled={isCalculatingEstimate}
+                                                  >
+                                                    {isCalculatingEstimate ? (
+                                                      <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Processing...
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <AlertTriangle className="mr-2 h-4 w-4" />
+                                                        Force Book
+                                                      </>
+                                                    )}
+                                                  </Button>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Patient will be scheduled outside normal hours
+                                                  </p>
+                                                </div>
+                                              );
+                                            }
+                                            
+                                            if (!walkInEstimate || !selectedDoctor) {
                                               
                                               return (
                                                 <>

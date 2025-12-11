@@ -39,7 +39,9 @@ import {
   getSessionEnd,
   type SessionInfo,
   type SlotInfo,
-  type BreakInterval
+  type BreakInterval,
+  shiftAppointmentsForNewBreak,
+  validateBreakOverlapWithNextSession
 } from '@kloqo/shared-core';
 import { format, parse, isSameDay, getDay, addMinutes, subMinutes, isWithinInterval, differenceInMinutes, isPast, parseISO, startOfDay, isToday, isBefore, isAfter } from "date-fns";
 import { Clock, User, BriefcaseMedical, Calendar as CalendarIcon, Info, Edit, Save, X, Trash, Copy, Loader2, ChevronLeft, ChevronRight, Search, Star, Users, CalendarDays, Link as LinkIcon, PlusCircle, DollarSign, Printer, FileDown, ChevronUp, ChevronDown, Minus, Trophy, Repeat, CalendarCheck, Upload, Trash2 } from "lucide-react";
@@ -1043,34 +1045,8 @@ export default function DoctorsPage() {
   }, [selectedDoctor?.leaveSlots, leaveCalDate, selectedDoctor?.averageConsultingTime]);
 
   const canCancelBreak = useMemo(() => {
-    if (!selectedDoctor || !leaveCalDate || dailyLeaveSlots.length === 0) {
-      return false;
-    }
-
-    const dayOfWeek = format(leaveCalDate, 'EEEE');
-    const availabilityForDay = selectedDoctor.availabilitySlots?.find(
-      (slot) => slot.day === dayOfWeek
-    );
-
-    if (!availabilityForDay?.timeSlots?.length) {
-      return true;
-    }
-
-    let earliestStart: Date | null = null;
-    for (const slot of availabilityForDay.timeSlots) {
-      const start = parseTimeUtil(slot.from, leaveCalDate);
-      if (!earliestStart || start.getTime() < earliestStart.getTime()) {
-        earliestStart = start;
-      }
-    }
-
-    if (!earliestStart) {
-      return true;
-    }
-
-    const minutesUntilStart = differenceInMinutes(earliestStart, new Date());
-    return minutesUntilStart >= 60;
-  }, [selectedDoctor, leaveCalDate, dailyLeaveSlots]);
+    return true;
+  }, []);
 
   const allTimeSlotsForDay = useMemo((): Date[] => {
     if (!selectedDoctor || !leaveCalDate) return [];
@@ -1320,141 +1296,6 @@ export default function DoctorsPage() {
     setShowExtensionDialog(true);
   };
 
-  const adjustAppointmentsForNewBreak = async (
-    breakPeriod: BreakPeriod,
-    sessionIndex: number,
-    date: Date,
-    doctorName: string,
-    clinicId: string
-  ) => {
-    try {
-      const dateStr = format(date, 'd MMMM yyyy');
-      const breakStart = parseISO(breakPeriod.startTime);
-      const breakDuration = breakPeriod.duration || 0;
-
-      console.log(`[BREAK ADJUST] Starting adjustment for new break`, {
-        breakStart: format(breakStart, 'hh:mm a'),
-        breakStartISO: breakPeriod.startTime,
-        breakDuration,
-        date: dateStr,
-        sessionIndex,
-        doctorName,
-        clinicId
-      });
-
-      // Query appointments for this doctor, date, and session
-      const appointmentsQuery = query(
-        collection(db, 'appointments'),
-        where('doctor', '==', doctorName),
-        where('clinicId', '==', clinicId),
-        where('date', '==', dateStr),
-        where('sessionIndex', '==', sessionIndex)
-      );
-
-      const snapshot = await getDocs(appointmentsQuery);
-      console.log(`[BREAK ADJUST] Found ${snapshot.docs.length} appointments for date ${dateStr}, session ${sessionIndex}`);
-
-      const batch = writeBatch(db);
-
-      const appointmentsToUpdate: {
-        id: string;
-        adjustedArriveByTime: string;
-        newCutOffTime: Date;
-        newNoShowTime: Date;
-      }[] = [];
-
-      snapshot.docs.forEach(docSnap => {
-        const appt = docSnap.data() as Appointment;
-
-        // Base time to compare against break start: use arriveByTime if present (already includes existing break offsets), else time
-        const baseTimeStr = appt.arriveByTime || appt.time;
-        if (!baseTimeStr) {
-          console.log(`[BREAK ADJUST] Skipping appointment ${docSnap.id} - no time field`);
-          return;
-        }
-
-        const apptArriveBy = parseTimeUtil(baseTimeStr, date);
-
-        console.log(`[BREAK ADJUST] Checking appointment ${docSnap.id}`, {
-          appointmentId: docSnap.id,
-          time: appt.time,
-          arriveByTime: appt.arriveByTime,
-          baseTimeStr,
-          apptArriveByTime: format(apptArriveBy, 'hh:mm a'),
-          breakStartTime: format(breakStart, 'hh:mm a'),
-          isAfterBreak: apptArriveBy.getTime() >= breakStart.getTime()
-        });
-
-        // Only adjust appointments that are on/after the break start
-        if (apptArriveBy.getTime() < breakStart.getTime()) {
-          console.log(`[BREAK ADJUST] Skipping appointment ${docSnap.id} - before break start`);
-          return;
-        }
-
-        const cutOffDate = appt.cutOffTime && typeof (appt.cutOffTime as any).toDate === 'function'
-          ? (appt.cutOffTime as any).toDate()
-          : appt.cutOffTime instanceof Date
-            ? appt.cutOffTime
-            : null;
-
-        const noShowDate = appt.noShowTime && typeof (appt.noShowTime as any).toDate === 'function'
-          ? (appt.noShowTime as any).toDate()
-          : appt.noShowTime instanceof Date
-            ? appt.noShowTime
-            : null;
-
-        // Add break duration to times
-        const newArriveBy = addMinutes(apptArriveBy, breakDuration);
-        const newCutOffTime = cutOffDate ? addMinutes(cutOffDate, breakDuration) : null;
-        const newNoShowTime = noShowDate ? addMinutes(noShowDate, breakDuration) : null;
-
-        console.log(`[BREAK ADJUST] Adjusting appointment ${docSnap.id}`, {
-          appointmentId: docSnap.id,
-          oldArriveByTime: appt.arriveByTime,
-          newArriveByTime: format(newArriveBy, 'hh:mm a'),
-          oldCutOffTime: cutOffDate ? format(cutOffDate, 'hh:mm a') : null,
-          newCutOffTime: newCutOffTime ? format(newCutOffTime, 'hh:mm a') : null,
-          oldNoShowTime: noShowDate ? format(noShowDate, 'hh:mm a') : null,
-          newNoShowTime: newNoShowTime ? format(newNoShowTime, 'hh:mm a') : null,
-        });
-
-        appointmentsToUpdate.push({
-          id: docSnap.id,
-          adjustedArriveByTime: format(newArriveBy, 'hh:mm a'),
-          newCutOffTime: newCutOffTime!,
-          newNoShowTime: newNoShowTime!,
-        });
-      });
-
-      // Update affected appointments
-      for (const appt of appointmentsToUpdate) {
-        const apptRef = doc(db, 'appointments', appt.id);
-        batch.update(apptRef, {
-          // Do NOT touch 'time' field – keep original slot time
-          arriveByTime: appt.adjustedArriveByTime,
-          ...(appt.newCutOffTime ? { cutOffTime: Timestamp.fromDate(appt.newCutOffTime) } : {}),
-          ...(appt.newNoShowTime ? { noShowTime: Timestamp.fromDate(appt.newNoShowTime) } : {}),
-        });
-      }
-
-      if (appointmentsToUpdate.length > 0) {
-        await batch.commit();
-        console.log(`[BREAK ADJUST] ✅ Successfully adjusted ${appointmentsToUpdate.length} appointments for new break`, {
-          breakStart: format(breakStart, 'hh:mm a'),
-          breakDuration,
-          date: dateStr,
-          sessionIndex,
-          adjustedCount: appointmentsToUpdate.length
-        });
-      } else {
-        console.log(`[BREAK ADJUST] ⚠️ No appointments to adjust (all appointments are before break start)`);
-      }
-    } catch (error) {
-      console.error(`[BREAK ADJUST] ❌ Error adjusting appointments for new break:`, error);
-      throw error; // Re-throw to let caller handle it
-    }
-  };
-
   const confirmBreakWithExtension = async (extensionMinutes: number | null) => {
     if (!pendingBreakData || !selectedDoctor || !leaveCalDate) {
       setShowExtensionDialog(false);
@@ -1476,6 +1317,32 @@ export default function DoctorsPage() {
       setExtensionOptions(null);
       return;
     }
+
+    // Validate session overlap if extending
+    if (extensionMinutes && extensionMinutes > 0) {
+      const proposedEndTime = addMinutes(sessionEnd, extensionMinutes);
+      const overlapValidation = validateBreakOverlapWithNextSession(
+        selectedDoctor,
+        leaveCalDate,
+        sessionIndex,
+        proposedEndTime
+      );
+
+      if (!overlapValidation.valid) {
+        toast({
+          variant: 'destructive',
+          title: 'Cannot Extend Session',
+          description: overlapValidation.error
+        });
+        setShowExtensionDialog(false);
+        // Do NOT clear pending data immediately if we want them to correct it? 
+        // But the current UI flow is modal-based. Fail safe:
+        setPendingBreakData(null);
+        setExtensionOptions(null);
+        return;
+      }
+    }
+
     setIsSubmittingBreak(true);
     setShowExtensionDialog(false);
     setPendingBreakData(null);
@@ -1583,17 +1450,25 @@ export default function DoctorsPage() {
 
       // Update affected appointments: add break duration to arriveByTime, cutOffTime, noShowTime
       try {
-        console.log(`[BREAK CONFIRM] About to call adjustAppointmentsForNewBreak`, {
+        console.log(`[BREAK CONFIRM] About to call shiftAppointmentsForNewBreak`, {
           newBreak,
           sessionIndex,
           leaveCalDate: format(leaveCalDate, 'd MMMM yyyy'),
           doctorName: selectedDoctor.name,
           clinicId: selectedDoctor.clinicId
         });
-        await adjustAppointmentsForNewBreak(newBreak, sessionIndex, leaveCalDate, selectedDoctor.name, selectedDoctor.clinicId);
-        console.log(`[BREAK CONFIRM] adjustAppointmentsForNewBreak completed successfully`);
+        await shiftAppointmentsForNewBreak(
+          db,
+          newBreak,
+          sessionIndex,
+          leaveCalDate,
+          selectedDoctor.name,
+          selectedDoctor.clinicId,
+          selectedDoctor.averageConsultingTime
+        );
+        console.log(`[BREAK CONFIRM] shiftAppointmentsForNewBreak completed successfully`);
       } catch (error) {
-        console.error(`[BREAK CONFIRM] Error in adjustAppointmentsForNewBreak:`, error);
+        console.error(`[BREAK CONFIRM] Error in shiftAppointmentsForNewBreak:`, error);
         // Don't throw - break was already saved, just log the error
         toast({
           variant: 'destructive',
@@ -1765,74 +1640,19 @@ export default function DoctorsPage() {
       });
 
       // Update affected appointments: subtract break duration from arriveByTime, cutOffTime, noShowTime
-      const appointmentsRef = collection(db, 'appointments');
-      const appointmentsQuery = query(
-        appointmentsRef,
-        where('clinicId', '==', selectedDoctor.clinicId),
-        where('doctor', '==', selectedDoctor.name),
-        where('date', '==', dateKey),
-        where('sessionIndex', '==', currentSession.sessionIndex)
-      );
 
-      const snapshot = await getDocs(appointmentsQuery);
-      const batch = writeBatch(db);
-      const breakDuration = breakToRemove.duration || 0;
-      const breakStart = parseISO(breakToRemove.startTime);
-
-      const toDateSafe = (val: any): Date | null => {
-        if (!val) return null;
-        if (val instanceof Date) return val;
-        if (typeof val.toDate === 'function') return val.toDate();
-        if (val.seconds) return new Date(val.seconds * 1000);
-        const parsed = new Date(val);
-        return isNaN(parsed.getTime()) ? null : parsed;
-      };
-
-      let adjustedCount = 0;
-      let skippedBeforeBreak = 0;
-
-      snapshot.forEach(docSnap => {
-        const apt = docSnap.data() as Appointment;
-        const arriveByStr = apt.arriveByTime || apt.time;
-        const arriveByDate = parseTimeUtil(arriveByStr, leaveCalDate);
-
-        // Only adjust appointments that are on/after the cancelled break start
-        if (arriveByDate.getTime() < breakStart.getTime()) {
-          skippedBeforeBreak++;
-          return;
-        }
-
-        const cutOffDate = toDateSafe(apt.cutOffTime);
-        const noShowDate = toDateSafe(apt.noShowTime);
-
-        const newArriveBy = subMinutes(arriveByDate, breakDuration);
-        const newCutOff = cutOffDate ? subMinutes(cutOffDate, breakDuration) : null;
-        const newNoShow = noShowDate ? subMinutes(noShowDate, breakDuration) : null;
-
-        batch.update(docSnap.ref, {
-          arriveByTime: format(newArriveBy, 'hh:mm a'),
-          ...(newCutOff ? { cutOffTime: Timestamp.fromDate(newCutOff) } : {}),
-          ...(newNoShow ? { noShowTime: Timestamp.fromDate(newNoShow) } : {}),
-        });
-
-        adjustedCount++;
-      });
-
-      await batch.commit();
+      // NOTE: We do NOT revert appointments when cancelling a break.
+      // This leaves empty "gaps" in the slots where the break used to be,
+      // allowing new patients to book those earlier slots.
+      // The shifted patients remain in their later slots.
 
       toast({
         title: 'Break Cancelled',
-        description: `Break removed. ${remainingBreaks.length > 0 ? `Session now extends to ${extension.formattedNewEnd}.` : 'Session restored to original time.'}`
+        description: `Break removed. Slots are now available for booking.`
       });
 
-      console.log('[BREAK CANCEL DEBUG] Appointment adjustments after cancel', {
-        date: dateKey,
-        doctor: selectedDoctor.name,
-        sessionIndex: currentSession.sessionIndex,
-        breakDuration,
-        adjustedCount,
-        skippedBeforeBreak
-      });
+
+
 
       // Update local state
       const updatedDoctor = {

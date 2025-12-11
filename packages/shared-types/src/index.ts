@@ -117,6 +117,7 @@ export type Appointment = {
     doctorDelayMinutes?: number; // Delay in minutes due to doctor not starting on time (for display only, doesn't affect status transitions)
     cancellationReason?: string;
     isForceBooked?: boolean; // True if walk-in was force booked outside normal availability
+    cancelledByBreak?: boolean; // True if appointment was effectively cancelled due to a break insertion (shifted to a new slot)
 };
 
 export type Patient = {

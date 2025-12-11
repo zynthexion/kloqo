@@ -195,18 +195,17 @@ function ScheduleBreakContent() {
         return true;
     }, []);
 
-    const performBreakCancellation = useCallback(async (breakSlotsToCancel: number[], breakToRemove?: BreakPeriod) => {
-        if (!doctor || !clinicId || breakSlotsToCancel.length === 0) {
+    const [cancelPrompt, setCancelPrompt] = useState<{ slots: number[]; breakPeriod: BreakPeriod } | null>(null);
+
+    const performBreakCancellation = useCallback((breakSlotsToCancel: number[], breakToRemove?: BreakPeriod) => {
+        if (!doctor || !clinicId || breakSlotsToCancel.length === 0 || !breakToRemove) {
             return;
         }
 
         // Safety guard: do not allow manual cancellation once break has started
         const breakStart = new Date(Math.min(...breakSlotsToCancel));
-        const breakEndBase = new Date(Math.max(...breakSlotsToCancel));
-        const consultationTime = doctor.averageConsultingTime || 15;
-        const breakEnd = addMinutes(breakEndBase, consultationTime);
+        // ... (existing date checks are fine, but ensure breakToRemove is used)
         const now = new Date();
-
         if (now >= breakStart) {
             toast({
                 variant: 'destructive',
@@ -216,36 +215,176 @@ function ScheduleBreakContent() {
             return;
         }
 
+        setCancelPrompt({ slots: breakSlotsToCancel, breakPeriod: breakToRemove });
+    }, [doctor, clinicId, toast]);
+
+    const handleConfirmCancel = async (shouldConsult: boolean) => {
+        if (!cancelPrompt || !doctor || !clinicId) return;
+
+        const { slots, breakPeriod } = cancelPrompt;
         setIsSubmitting(true);
+        setCancelPrompt(null); // Close dialog
+
         try {
-            // Full break duration (we always subtract entire duration since cancel is only allowed before start)
-            const fullBreakDuration = differenceInMinutes(breakEnd, breakStart);
+            const breakStart = parseISO(breakPeriod.startTime);
+            const breakEnd = parseISO(breakPeriod.endTime);
 
-            // NOTE: We do NOT revert appointments when cancelling a break.
-            // This leaves empty "gaps" in the slots where the break used to be.
+            // Logic 1: If User says NO (Do NOT Consult), we must KEEP the slots BLOCKED.
+            // The appointments are already 'Completed' (blocked), so we don't need to do anything.
+            // Just remove the break and leave the appointments as 'Completed'.
+            if (!shouldConsult) {
+                console.log('[BREAK] User chose to keep slots blocked. Appointments will remain as Completed.');
+            } else {
+                // Logic 2: If User says YES (Consult), we must FREE the slots.
+                // Change appointments from 'Completed' to 'Cancelled' to make them bookable.
+                // Also delete slot-reservations for the cancelled appointments.
+                const dateStr = format(selectedDate, 'd MMMM yyyy');
+                const q = query(
+                    collection(db, 'appointments'),
+                    where('doctor', '==', doctor.name),
+                    where('clinicId', '==', clinicId),
+                    where('date', '==', dateStr),
+                    where('sessionIndex', '==', breakPeriod.sessionIndex),
+                    where('cancelledByBreak', '==', true)
+                );
 
-            toast({
-                title: 'Break Canceled',
-                description: `Break removed. Slots are now available for booking.`,
-            });
+                const snap = await getDocs(q);
+                const batch = writeBatch(db);
+                let updateCount = 0;
+                const cancelledAppointmentIds: string[] = [];
 
-            // Refresh doctor data to update UI
-            const doctorRef = doc(db, 'doctors', doctor.id);
-            const updatedDoctorDoc = await getDoc(doctorRef);
-            if (updatedDoctorDoc.exists()) {
-                const updatedDoctor = { id: updatedDoctorDoc.id, ...updatedDoctorDoc.data() } as Doctor;
-                setDoctor(updatedDoctor);
+                snap.docs.forEach(d => {
+                    const data = d.data();
+                    const apptTime = parseTime(data.arriveByTime || data.time, selectedDate);
+
+                    if (apptTime >= breakStart && apptTime < breakEnd) {
+                        // Change status from 'Completed' to 'Cancelled' to make bookable
+                        batch.update(d.ref, { status: 'Cancelled' });
+                        updateCount++;
+
+                        // Delete the slot-reservation document
+                        const slotIndex = data.slotIndex;
+                        if (typeof slotIndex === 'number') {
+                            const reservationId = `${clinicId}_${doctor.name}_${dateStr}_slot_${slotIndex}`;
+                            const reservationRef = doc(db, 'slot-reservations', reservationId);
+                            batch.delete(reservationRef);
+                        }
+                        cancelledAppointmentIds.push(d.id);
+                    }
+                });
+
+                if (updateCount > 0) {
+                    await batch.commit();
+                    console.log(`[BREAK] Freed ${updateCount} slots by changing to Cancelled and deleting reservations.`);
+                }
             }
 
-            setBreakStartSlot(null);
-            setBreakEndSlot(null);
+            // Logic 3: Remove the break (Standard flow)
+            // fullBreakDuration isn't strictly needed for removal logic, just removing from array
+
+            // Remove break logic (copied from original performBreakCancellation but verified)
+            const doctorRef = doc(db, 'doctors', doctor.id);
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
+
+            // We need to fetch fresh doctor data to ensure atomic update? 
+            // Or just use local doctor state? Best to fetch fresh to avoid concurrency issues if possible, 
+            // but for this app local state + write is typical pattern.
+            // However, existingBreaks state might be stale?
+            // Let's use arrayRemove logic or filter from fresh clone.
+
+            // Simpler: Fetch fresh doc as in the original code? 
+            // Original code didn't show the updateDoc part for removal in the snippet provided!
+            // I need to implement the removal logic here. The original 'performBreakCancellation' snippet ended with toast success?
+            // Wait, looking at lines 200-248 of original file, it DID NOT have the actual updateDoc call!
+            // It just logged and refreshed doctor?
+            // Ah, line 225 said "// NOTE: We do NOT revert appointments..."
+            // But where is the break removed?
+            // The user said "performBreakCancellation was found to correctly delete the break document".
+            // I must have missed the 'updateDoc' lines in the 'view_file' output or they were further down?
+            // Let me re-read the code snippet I saw.
+            // Step 316, lines 198-248. It ENDS at `setIsSubmitting(false)`. 
+            // It has `toast success`... but NO updateDoc to remove the break?!
+            // Wait, maybe I missed it.
+            // Line 233 refreshes the doctor.
+            // It seems I missed the actual deletion logic in the previous view! 
+            // Or the user code was incomplete/mocked?
+            // User says "Logic Verified: performBreakCancellation was found to correctly delete the break document".
+            // I will assume the deletion logic was present but I missed it or it was in a helper?
+            // Actually, looking at the code I viewed in step 316... lines 220-223 just calc duration.
+            // Then line 227 Toast.
+            // It seems the code I viewed DOES NOT DELETE THE BREAK. 
+            // This is strange. Maybe it calls a helper function I missed?
+            // Or the user code I saw is incomplete.
+            // I MUST implement the deletion now.
+
+            const freshDoctorSnap = await getDoc(doctorRef);
+            if (freshDoctorSnap.exists()) {
+                const freshData = freshDoctorSnap.data() as Doctor;
+                const breaks = freshData.breakPeriods?.[dateKey] || [];
+                // Remove the break with matching ID matches
+                const updatedBreaks = breaks.filter(b => b.id !== breakPeriod.id);
+
+                // Also remove/update extensions if needed?
+                // Break removal might affect extensions. 
+                // Ensuring we update 'breakPeriods' map.
+
+                const updates: any = {
+                    [`breakPeriods.${dateKey}`]: updatedBreaks
+                };
+
+                // Remove from leaveSlots if present
+                const updatedLeaveSlots = (freshData.leaveSlots || []).filter(slot => {
+                    // Check if slot falls within break period
+                    const d = typeof slot === 'string' ? parseISO(slot) : (slot as any).toDate ? (slot as any).toDate() : slot;
+                    return !(d >= breakStart && d < breakEnd);
+                });
+                updates['leaveSlots'] = updatedLeaveSlots;
+
+                await updateDoc(doctorRef, updates);
+
+                toast({
+                    title: 'Break Canceled',
+                    description: shouldConsult
+                        ? 'Break removed. Slots are open for booking.'
+                        : 'Break removed. Slots are marked as completed (not bookable).',
+                });
+
+                // Refresh UI
+                const finalSnap = await getDoc(doctorRef);
+                if (finalSnap.exists()) {
+                    setDoctor({ id: finalSnap.id, ...finalSnap.data() } as Doctor);
+                }
+                setBreakStartSlot(null);
+                setBreakEndSlot(null);
+            }
+
         } catch (error: any) {
             console.error('Error canceling break:', error);
             toast({ variant: 'destructive', title: 'Error', description: 'Failed to cancel break.' });
         } finally {
             setIsSubmitting(false);
         }
-    }, [doctor, clinicId, selectedDate, toast]);
+    };
+
+    // ... inside return (JSX)
+    // Add AlertDialog
+    /*
+      <AlertDialog open={!!cancelPrompt} onOpenChange={(open) => !open && setCancelPrompt(null)}>
+        <AlertDialogContent>
+             <AlertDialogHeader>
+                <AlertDialogTitle>Cancel Break</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Do you want to consult patients during the confirmed break time?
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="flex-col gap-2 sm:gap-0">
+                 <Button onClick={() => handleConfirmCancel(true)}>Yes, Open Slots</Button>
+                 <Button variant="outline" onClick={() => handleConfirmCancel(false)}>No, Keep Blocked</Button>
+                 <Button variant="ghost" onClick={() => setCancelPrompt(null)}>Cancel</Button>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    */
 
 
     useEffect(() => {
@@ -911,6 +1050,31 @@ function ScheduleBreakContent() {
 
                 </footer>
 
+                <AlertDialog open={!!cancelPrompt} onOpenChange={(open) => !open && setCancelPrompt(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Consult During Break?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Do you want to enable consultation during this break time?
+                                <br /><br />
+                                <strong>Yes:</strong> Slots become open for booking.
+                                <br />
+                                <strong>No:</strong> Slots remain blocked (marked as Completed).
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="flex-col space-y-2 sm:space-y-0 sm:flex-row sm:space-x-2">
+                            <Button variant="outline" onClick={() => setCancelPrompt(null)}>
+                                Cancel
+                            </Button>
+                            <Button variant="secondary" onClick={() => handleConfirmCancel(false)}>
+                                No, Keep Blocked
+                            </Button>
+                            <Button onClick={() => handleConfirmCancel(true)}>
+                                Yes, Open Slots
+                            </Button>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
                 <AlertDialog open={showExtensionDialog} onOpenChange={(open) => {
                     if (!open) {
                         setShowExtensionDialog(false);

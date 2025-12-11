@@ -1554,115 +1554,133 @@ export default function DoctorsPage() {
     }
   };
 
+  const [cancelBreakPrompt, setCancelBreakPrompt] = useState<{ breakId: string } | null>(null);
+
   const handleCancelBreak = async (breakId: string) => {
     if (!selectedDoctor || !leaveCalDate || !currentSession) {
       toast({ variant: 'destructive', title: 'Error', description: 'Cannot cancel break.' });
       return;
     }
+    setCancelBreakPrompt({ breakId });
+  };
 
+  const handleConfirmCancelBreak = async (shouldConsult: boolean) => {
+    if (!cancelBreakPrompt || !selectedDoctor || !leaveCalDate || !currentSession) return;
+    const { breakId } = cancelBreakPrompt;
+
+    setCancelBreakPrompt(null);
     setIsSubmittingBreak(true);
 
     try {
       const breakToRemove = existingBreaks.find(b => b.id === breakId);
       if (!breakToRemove) {
         toast({ variant: 'destructive', title: 'Error', description: 'Break not found.' });
+        setIsSubmittingBreak(false);
         return;
+      }
+
+      // Logic 1: If User says NO (Do NOT Consult), we must KEEP the slots BLOCKED.
+      // The appointments are already 'Completed' (blocked), so we don't need to do anything.
+      // Just remove the break and leave the appointments as 'Completed'.
+      if (!shouldConsult) {
+        console.log('[BREAK] User chose to keep slots blocked. Appointments will remain as Completed.');
+      } else {
+        // Logic 2: If User says YES (Consult), we must FREE the slots.
+        // Change appointments from 'Completed' to 'Cancelled' to make them bookable.
+        // Also delete slot-reservations for the cancelled appointments.
+        const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+        const breakStart = parseISO(breakToRemove.startTime);
+        const breakEnd = parseISO(breakToRemove.endTime);
+
+        const q = query(
+          collection(db, 'appointments'),
+          where('doctor', '==', selectedDoctor.name),
+          where('clinicId', '==', selectedDoctor.clinicId),
+          where('date', '==', dateStr),
+          where('sessionIndex', '==', currentSession.sessionIndex),
+          where('cancelledByBreak', '==', true)
+        );
+
+        const snap = await getDocs(q);
+        const batch = writeBatch(db);
+        let updateCount = 0;
+        const cancelledAppointmentIds: string[] = [];
+
+        snap.docs.forEach((d: any) => {
+          const data = d.data();
+          const apptTime = parseTimeUtil(data.arriveByTime || data.time, leaveCalDate);
+
+          if (apptTime >= breakStart && apptTime < breakEnd) {
+            // Change status from 'Completed' to 'Cancelled' to make bookable
+            batch.update(d.ref, { status: 'Cancelled' });
+            updateCount++;
+
+            // Delete the slot-reservation document
+            const slotIndex = data.slotIndex;
+            if (typeof slotIndex === 'number') {
+              const reservationId = `${selectedDoctor.clinicId}_${selectedDoctor.name}_${dateStr}_slot_${slotIndex}`;
+              const reservationRef = doc(db, 'slot-reservations', reservationId);
+              batch.delete(reservationRef);
+            }
+            cancelledAppointmentIds.push(d.id);
+          }
+        });
+
+        if (updateCount > 0) {
+          await batch.commit();
+          console.log(`[BREAK] Freed ${updateCount} slots by changing to Cancelled and deleting reservations.`);
+        }
       }
 
       // Remove the break
       const remainingBreaks = existingBreaks.filter(b => b.id !== breakId);
-
-      // Recalculate session extension
-      const extension = calculateSessionExtension(
-        currentSession.sessionIndex,
-        remainingBreaks,
-        currentSession.originalEnd
-      );
 
       // Update Firestore
       const doctorRef = doc(db, 'doctors', selectedDoctor.id);
       const dateKey = format(leaveCalDate, 'd MMMM yyyy');
 
       // Update breakPeriods
-      const breakPeriods = { ...selectedDoctor.breakPeriods };
+      const breakPeriods = { ...(selectedDoctor.breakPeriods || {}) };
+
       if (remainingBreaks.length === 0) {
-        delete breakPeriods[dateKey];
+        if (breakPeriods[dateKey]) {
+          delete breakPeriods[dateKey];
+        }
       } else {
         breakPeriods[dateKey] = remainingBreaks;
       }
 
-      // Update availabilityExtensions
-      const availabilityExtensions = { ...selectedDoctor.availabilityExtensions };
-      if (!availabilityExtensions[dateKey]) {
-        availabilityExtensions[dateKey] = { sessions: [] };
-      }
-
-      const sessionExtIndex = availabilityExtensions[dateKey].sessions.findIndex(
-        s => s.sessionIndex === currentSession.sessionIndex
-      );
-
-      if (remainingBreaks.length === 0) {
-        // Remove session extension if no breaks left
-        availabilityExtensions[dateKey].sessions = availabilityExtensions[dateKey].sessions.filter(
-          s => s.sessionIndex !== currentSession.sessionIndex
-        );
-        if (availabilityExtensions[dateKey].sessions.length === 0) {
-          delete availabilityExtensions[dateKey];
-        }
-      } else {
-        // Update session extension
-        const sessionExtension = {
-          sessionIndex: currentSession.sessionIndex,
-          breaks: remainingBreaks,
-          totalExtendedBy: extension.totalBreakMinutes,
-          originalEndTime: format(currentSession.originalEnd, 'hh:mm a'),
-          newEndTime: extension.formattedNewEnd
-        };
-
-        if (sessionExtIndex >= 0) {
-          availabilityExtensions[dateKey].sessions[sessionExtIndex] = sessionExtension;
-        } else {
-          availabilityExtensions[dateKey].sessions.push(sessionExtension);
-        }
-      }
+      // NOTE: We do NOT update availabilityExtensions here.
+      // The extension remains because shifted appointments still occupy the extended time slots.
 
       // Update leaveSlots
       const slotsToRemove = new Set(breakToRemove.slots);
       const updatedLeaveSlots = (selectedDoctor.leaveSlots || []).filter((slot: any) => {
-        const slotStr = typeof slot === 'string' ? slot : slot.toISOString();
+        const slotStr = typeof slot === 'string' ? slot : (slot.toISOString ? slot.toISOString() : slot);
         return !slotsToRemove.has(slotStr);
       });
 
       await updateDoc(doctorRef, {
         breakPeriods: Object.keys(breakPeriods).length > 0 ? breakPeriods : {},
-        availabilityExtensions: Object.keys(availabilityExtensions).length > 0 ? availabilityExtensions : {},
         leaveSlots: updatedLeaveSlots
       });
 
-      // Update affected appointments: subtract break duration from arriveByTime, cutOffTime, noShowTime
-
-      // NOTE: We do NOT revert appointments when cancelling a break.
-      // This leaves empty "gaps" in the slots where the break used to be,
-      // allowing new patients to book those earlier slots.
-      // The shifted patients remain in their later slots.
-
       toast({
         title: 'Break Cancelled',
-        description: `Break removed. Slots are now available for booking.`
+        description: shouldConsult
+          ? 'Break removed. Slots are open for booking.'
+          : 'Break removed. Slots are marked as completed (not bookable).'
       });
-
-
-
 
       // Update local state
       const updatedDoctor = {
         ...selectedDoctor,
         breakPeriods,
-        availabilityExtensions,
         leaveSlots: updatedLeaveSlots
       };
       setSelectedDoctor(updatedDoctor);
       setDoctors(prev => prev.map(d => d.id === updatedDoctor.id ? updatedDoctor : d));
+      setExistingBreaks(remainingBreaks);
 
     } catch (error) {
       console.error("Error cancelling break:", error);
@@ -2720,6 +2738,32 @@ export default function DoctorsPage() {
               </>
             )}
           </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!cancelBreakPrompt} onOpenChange={(open) => !open && setCancelBreakPrompt(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Consult During Break?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to enable consultation during this break time?
+              <br /><br />
+              <strong>Yes:</strong> Slots become open for booking.
+              <br />
+              <strong>No:</strong> Slots remain blocked (marked as Completed).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col space-y-2 sm:space-y-0 sm:flex-row sm:space-x-2">
+            <Button variant="outline" onClick={() => setCancelBreakPrompt(null)}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={() => handleConfirmCancelBreak(false)}>
+              No, Keep Blocked
+            </Button>
+            <Button onClick={() => handleConfirmCancelBreak(true)}>
+              Yes, Open Slots
+            </Button>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>

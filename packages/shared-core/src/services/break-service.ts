@@ -49,18 +49,18 @@ export async function shiftAppointmentsForNewBreak(
 
         const snapshot = await getDocs(appointmentsQuery);
 
-        const appointmentsToUpdate: {
-            id: string;
-            adjustedArriveByTime: string;
-            newTime: string;
-            newSlotIndex: number | null;
-            newCutOffTime: Date | null;
-            newNoShowTime: Date | null;
-            oldTime: string;
+        const updates: {
+            originalDocRef: any;
+            newDocRef: any;
+            originalData: Appointment;
+            newData: any;
         }[] = [];
 
         snapshot.docs.forEach(docSnap => {
             const appt = docSnap.data() as Appointment;
+
+            // Skip if already cancelled (standard check)
+            if (appt.status === 'Cancelled') return;
 
             const baseTimeStr = appt.arriveByTime || appt.time;
             if (!baseTimeStr) return;
@@ -93,34 +93,70 @@ export async function shiftAppointmentsForNewBreak(
             const newTimeStr = format(newArriveBy, 'hh:mm a');
             const newSlotIndex = typeof appt.slotIndex === 'number' ? appt.slotIndex + slotsToShift : null;
 
-            appointmentsToUpdate.push({
-                id: docSnap.id,
-                adjustedArriveByTime: format(newArriveBy, 'hh:mm a'),
-                newTime: newTimeStr,
-                newSlotIndex,
-                newCutOffTime,
-                newNoShowTime,
-                oldTime: appt.time
+            // Calculate new token numbers for A tokens only (W tokens stay the same)
+            let newNumericToken = appt.numericToken;
+            let newTokenNumber = appt.tokenNumber;
+
+            // Only update token numbers for Advance bookings (A tokens)
+            // Walk-ins (W tokens) keep their original token numbers
+            if (appt.tokenNumber && !appt.tokenNumber.startsWith('W') && newSlotIndex !== null) {
+                // For A tokens, recalculate based on new slot position
+                // numericToken is the sequential number (1, 2, 3, etc.)
+                // tokenNumber is the formatted string (e.g., "A001", "A002")
+                newNumericToken = newSlotIndex + 1; // Slot 0 = Token 1, Slot 1 = Token 2, etc.
+                newTokenNumber = `A${String(newNumericToken).padStart(3, '0')}`;
+            }
+
+            // Prepare data for new appointment
+            const newDocRef = doc(collection(db, 'appointments'));
+            const newData = {
+                ...appt,
+                id: newDocRef.id, // Explicitly set new ID
+                time: newTimeStr,
+                arriveByTime: format(newArriveBy, 'hh:mm a'),
+                ...(newSlotIndex !== null ? { slotIndex: newSlotIndex } : {}),
+                ...(newCutOffTime ? { cutOffTime: Timestamp.fromDate(newCutOffTime) } : {}),
+                ...(newNoShowTime ? { noShowTime: Timestamp.fromDate(newNoShowTime) } : {}),
+                ...(newNumericToken !== appt.numericToken ? { numericToken: newNumericToken } : {}),
+                ...(newTokenNumber !== appt.tokenNumber ? { tokenNumber: newTokenNumber } : {}),
+                previousAppointmentId: docSnap.id
+            };
+
+            updates.push({
+                originalDocRef: doc(db, 'appointments', docSnap.id),
+                newDocRef,
+                originalData: appt,
+                newData
             });
         });
 
         const batch = writeBatch(db);
-        for (const appt of appointmentsToUpdate) {
-            const apptRef = doc(db, 'appointments', appt.id);
-            batch.update(apptRef, {
-                time: appt.newTime,
-                arriveByTime: appt.adjustedArriveByTime,
-                ...(appt.newSlotIndex !== null ? { slotIndex: appt.newSlotIndex } : {}),
-                ...(appt.newCutOffTime ? { cutOffTime: Timestamp.fromDate(appt.newCutOffTime) } : {}),
-                ...(appt.newNoShowTime ? { noShowTime: Timestamp.fromDate(appt.newNoShowTime) } : {}),
+
+        for (const update of updates) {
+            // 1. Mark Original as Completed (blocked during break)
+            batch.update(update.originalDocRef, {
+                status: 'Completed',
+                cancelledByBreak: true
             });
+
+            // 2. Delete the slot reservation for the original appointment
+            // This ensures the slot is properly blocked during the break
+            const slotIndex = update.originalData.slotIndex;
+            if (typeof slotIndex === 'number') {
+                const reservationId = `${clinicId}_${doctorName}_${dateStr}_slot_${slotIndex}`;
+                const reservationRef = doc(db, 'slot-reservations', reservationId);
+                batch.delete(reservationRef);
+            }
+
+            // 3. Create New shifted appointment
+            batch.set(update.newDocRef, update.newData);
         }
 
-        if (appointmentsToUpdate.length > 0) {
+        if (updates.length > 0) {
             await batch.commit();
-            console.log(`[BREAK SERVICE] ✅ Successfully adjusted ${appointmentsToUpdate.length} appointments`, {
+            console.log(`[BREAK SERVICE] ✅ Successfully adjusted ${updates.length} appointments (Copy & Cancel)`, {
                 breakStart: format(breakStart, 'hh:mm a'),
-                firstAdjustment: appointmentsToUpdate[0]?.oldTime + ' -> ' + appointmentsToUpdate[0]?.newTime
+                firstAdjustment: updates[0]?.originalData.time + ' -> ' + updates[0]?.newData.time
             });
         }
     } catch (error) {

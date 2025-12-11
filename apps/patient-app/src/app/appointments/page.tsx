@@ -426,9 +426,9 @@ function AppointmentsPage() {
 
     const effectiveAppointments = useMemo(() => {
         if (appointments.length > 0) {
-            return appointments;
+            return appointments.filter(a => !a.cancelledByBreak);
         }
-        return cachedAppointments;
+        return cachedAppointments.filter(a => !a.cancelledByBreak);
     }, [appointments, cachedAppointments]);
 
     const isAppointmentForToday = (dateStr: string) => {

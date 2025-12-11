@@ -963,8 +963,8 @@ export async function generateNextTokenAndReserveSlot(
           // This avoids violating Firestore's "all reads before all writes" transaction rule
           if (existingReservations.has(finalSlotIndex)) {
             // Recent reservation exists - conflict
-            const conflictError = new Error(RESERVATION_CONFLICT_CODE);
-            (conflictError as { code?: string }).code = RESERVATION_CONFLICT_CODE;
+            const conflictError = new Error('Slot is already booked by another user');
+            (conflictError as { code?: string }).code = 'SLOT_ALREADY_BOOKED';
             throw conflictError;
           }
           // If not in existingReservations, either:

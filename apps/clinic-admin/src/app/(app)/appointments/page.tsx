@@ -3090,27 +3090,20 @@ export default function AppointmentsPage() {
           availableSlotsCount++;
         }
 
-        // Only show the first available slot, skip booked and leave slots
+        // Only show the first available slot per session
         if (status === 'available') {
-          const slotTimeString = format(slotTimeIterator, 'hh:mm a');
-          const slotIndex = otherAppointments.find(appointment => appointment.time === slotTimeString)?.slotIndex;
-          const isCancelledSlot =
-            typeof slotIndex === 'number' &&
-            otherAppointments.some(appointment => appointment.slotIndex === slotIndex && appointment.status === 'Cancelled');
+          if (!foundFirstAvailable) {
+            const slotTimeString = format(slotTimeIterator, 'hh:mm a');
+            const slotIndex = otherAppointments.find(appointment => appointment.time === slotTimeString)?.slotIndex;
+            const isCancelledSlot =
+              typeof slotIndex === 'number' &&
+              otherAppointments.some(appointment => appointment.slotIndex === slotIndex && appointment.status === 'Cancelled');
 
-          if (isCancelledSlot) {
             slots.push({
               time: slotTime,
               status,
               slotIndex,
-              isCancelled: true,
-            });
-          } else if (!foundFirstAvailable) {
-            slots.push({
-              time: slotTime,
-              status,
-              slotIndex,
-              isCancelled: false,
+              isCancelled: isCancelledSlot,
             });
             foundFirstAvailable = true;
           }

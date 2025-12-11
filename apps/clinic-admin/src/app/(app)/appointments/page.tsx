@@ -246,11 +246,23 @@ function isDoctorAdvanceCapacityReachedOnDate(
 
   const slotDuration = doctor.averageConsultingTime || 15;
   const now = new Date();
+  const dateKey = format(date, 'd MMMM yyyy');
   const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
 
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseDateFns(session.from, 'hh:mm a', date);
-    const sessionEnd = parseDateFns(session.to, 'hh:mm a', date);
+
+    // Check if there's an availability extension for this session
+    const originalSessionEnd = parseDateFns(session.to, 'hh:mm a', date);
+    let sessionEnd = originalSessionEnd;
+    const extensions = doctor.availabilityExtensions?.[dateKey];
+    if (extensions?.sessions) {
+      const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
+      if (sessionExtension?.newEndTime) {
+        sessionEnd = parseDateFns(sessionExtension.newEndTime, 'hh:mm a', date);
+      }
+    }
+
     let futureSlotCount = 0;
 
     while (isBefore(currentTime, sessionEnd)) {
@@ -910,10 +922,10 @@ export default function AppointmentsPage() {
           timestamp: new Date().toISOString()
         });
         setWalkInEstimate(details);
-        
+
         // ✅ FIX: Check if within 15 min of closing even if slots available
         const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
-        
+
         if (isNearClosing) {
           // Within closing window - show Force Book option alongside normal estimate
           setWalkInEstimateUnavailable(true);
@@ -922,7 +934,7 @@ export default function AppointmentsPage() {
           // Normal slots available, not near closing
           setWalkInEstimateUnavailable(false);
         }
-        
+
         setIsCalculatingEstimate(false);
       }).catch(err => {
         console.error('[WALK-IN DEBUG] Error calculating walk-in details:', err);
@@ -931,10 +943,10 @@ export default function AppointmentsPage() {
         const errorMessage = err.message || "";
         const isSlotUnavailable = errorMessage.includes("Unable to allocate walk-in slot") ||
           errorMessage.includes("No walk-in slots are available");
-        
+
         // Check if within 15 minutes of closing
         const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
-        
+
         if (isSlotUnavailable || isNearClosing) {
           // Mark estimate as unavailable to show Force Book option
           setWalkInEstimateUnavailable(true);
@@ -959,25 +971,25 @@ export default function AppointmentsPage() {
 
     setIsCalculatingEstimate(true);
     setWalkInEstimateUnavailable(false);
-    
+
     try {
       const allotment = clinicDetails?.walkInTokenAllotment || 3;
       console.log('[FORCE BOOK] Calculating with force booking enabled');
-      
+
       const details = await calculateWalkInDetails(
         db,
-        selectedDoctor, 
+        selectedDoctor,
         allotment,
         0,
         true // Force booking enabled
       );
-      
+
       console.log('[FORCE BOOK] Overflow slot calculated:', {
         slotIndex: details.slotIndex,
         time: details.estimatedTime.toISOString(),
         isForceBooked: details.isForceBooked,
       });
-      
+
       setWalkInEstimate(details);
       toast({
         title: "Force Book Enabled",
@@ -3846,9 +3858,9 @@ export default function AppointmentsPage() {
                                                 </div>
                                               );
                                             }
-                                            
+
                                             if (!walkInEstimate || !selectedDoctor) {
-                                              
+
                                               return (
                                                 <>
                                                   <CardTitle className="text-base">Walk-in Unavailable</CardTitle>
@@ -4783,12 +4795,12 @@ export default function AppointmentsPage() {
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <p>
-                {isWithin15MinutesOfClosing(selectedDoctor, new Date()) 
-                  ? "Walk-in booking is closing soon (within 15 minutes of closing time)." 
+                {isWithin15MinutesOfClosing(selectedDoctor, new Date())
+                  ? "Walk-in booking is closing soon (within 15 minutes of closing time)."
                   : "All available slots are fully booked."}
               </p>
               <p className="font-semibold text-foreground">
-                This booking will go outside the doctor's normal availability time. 
+                This booking will go outside the doctor's normal availability time.
                 Do you want to accommodate this patient?
               </p>
               <p className="text-sm text-muted-foreground">
@@ -4798,7 +4810,7 @@ export default function AppointmentsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 setShowForceBookDialog(false);
                 handleForceBookEstimate();

@@ -271,10 +271,23 @@ function BookAppointmentContent() {
 
         // Calculate total FUTURE slots per session and maximum advance tokens per session (85% of future slots in each session)
         // This dynamically adjusts as time passes - capacity is recalculated based on remaining future slots
+        const dateKey = format(selectedDate, 'd MMMM yyyy');
         const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
+
         availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let currentTime = parseTime(session.from, selectedDate);
-            const sessionEnd = parseTime(session.to, selectedDate);
+
+            // Check if there's an availability extension for this session
+            const originalSessionEnd = parseTime(session.to, selectedDate);
+            let sessionEnd = originalSessionEnd;
+            const extensions = doctor.availabilityExtensions?.[dateKey];
+            if (extensions?.sessions) {
+                const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
+                if (sessionExtension?.newEndTime) {
+                    sessionEnd = parseTime(sessionExtension.newEndTime, selectedDate);
+                }
+            }
+
             let futureSlotCount = 0;
 
             // Only count future slots (including current time)

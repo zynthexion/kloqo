@@ -1,5 +1,6 @@
 
 export * from './services/appointment-service';
+export * from './services/break-service';
 export * from './services/capacity-service';
 export * from './services/status-update-service';
 export * from './services/queue-management-service';

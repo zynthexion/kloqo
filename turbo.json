@@ -3,9 +3,6 @@
     "globalDependencies": [
         "**/.env.*local"
     ],
-    "globalEnv": [
-        "NODE_ENV"
-    ],
     "tasks": {
         "build": {
             "dependsOn": [
@@ -15,47 +12,11 @@
                 ".next/**",
                 "!.next/cache/**",
                 "dist/**"
-            ],
-            "env": [
-                "NEXT_PUBLIC_FIREBASE_API_KEY",
-                "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
-                "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
-                "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
-                "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
-                "NEXT_PUBLIC_FIREBASE_APP_ID",
-                "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",
-                "FIREBASE_PRIVATE_KEY",
-                "FIREBASE_CLIENT_EMAIL",
-                "FIREBASE_PROJECT_ID",
-                "GOOGLE_SERVICE_ACCOUNT_JSON",
-                "TWILIO_ACCOUNT_SID",
-                "TWILIO_AUTH_TOKEN",
-                "TWILIO_PHONE_NUMBER",
-                "TWILIO_WHATSAPP_NUMBER",
-                "GOOGLE_GENERATIVE_AI_API_KEY"
             ]
         },
         "dev": {
             "cache": false,
-            "persistent": true,
-            "env": [
-                "NEXT_PUBLIC_FIREBASE_API_KEY",
-                "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
-                "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
-                "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
-                "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
-                "NEXT_PUBLIC_FIREBASE_APP_ID",
-                "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",
-                "FIREBASE_PRIVATE_KEY",
-                "FIREBASE_CLIENT_EMAIL",
-                "FIREBASE_PROJECT_ID",
-                "GOOGLE_SERVICE_ACCOUNT_JSON",
-                "TWILIO_ACCOUNT_SID",
-                "TWILIO_AUTH_TOKEN",
-                "TWILIO_PHONE_NUMBER",
-                "TWILIO_WHATSAPP_NUMBER",
-                "GOOGLE_GENERATIVE_AI_API_KEY"
-            ]
+            "persistent": true
         },
         "lint": {
             "dependsOn": [

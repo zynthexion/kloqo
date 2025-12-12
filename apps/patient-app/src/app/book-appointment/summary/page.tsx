@@ -807,39 +807,31 @@ function BookingSummaryPage() {
                     return;
                 }
 
-                if (error.code === 'SLOT_OCCUPIED' || error.message === 'SLOT_ALREADY_BOOKED') {
-                    console.warn(`[BOOKING FLOW DEBUG] ${bookingRequestId}: Requested slot taken. Auto-selecting next available slot.`);
-                    try {
-                        tokenData = await generateNextTokenAndReserveSlot(
-                            firestore,
-                            finalDoctor.clinicId,
-                            finalDoctor.name,
-                            finalSlotTime,
-                            'A',
-                            {
-                                ...tokenRequestPayload,
-                                slotIndex: -1,
-                            }
-                        );
-                        toast({
-                            variant: "default",
-                            title: "Time Slot Updated",
-                            description: "The selected slot was just booked, so we assigned the next available slot automatically.",
-                        });
-                    } catch (retryError: any) {
-                        console.error(`[BOOKING FLOW DEBUG] ${bookingRequestId}: Auto-selection retry failed`, {
-                            error: retryError,
-                            errorMessage: retryError?.message,
-                            errorCode: retryError?.code,
-                        });
-                        toast({
-                            variant: "destructive",
-                            title: "Time Slot Already Booked",
-                            description: "This time slot was just booked by someone else. Please select another time.",
-                        });
-                        setIsSubmitting(false);
-                        return;
-                    }
+                if (error.code === 'SLOT_OCCUPIED' || error.message === 'SLOT_ALREADY_BOOKED' || error.code === 'SLOT_ALREADY_BOOKED') {
+                    console.warn(`[BOOKING FLOW DEBUG] ${bookingRequestId}: Requested slot taken.`);
+
+                    // Show specific toast for conflict
+                    toast({
+                        variant: "destructive",
+                        title: "Slot Already Booked",
+                        description: "Whoops! Someone else booked this slot, try again to get the next slot.",
+                        duration: 5000,
+                    });
+
+                    // Calculate next slot time (add consultation duration or default 15 mins)
+                    const slotDuration = finalDoctor.averageConsultingTime || 15;
+                    const nextSlotTime = addMinutes(finalSlotTime, slotDuration);
+                    const nextSlotISO = nextSlotTime.toISOString();
+
+                    // Update URL to trigger re-render with new slot
+                    // This will update 'selectedSlot' and the 'Arrive by' display automatically
+                    const params = new URLSearchParams(searchParams.toString());
+                    params.set('slot', nextSlotISO);
+                    router.replace(`?${params.toString()}`);
+
+                    // Stop submission loading state so user can click "Confirm Booking" again
+                    setIsSubmitting(false);
+                    return;
                 } else if (error.code === 'A_CAPACITY_REACHED') {
                     toast({
                         variant: "destructive",

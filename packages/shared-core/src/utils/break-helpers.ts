@@ -540,4 +540,78 @@ export function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]
   }, new Date(originalTime));
 }
 
+// ============================================================================
+// CHECK IF WITHIN 15 MINUTES OF CLOSING
+// ============================================================================
+
+/**
+ * Checks if current time is within 15 minutes of doctor's last session end time
+ * @param doctor Doctor profile with availability slots
+ * @param date Date to check (uses current time if today, otherwise returns false)
+ * @returns true if within 15 minutes of closing time
+ */
+export function isWithin15MinutesOfClosing(
+  doctor: Doctor | null,
+  date: Date
+): boolean {
+  console.log('[isWithin15MinutesOfClosing] Called with:', {
+    doctorName: doctor?.name,
+    date: format(date, 'yyyy-MM-dd hh:mm a'),
+  });
+  
+  if (!doctor?.availabilitySlots?.length) {
+    console.log('[isWithin15MinutesOfClosing] ❌ No availability slots');
+    return false;
+  }
+
+  const now = new Date();
+  const dateStr = format(date, 'yyyy-MM-dd');
+  const todayStr = format(now, 'yyyy-MM-dd');
+
+  console.log('[isWithin15MinutesOfClosing] Date check:', {
+    dateStr,
+    todayStr,
+    isToday: dateStr === todayStr,
+    actualNow: format(now, 'yyyy-MM-dd hh:mm a'),
+  });
+
+  // Only check for today - future dates don't have closing time restrictions
+  if (dateStr !== todayStr) {
+    console.log('[isWithin15MinutesOfClosing] ❌ Not today');
+    return false;
+  }
+
+  // Get day of week
+  const dayOfWeek = format(date, 'EEEE');
+  const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
+  
+  console.log('[isWithin15MinutesOfClosing] Day of week:', dayOfWeek);
+  console.log('[isWithin15MinutesOfClosing] Availability for day:', availabilityForDay ? 'Found' : 'Not found');
+  
+  if (!availabilityForDay?.timeSlots?.length) {
+    console.log('[isWithin15MinutesOfClosing] ❌ No time slots for this day');
+    return false;
+  }
+
+  // Get last session end time
+  const lastSession = availabilityForDay.timeSlots[availabilityForDay.timeSlots.length - 1];
+  const lastSessionEndTime = parseTime(lastSession.to, date);
+
+  // Check if we're within 15 minutes of closing
+  const fifteenMinutesBeforeClosing = subMinutes(lastSessionEndTime, 15);
+  
+  console.log('[isWithin15MinutesOfClosing] Closing window:', {
+    lastSessionEnd: format(lastSessionEndTime, 'hh:mm a'),
+    fifteenMinBefore: format(fifteenMinutesBeforeClosing, 'hh:mm a'),
+    now: format(now, 'hh:mm a'),
+    isAfterWindow: isAfter(now, fifteenMinutesBeforeClosing),
+    isBeforeEnd: isBefore(now, lastSessionEndTime),
+  });
+  
+  const result = isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
+  console.log('[isWithin15MinutesOfClosing] Result:', result ? '✅ TRUE' : '❌ FALSE');
+  
+  return result;
+}
+
 

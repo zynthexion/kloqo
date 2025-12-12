@@ -52,7 +52,7 @@ service cloud.firestore {
     match /slot-reservations/{reservationId} {
       // Allow clinic admins to read and write slot reservations
       // These are temporary documents used to prevent double booking
-      allow read, write: if isClinicAdmin();
+      allow read, write, delete: if isClinicAdmin();
     }
     
     // Token counters collection - Used for atomic token generation

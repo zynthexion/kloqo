@@ -40,7 +40,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChevronLeft, FileDown, Printer, Search, MoreHorizontal, Eye, Edit, Trash2, ChevronRight, Stethoscope, Phone, Footprints, Loader2, Link as LinkIcon, Crown, UserCheck, UserPlus, Users, Plus, X, Clock, Calendar as CalendarLucide, CheckCircle2, Info, Send, MessageSquare, Smartphone, Hourglass, Repeat, SkipForward } from "lucide-react";
+import { ChevronLeft, FileDown, Printer, Search, MoreHorizontal, Eye, Edit, Trash2, ChevronRight, Stethoscope, Phone, Footprints, Loader2, Link as LinkIcon, Crown, UserCheck, UserPlus, Users, Plus, X, Clock, Calendar as CalendarLucide, CheckCircle2, Info, Send, MessageSquare, Smartphone, Hourglass, Repeat, SkipForward, AlertTriangle } from "lucide-react";
 import { DateRange } from "react-day-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -81,6 +81,7 @@ import {
   getSessionBreakIntervals,
   getCurrentActiveSession,
   applyBreakOffsets as applySessionBreakOffsets,
+  isWithin15MinutesOfClosing,
   type BreakInterval as SessionBreakInterval
 } from '@kloqo/shared-core';
 
@@ -245,11 +246,23 @@ function isDoctorAdvanceCapacityReachedOnDate(
 
   const slotDuration = doctor.averageConsultingTime || 15;
   const now = new Date();
+  const dateKey = format(date, 'd MMMM yyyy');
   const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
 
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseDateFns(session.from, 'hh:mm a', date);
-    const sessionEnd = parseDateFns(session.to, 'hh:mm a', date);
+
+    // Check if there's an availability extension for this session
+    const originalSessionEnd = parseDateFns(session.to, 'hh:mm a', date);
+    let sessionEnd = originalSessionEnd;
+    const extensions = doctor.availabilityExtensions?.[dateKey];
+    if (extensions?.sessions) {
+      const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
+      if (sessionExtension?.newEndTime) {
+        sessionEnd = parseDateFns(sessionExtension.newEndTime, 'hh:mm a', date);
+      }
+    }
+
     let futureSlotCount = 0;
 
     while (isBefore(currentTime, sessionEnd)) {
@@ -383,6 +396,10 @@ export default function AppointmentsPage() {
   const [linkChannel, setLinkChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   const [isPreviewingWalkIn, setIsPreviewingWalkIn] = useState(false);
   const isWalkInDebugEnabled = process.env.NEXT_PUBLIC_DEBUG_WALK_IN === 'true';
+
+  // Force booking states
+  const [showForceBookDialog, setShowForceBookDialog] = useState(false);
+  const [walkInEstimateUnavailable, setWalkInEstimateUnavailable] = useState(false);
 
   // Update current time every minute
   useEffect(() => {
@@ -875,17 +892,26 @@ export default function AppointmentsPage() {
     return now >= walkInOpenTime && now <= walkInCloseTime;
   }, [appointmentType, selectedDoctor]);
 
+  // Check if force booking window is active (within 15 min of closing)
+  const isForceBookWindow = useMemo(() => {
+    if (appointmentType !== 'Walk-in' || !selectedDoctor) return false;
+    return isWithin15MinutesOfClosing(selectedDoctor, new Date());
+  }, [appointmentType, selectedDoctor, currentTime]);
+
   useEffect(() => {
-    if (appointmentType === 'Walk-in' && selectedDoctor && isWalkInAvailable) {
+    // Run if normal walk-in is available OR if we're in force booking window
+    if (appointmentType === 'Walk-in' && selectedDoctor && (isWalkInAvailable || isForceBookWindow)) {
       setIsCalculatingEstimate(true);
       const allotment = clinicDetails?.walkInTokenAllotment || 3;
       console.log('[WALK-IN DEBUG] Starting walk-in details calculation', {
         doctor: selectedDoctor.name,
         clinicId: clinicId ?? selectedDoctor.clinicId,
         walkInTokenAllotment: allotment,
+        isWalkInAvailable,
+        isForceBookWindow,
         timestamp: new Date().toISOString()
       });
-      calculateWalkInDetails(selectedDoctor, allotment).then(details => {
+      calculateWalkInDetails(db, selectedDoctor, allotment, 0, false).then(details => {
         console.log('[WALK-IN DEBUG] Walk-in details calculated', {
           slotIndex: details.slotIndex,
           patientsAhead: details.patientsAhead,
@@ -896,6 +922,19 @@ export default function AppointmentsPage() {
           timestamp: new Date().toISOString()
         });
         setWalkInEstimate(details);
+
+        // ✅ FIX: Check if within 15 min of closing even if slots available
+        const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
+
+        if (isNearClosing) {
+          // Within closing window - show Force Book option alongside normal estimate
+          setWalkInEstimateUnavailable(true);
+          console.log('[WALK-IN DEBUG] Within 15 minutes of closing - force book option enabled');
+        } else {
+          // Normal slots available, not near closing
+          setWalkInEstimateUnavailable(false);
+        }
+
         setIsCalculatingEstimate(false);
       }).catch(err => {
         console.error('[WALK-IN DEBUG] Error calculating walk-in details:', err);
@@ -904,16 +943,70 @@ export default function AppointmentsPage() {
         const errorMessage = err.message || "";
         const isSlotUnavailable = errorMessage.includes("Unable to allocate walk-in slot") ||
           errorMessage.includes("No walk-in slots are available");
-        toast({
-          variant: "destructive",
-          title: "Walk-in Unavailable",
-          description: isSlotUnavailable ? "Walk-in slot not available." : (err.message || "Could not calculate walk-in estimate."),
-        });
+
+        // Check if within 15 minutes of closing
+        const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
+
+        if (isSlotUnavailable || isNearClosing) {
+          // Mark estimate as unavailable to show Force Book option
+          setWalkInEstimateUnavailable(true);
+          console.log('[WALK-IN DEBUG] Walk-in unavailable - force book option available:', { isSlotUnavailable, isNearClosing });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Walk-in Unavailable",
+            description: err.message || "Could not calculate walk-in estimate.",
+          });
+        }
       });
     } else {
       setWalkInEstimate(null);
+      setWalkInEstimateUnavailable(false);
     }
-  }, [appointmentType, selectedDoctor, isWalkInAvailable, clinicDetails, toast]);
+  }, [appointmentType, selectedDoctor, isWalkInAvailable, isForceBookWindow, clinicDetails, toast]);
+
+  // Handle force booking for walk-in estimate
+  const handleForceBookEstimate = useCallback(async () => {
+    if (!selectedDoctor || !clinicId) return;
+
+    setIsCalculatingEstimate(true);
+    setWalkInEstimateUnavailable(false);
+
+    try {
+      const allotment = clinicDetails?.walkInTokenAllotment || 3;
+      console.log('[FORCE BOOK] Calculating with force booking enabled');
+
+      const details = await calculateWalkInDetails(
+        db,
+        selectedDoctor,
+        allotment,
+        0,
+        true // Force booking enabled
+      );
+
+      console.log('[FORCE BOOK] Overflow slot calculated:', {
+        slotIndex: details.slotIndex,
+        time: details.estimatedTime.toISOString(),
+        isForceBooked: details.isForceBooked,
+      });
+
+      setWalkInEstimate(details);
+      toast({
+        title: "Force Book Enabled",
+        description: `Walk-in will be scheduled outside normal hours at ${format(details.estimatedTime, 'hh:mm a')}`,
+      });
+    } catch (err: any) {
+      console.error('[FORCE BOOK] Failed even with force booking:', err);
+      toast({
+        variant: "destructive",
+        title: "Force Booking Failed",
+        description: err.message || "Could not create overflow slot.",
+      });
+      setWalkInEstimate(null);
+    } finally {
+      setIsCalculatingEstimate(false);
+    }
+  }, [selectedDoctor, clinicId, clinicDetails, toast]);
 
   async function onSubmit(values: AppointmentFormValues) {
     if (!auth.currentUser || !clinicId || !selectedDoctor) {
@@ -1257,6 +1350,7 @@ export default function AppointmentsPage() {
             createdAt: serverTimestamp(),
             cutOffTime: cutOffTime,
             noShowTime: noShowTime,
+            ...(isForceBooked && { isForceBooked: true }), // Mark as force booked
           };
 
           // CRITICAL: Check for existing appointments at this slot before creating
@@ -2996,27 +3090,20 @@ export default function AppointmentsPage() {
           availableSlotsCount++;
         }
 
-        // Only show the first available slot, skip booked and leave slots
+        // Only show the first available slot per session
         if (status === 'available') {
-          const slotTimeString = format(slotTimeIterator, 'hh:mm a');
-          const slotIndex = otherAppointments.find(appointment => appointment.time === slotTimeString)?.slotIndex;
-          const isCancelledSlot =
-            typeof slotIndex === 'number' &&
-            otherAppointments.some(appointment => appointment.slotIndex === slotIndex && appointment.status === 'Cancelled');
+          if (!foundFirstAvailable) {
+            const slotTimeString = format(slotTimeIterator, 'hh:mm a');
+            const slotIndex = otherAppointments.find(appointment => appointment.time === slotTimeString)?.slotIndex;
+            const isCancelledSlot =
+              typeof slotIndex === 'number' &&
+              otherAppointments.some(appointment => appointment.slotIndex === slotIndex && appointment.status === 'Cancelled');
 
-          if (isCancelledSlot) {
             slots.push({
               time: slotTime,
               status,
               slotIndex,
-              isCancelled: true,
-            });
-          } else if (!foundFirstAvailable) {
-            slots.push({
-              time: slotTime,
-              status,
-              slotIndex,
-              isCancelled: false,
+              isCancelled: isCancelledSlot,
             });
             foundFirstAvailable = true;
           }
@@ -3712,12 +3799,61 @@ export default function AppointmentsPage() {
                                       </FormItem>
                                     )} />
                                   ) : (
-                                    <Card className={cn("mt-4", walkInEstimate ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>
+                                    <Card className={cn("mt-4", walkInEstimate ? "bg-green-50 border-green-200" : walkInEstimateUnavailable ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200")}>
                                       <CardHeader className="flex-row items-start gap-3 space-y-0 p-4">
-                                        <Info className={cn("w-6 h-6 mt-1", walkInEstimate ? "text-green-600" : "text-red-600")} />
+                                        <Info className={cn("w-6 h-6 mt-1", walkInEstimate ? "text-green-600" : walkInEstimateUnavailable ? "text-amber-600" : "text-red-600")} />
                                         <div>
                                           {(() => {
+                                            // Show force book option if unavailable flag is set, regardless of estimate
+                                            if (walkInEstimateUnavailable && selectedDoctor) {
+                                              const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
+                                              return (
+                                                <div className="space-y-3">
+                                                  <div>
+                                                    <CardTitle className="text-base text-amber-700">
+                                                      {walkInEstimate ? "Walk-in Closing Soon" : "Walk-in Booking Closed"}
+                                                    </CardTitle>
+                                                    <CardDescription className="text-xs text-amber-800">
+                                                      {isNearClosing
+                                                        ? "Within 15 minutes of closing time."
+                                                        : "All available slots are fully booked."}
+                                                    </CardDescription>
+                                                  </div>
+                                                  {walkInEstimate && (
+                                                    <div className="text-sm text-amber-900 py-2 px-3 bg-amber-100 rounded-md">
+                                                      <p className="font-medium">Current Estimate:</p>
+                                                      <p>Token: {walkInEstimate.token}</p>
+                                                      <p>Time: {format(walkInEstimate.estimatedTime, 'hh:mm a')}</p>
+                                                    </div>
+                                                  )}
+                                                  <Button
+                                                    onClick={handleForceBookEstimate}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full border-amber-500 text-amber-700 hover:bg-amber-50"
+                                                    disabled={isCalculatingEstimate}
+                                                  >
+                                                    {isCalculatingEstimate ? (
+                                                      <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Processing...
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <AlertTriangle className="mr-2 h-4 w-4" />
+                                                        Force Book
+                                                      </>
+                                                    )}
+                                                  </Button>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Patient will be scheduled outside normal hours
+                                                  </p>
+                                                </div>
+                                              );
+                                            }
+
                                             if (!walkInEstimate || !selectedDoctor) {
+
                                               return (
                                                 <>
                                                   <CardTitle className="text-base">Walk-in Unavailable</CardTitle>
@@ -3862,32 +3998,52 @@ export default function AppointmentsPage() {
                                                 }
 
                                                 return (
-                                                  <div className="grid grid-cols-2 gap-2 text-center">
-                                                    <div>
-                                                      <p className="text-xs text-muted-foreground">Est. Time</p>
-                                                      <p className="font-bold text-lg">
-                                                        {`~${format(adjustedWithBreaks, 'hh:mm a')}`}
-                                                      </p>
+                                                  <div className="space-y-2">
+                                                    <div className="grid grid-cols-2 gap-2 text-center">
+                                                      <div>
+                                                        <p className="text-xs text-muted-foreground">Est. Time</p>
+                                                        <p className="font-bold text-lg">
+                                                          {`~${format(adjustedWithBreaks, 'hh:mm a')}`}
+                                                        </p>
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-xs text-muted-foreground">Queue</p>
+                                                        <p className="font-bold text-lg">{walkInEstimate.patientsAhead} ahead</p>
+                                                      </div>
                                                     </div>
-                                                    <div>
-                                                      <p className="text-xs text-muted-foreground">Queue</p>
-                                                      <p className="font-bold text-lg">{walkInEstimate.patientsAhead} ahead</p>
-                                                    </div>
+                                                    {walkInEstimate.isForceBooked && (
+                                                      <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                                                        <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                                                          <AlertTriangle className="h-3 w-3" />
+                                                          Outside normal availability
+                                                        </p>
+                                                      </div>
+                                                    )}
                                                   </div>
                                                 );
                                               } catch {
                                                 return (
-                                                  <div className="grid grid-cols-2 gap-2 text-center">
-                                                    <div>
-                                                      <p className="text-xs text-muted-foreground">Est. Time</p>
-                                                      <p className="font-bold text-lg">
-                                                        {`~${format(walkInEstimate.estimatedTime, 'hh:mm a')}`}
-                                                      </p>
+                                                  <div className="space-y-2">
+                                                    <div className="grid grid-cols-2 gap-2 text-center">
+                                                      <div>
+                                                        <p className="text-xs text-muted-foreground">Est. Time</p>
+                                                        <p className="font-bold text-lg">
+                                                          {`~${format(walkInEstimate.estimatedTime, 'hh:mm a')}`}
+                                                        </p>
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-xs text-muted-foreground">Queue</p>
+                                                        <p className="font-bold text-lg">{walkInEstimate.patientsAhead} ahead</p>
+                                                      </div>
                                                     </div>
-                                                    <div>
-                                                      <p className="text-xs text-muted-foreground">Queue</p>
-                                                      <p className="font-bold text-lg">{walkInEstimate.patientsAhead} ahead</p>
-                                                    </div>
+                                                    {walkInEstimate.isForceBooked && (
+                                                      <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                                                        <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                                                          <AlertTriangle className="h-3 w-3" />
+                                                          Outside normal availability
+                                                        </p>
+                                                      </div>
+                                                    )}
                                                   </div>
                                                 );
                                               }
@@ -4617,6 +4773,44 @@ export default function AppointmentsPage() {
               }}
             >
               Yes, Mark as Completed
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Force Book Confirmation Dialog */}
+      <AlertDialog open={showForceBookDialog} onOpenChange={setShowForceBookDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Confirm Force Booking
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                {isWithin15MinutesOfClosing(selectedDoctor, new Date())
+                  ? "Walk-in booking is closing soon (within 15 minutes of closing time)."
+                  : "All available slots are fully booked."}
+              </p>
+              <p className="font-semibold text-foreground">
+                This booking will go outside the doctor's normal availability time.
+                Do you want to accommodate this patient?
+              </p>
+              <p className="text-sm text-muted-foreground">
+                The patient will be assigned a token after all currently scheduled appointments.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowForceBookDialog(false);
+                handleForceBookEstimate();
+              }}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Force Book Patient
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

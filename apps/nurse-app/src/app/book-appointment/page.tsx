@@ -281,7 +281,9 @@ function BookAppointmentContent() {
             // Only count future slots (including current time)
             while (isBefore(currentTime, sessionEnd)) {
                 const slotTime = new Date(currentTime);
-                if (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime()) {
+                const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
+
+                if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
                     futureSlotCount += 1;
                 }
                 currentTime = addMinutes(currentTime, slotDuration);
@@ -309,7 +311,7 @@ function BookAppointmentContent() {
             return (
                 appointment.bookedVia !== 'Walk-in' &&
                 appointment.date === formattedDate &&
-                (appointment.status === 'Pending' || appointment.status === 'Confirmed') &&
+                (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed' || appointment.status === 'Attended') &&
                 !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
             );
         }).length;
@@ -780,9 +782,7 @@ function BookAppointmentContent() {
                 if (sessionReservedSlots.has(globalSlotIndexForThisSlot)) return;
 
                 // Filter out slots where slot time + break duration would be outside availability
-                const adjustedTime = breakIntervals.length > 0
-                    ? applyBreakOffsets(slot, breakIntervals)
-                    : slot;
+                const adjustedTime = slot;
 
                 if (adjustedTime > availabilityEndTime) return;
 
@@ -890,10 +890,8 @@ function BookAppointmentContent() {
                                                                     { 'line-through': slot.status === 'booked' || slot.status === 'leave' }
                                                                 )}>
                                                                 {slot.status === 'booked' && slot.tokenNumber ? slot.tokenNumber : (() => {
-                                                                    // Add break offsets for display only
-                                                                    const displayTime = displayBreakIntervals.length > 0
-                                                                        ? applyBreakOffsets(slot.time, displayBreakIntervals)
-                                                                        : slot.time;
+                                                                    // Display slot time directly without offsets
+                                                                    const displayTime = slot.time;
                                                                     return format(subMinutes(displayTime, 15), 'hh:mm a');
                                                                 })()}
                                                             </Button>

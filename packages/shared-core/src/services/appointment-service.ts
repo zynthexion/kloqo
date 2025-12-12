@@ -244,7 +244,7 @@ function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
  * This dynamically adjusts as time passes - reserved slots are recalculated based on remaining future slots
  * Returns a Set of slot indices that are reserved for walk-ins
  */
-function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date()): Set<number> {
+function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date(), blockedIndices: Set<number> = new Set()): Set<number> {
   const reservedSlots = new Set<number>();
 
   // Group slots by sessionIndex
@@ -260,9 +260,10 @@ function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Da
     // Sort slots by index to ensure correct order
     sessionSlots.sort((a, b) => a.index - b.index);
 
-    // Filter to only future slots (including current time)
+    // Filter to only future slots (including current time) AND not blocked by leave
     const futureSlots = sessionSlots.filter(slot =>
-      isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()
+      (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
+      !blockedIndices.has(slot.index)
     );
 
     if (futureSlots.length === 0) {
@@ -299,7 +300,12 @@ function buildCandidateSlots(
   const candidates: number[] = [];
 
   // Calculate reserved walk-in slots per session (15% of FUTURE slots only in each session)
-  const reservedWSlots = calculatePerSessionReservedSlots(slots, now);
+  // We need blockedIndices to exclude them from reserve calculation
+  // Since we don't have doctor object here, we can't easily calculate blockedIndices
+  // However, buildCandidateSlots is usually used for finding slots for a SPECIFIC doctor context
+  // where we might have this info.
+  // For now, we will assume empty set if not passed, but TODO: refactor to pass doctor/blockedIndices
+  const reservedWSlots = calculatePerSessionReservedSlots(slots, now, new Set());
 
   const addCandidate = (slotIndex: number) => {
     if (
@@ -608,9 +614,10 @@ export async function generateNextTokenAndReserveSlot(
 
   let maximumAdvanceTokens = 0;
   slotsBySession.forEach((sessionSlots) => {
-    // Filter to only future slots (including current time)
+    // Filter to only future slots (including current time) AND not blocked by leave
     const futureSlots = sessionSlots.filter(slot =>
-      isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()
+      (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
+      !blockedIndices.includes(slot.index)
     );
 
     const futureSlotCount = futureSlots.length;
@@ -695,7 +702,8 @@ export async function generateNextTokenAndReserveSlot(
               appointment.bookedVia !== 'Walk-in' &&
               typeof appointment.slotIndex === 'number' &&
               ACTIVE_STATUSES.has(appointment.status) &&
-              !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
+              !appointment.cancelledByBreak && // Exclude appointments cancelled by break scheduling
+              !appointment.id.startsWith('blocked-leave-') // Exclude injected blocked slots from capacity count
             );
           }).length;
 

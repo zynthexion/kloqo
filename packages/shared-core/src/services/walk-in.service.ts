@@ -4,7 +4,7 @@ import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString, getSessionEnd } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
-import { getLeaveBlockedIndices } from './appointment-service';
+import { getLeaveBlockedIndices, isSlotBlockedByLeave } from './appointment-service';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
@@ -158,7 +158,7 @@ function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
  * This dynamically adjusts as time passes - reserved slots are recalculated based on remaining future slots
  * Returns a Set of slot indices that are reserved for walk-ins
  */
-function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date()): Set<number> {
+function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date(), blockedIndices: Set<number> = new Set()): Set<number> {
   const reservedSlots = new Set<number>();
 
   // Group slots by sessionIndex
@@ -174,9 +174,10 @@ function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Da
     // Sort slots by index to ensure correct order
     sessionSlots.sort((a, b) => a.index - b.index);
 
-    // Filter to only future slots (including current time)
+    // Filter to only future slots (including current time) AND not blocked by leave
     const futureSlots = sessionSlots.filter(slot =>
-      isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()
+      (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
+      !blockedIndices.has(slot.index)
     );
 
     if (futureSlots.length === 0) {
@@ -213,7 +214,7 @@ function buildCandidateSlots(
   const candidates: number[] = [];
 
   // Calculate reserved walk-in slots per session (15% of FUTURE slots only in each session)
-  const reservedWSlots = calculatePerSessionReservedSlots(slots, now);
+  const reservedWSlots = calculatePerSessionReservedSlots(slots, now, new Set());
 
   const addCandidate = (slotIndex: number) => {
     if (
@@ -549,6 +550,8 @@ export async function generateNextTokenAndReserveSlot(
     typeof appointmentData.doctorId === 'string' ? appointmentData.doctorId : undefined
   );
   const totalSlots = slots.length;
+  // Calculate blocked slot indices due to leave
+  const blockedIndices = getLeaveBlockedIndices(doctor, slots, date);
   // Use current time (already defined above) to calculate capacity based on future slots only
 
   // Calculate maximum advance tokens per session (85% of FUTURE slots in each session)
@@ -564,9 +567,10 @@ export async function generateNextTokenAndReserveSlot(
   let maximumAdvanceTokens = 0;
   let totalMinimumWalkInReserve = 0;
   slotsBySession.forEach((sessionSlots) => {
-    // Filter to only future slots (including current time)
+    // Filter to only future slots (including current time) AND not blocked by leave
     const futureSlots = sessionSlots.filter(slot =>
-      isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()
+      (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
+      !blockedIndices.includes(slot.index)
     );
 
     const futureSlotCount = futureSlots.length;
@@ -2511,30 +2515,8 @@ export async function calculateWalkInDetails(
   const futureFreeSlots: DailySlot[] = [];
   const allFreeSlots: DailySlot[] = [];
   for (const slot of slots) {
-    // Check if slot is on leave
-    const isLeave = (doctor.leaveSlots || []).some(leave => {
-      if (typeof leave === 'string') {
-        try {
-          const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
-          return isSameMinute(leaveDate, slot.time);
-        } catch {
-          return false;
-        }
-      }
-      if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), date)) {
-        return leave.slots.some((leaveSlot: any) => {
-          try {
-            const leaveStart = parseTimeString(leaveSlot.from, date);
-            const leaveEnd = parseTimeString(leaveSlot.to, date);
-            const slotEnd = addMinutes(slot.time, doctor.averageConsultingTime || 15);
-            return isBefore(slot.time, leaveEnd) && isAfter(slotEnd, leaveStart);
-          } catch {
-            return false;
-          }
-        });
-      }
-      return false;
-    });
+    // Check if slot is on leave using standardized helper (checks breakPeriods)
+    const isLeave = isSlotBlockedByLeave(doctor, slot.time);
 
     if (!occupiedSlots.has(slot.index) && !isLeave) {
       allFreeSlots.push(slot);

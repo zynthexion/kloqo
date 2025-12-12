@@ -222,7 +222,9 @@ function isDoctorAdvanceCapacityReachedOnDate(
 
     while (isBefore(currentTime, sessionEnd)) {
       const slotTime = new Date(currentTime);
-      if (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime()) {
+      const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
+
+      if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
         futureSlotCount += 1;
       }
       currentTime = addMinutes(currentTime, slotDuration);
@@ -254,7 +256,7 @@ function isDoctorAdvanceCapacityReachedOnDate(
       appointment.doctor === doctor.name &&
       appointment.bookedVia !== 'Walk-in' &&
       appointment.date === formattedDate &&
-      (appointment.status === 'Pending' || appointment.status === 'Confirmed') &&
+      (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed' || appointment.status === 'Attended') &&
       !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
     );
   }).length;
@@ -1675,9 +1677,7 @@ export default function AppointmentsPage() {
           // Apply only session-specific breaks to calculate adjusted time
           // The 'time' field stores original slot time (never changes)
           // Only arriveByTime, cutOffTime, noShowTime are adjusted
-          const adjustedAppointmentTime = sessionBreakIntervals.length > 0
-            ? applySessionBreakOffsets(actualAppointmentTime, sessionBreakIntervals)
-            : actualAppointmentTime;
+          const adjustedAppointmentTime = actualAppointmentTime;
 
           // Calculate cut-off time and no-show time
           let cutOffTime: Date | undefined;
@@ -2880,6 +2880,14 @@ export default function AppointmentsPage() {
           }
         }
 
+        // Check if slot is blocked by leave/break
+        if (isSlotBlockedByLeave(selectedDoctor, slotTimeIterator)) {
+          // console.log(`[SLOT DEBUG] Slot ${slotTime} is BLOCKED by leave/break, skipping`);
+          currentSlotIndexInSession++;
+          slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
+          continue;
+        }
+
         // Note: Break offsets are NOT used for slot display filtering
         // They are only used for calculating arriveByTime, cutOffTime, noShowTime in the booking logic
         // Slots are displayed based on their original time, not adjusted time
@@ -3713,9 +3721,8 @@ export default function AppointmentsPage() {
                                               const sessionBreaks = walkInEstimate?.sessionIndex !== undefined && walkInEstimate.sessionIndex !== null
                                                 ? getSessionBreakIntervals(selectedDoctor, appointmentDate, walkInEstimate.sessionIndex)
                                                 : [];
-                                              const adjustedWithBreaks = sessionBreaks.length > 0
-                                                ? applyBreakOffsets(walkInEstimate.estimatedTime, sessionBreaks)
-                                                : walkInEstimate.estimatedTime;
+                                              // Use estimated time directly
+                                              const adjustedWithBreaks = walkInEstimate.estimatedTime;
 
                                               const consultationTime = selectedDoctor?.averageConsultingTime || 15;
                                               const appointmentEndTime = addMinutes(adjustedWithBreaks, consultationTime);
@@ -3806,9 +3813,8 @@ export default function AppointmentsPage() {
                                                 const sessionBreaks = walkInEstimate?.sessionIndex !== undefined && walkInEstimate.sessionIndex !== null
                                                   ? getSessionBreakIntervals(selectedDoctor, appointmentDate, walkInEstimate.sessionIndex)
                                                   : [];
-                                                const adjustedWithBreaks = sessionBreaks.length > 0
-                                                  ? applyBreakOffsets(walkInEstimate.estimatedTime, sessionBreaks)
-                                                  : walkInEstimate.estimatedTime;
+                                                // Use estimated time directly
+                                                const adjustedWithBreaks = walkInEstimate.estimatedTime;
                                                 const consultationTime = selectedDoctor?.averageConsultingTime || 15;
                                                 const appointmentEndTime = addMinutes(adjustedWithBreaks, consultationTime);
                                                 const isOutsideFrame = availabilityEnd ? isAfter(appointmentEndTime, availabilityEnd) : false;
@@ -3983,10 +3989,8 @@ export default function AppointmentsPage() {
                                                       {slotStatus === 'booked' && slotMeta.tokenNumber ? slotMeta.tokenNumber : (() => {
                                                         try {
                                                           const slotTime = parseDateFns(slot.time, "hh:mm a", selectedDate || new Date());
-                                                          // Add break offsets for display only
-                                                          const displayTime = displayBreakIntervals.length > 0
-                                                            ? applyBreakOffsets(slotTime, displayBreakIntervals)
-                                                            : slotTime;
+                                                          // Display slot time directly
+                                                          const displayTime = slotTime;
                                                           return format(subMinutes(displayTime, 15), 'hh:mm a');
                                                         } catch {
                                                           return slot.time;

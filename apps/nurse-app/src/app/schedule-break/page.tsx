@@ -332,14 +332,6 @@ function ScheduleBreakContent() {
                     [`breakPeriods.${dateKey}`]: updatedBreaks
                 };
 
-                // Remove from leaveSlots if present
-                const updatedLeaveSlots = (freshData.leaveSlots || []).filter(slot => {
-                    // Check if slot falls within break period
-                    const d = typeof slot === 'string' ? parseISO(slot) : (slot as any).toDate ? (slot as any).toDate() : slot;
-                    return !(d >= breakStart && d < breakEnd);
-                });
-                updates['leaveSlots'] = updatedLeaveSlots;
-
                 // Recalculate availabilityExtensions for this session
                 const availabilityExtensions = { ...(freshData.availabilityExtensions || {}) };
                 if (!availabilityExtensions[dateKey]) {

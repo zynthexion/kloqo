@@ -1362,16 +1362,11 @@ export default function DoctorsPage() {
         }
       }
 
-      // Update leaveSlots (for backward compatibility)
       const allBreakSlots = mergedBreaks.flatMap(b => b.slots);
-      // deprecated: leaveSlots
-      const existingLeaveSlots: any[] = [];
-      const updatedLeaveSlots = [...existingLeaveSlots, ...allBreakSlots];
 
       await updateDoc(doctorRef, {
         breakPeriods,
-        availabilityExtensions,
-        leaveSlots: updatedLeaveSlots
+        availabilityExtensions
       });
 
       // Update affected appointments: add break duration to arriveByTime, cutOffTime, noShowTime
@@ -1620,8 +1615,7 @@ export default function DoctorsPage() {
 
       await updateDoc(doctorRef, {
         breakPeriods: Object.keys(breakPeriods).length > 0 ? breakPeriods : {},
-        availabilityExtensions: Object.keys(availabilityExtensions).length > 0 ? availabilityExtensions : {},
-        leaveSlots: updatedLeaveSlots
+        availabilityExtensions: Object.keys(availabilityExtensions).length > 0 ? availabilityExtensions : {}
       });
 
       toast({

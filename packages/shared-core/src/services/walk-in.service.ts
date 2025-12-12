@@ -224,7 +224,6 @@ function buildCandidateSlots(
       // CRITICAL: For advance bookings, NEVER allow slots reserved for walk-ins (last 15% of each session)
       if (type === 'A' && reservedWSlots.has(slotIndex)) {
         const slot = slots[slotIndex];
-        console.log(`[SLOT FILTER] Rejecting slot ${slotIndex} - reserved for walk-ins in session ${slot?.sessionIndex}`);
         return; // Skip reserved walk-in slots
       }
       candidates.push(slotIndex);
@@ -240,11 +239,9 @@ function buildCandidateSlots(
       // CRITICAL: Also check if preferred slot is not reserved for walk-ins
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
-        console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - reserved for walk-ins in session ${preferredSessionIndex}`);
       } else if (isAfter(slotTime, oneHourFromNow)) {
         addCandidate(preferredSlotIndex);
       } else {
-        console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - within 1 hour from now`);
       }
 
       // CRITICAL: If preferred slot is not available, only look for alternatives within the SAME session
@@ -575,7 +572,6 @@ export async function generateNextTokenAndReserveSlot(
     totalMinimumWalkInReserve += sessionMinimumWalkInReserve;
   });
 
-  console.log(`[BOOKING DEBUG] Capacity calculation for ${dateStr}`, {
     totalSlots,
     maximumAdvanceTokens,
     sessions: slotsBySession.size,
@@ -592,7 +588,6 @@ export async function generateNextTokenAndReserveSlot(
   );
 
   const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  console.log(`[BOOKING DEBUG] ====== NEW BOOKING REQUEST (PATIENT APP) ======`, {
     requestId,
     clinicId,
     doctorName,
@@ -606,7 +601,6 @@ export async function generateNextTokenAndReserveSlot(
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
     const appointmentDocRefs = appointmentsSnapshot.docs.map(docSnap => doc(firestore, 'appointments', docSnap.id));
 
-    console.log(`[BOOKING DEBUG] Request ${requestId}: Attempt ${attempt + 1}/${MAX_TRANSACTION_ATTEMPTS}`, {
       existingAppointmentsCount: appointmentsSnapshot.docs.length,
       timestamp: new Date().toISOString()
     });
@@ -614,7 +608,6 @@ export async function generateNextTokenAndReserveSlot(
     try {
       // Add timeout wrapper for Safari compatibility
       const transactionPromise = runTransaction(firestore, async transaction => {
-        console.log(`[BOOKING DEBUG] Request ${requestId}: Transaction STARTED (attempt ${attempt + 1})`, {
           timestamp: new Date().toISOString(),
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
         });
@@ -624,31 +617,26 @@ export async function generateNextTokenAndReserveSlot(
         let counterState: TokenCounterState | null = null;
 
         if (type === 'W') {
-          console.log(`[BOOKING DEBUG] Request ${requestId}: About to prepare token counter (walk-in)`, {
             counterRef: counterRef.path,
             timestamp: new Date().toISOString()
           });
 
           counterState = await prepareNextTokenNumber(transaction, counterRef);
 
-          console.log(`[BOOKING DEBUG] Request ${requestId}: Token counter prepared`, {
             nextNumber: counterState.nextNumber,
             timestamp: new Date().toISOString()
           });
         } else {
-          console.log(`[BOOKING DEBUG] Request ${requestId}: Skipping counter preparation (advance booking)`, {
             timestamp: new Date().toISOString()
           });
         }
 
-        console.log(`[BOOKING DEBUG] Request ${requestId}: About to read ${appointmentDocRefs.length} appointments`, {
           appointmentCount: appointmentDocRefs.length,
           timestamp: new Date().toISOString()
         });
 
         const appointmentSnapshots = await Promise.all(appointmentDocRefs.map(ref => transaction.get(ref)));
 
-        console.log(`[BOOKING DEBUG] Request ${requestId}: Appointments read successfully`, {
           appointmentCount: appointmentSnapshots.length,
           timestamp: new Date().toISOString()
         });
@@ -684,7 +672,6 @@ export async function generateNextTokenAndReserveSlot(
             );
           }).length;
 
-          console.log(`[BOOKING DEBUG] Request ${requestId}: Capacity check (attempt ${attempt + 1})`, {
             activeAdvanceTokens,
             maximumAdvanceTokens,
             totalSlots,
@@ -708,7 +695,6 @@ export async function generateNextTokenAndReserveSlot(
             throw capacityError;
           }
 
-          console.log(`[BOOKING DEBUG] Request ${requestId}: ✅ Capacity check passed`, {
             activeAdvanceTokens,
             maximumAdvanceTokens,
             remainingCapacity: maximumAdvanceTokens - activeAdvanceTokens,
@@ -921,7 +907,6 @@ export async function generateNextTokenAndReserveSlot(
             appointments: effectiveAppointments,
           });
 
-          console.log(`[BOOKING DEBUG] Request ${requestId}: Candidate slots generated`, {
             totalCandidates: candidates.length,
             candidates: candidates,
             totalSlots,
@@ -990,7 +975,6 @@ export async function generateNextTokenAndReserveSlot(
             const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
             const reservationDocRef = doc(firestore, 'slot-reservations', reservationId);
 
-            console.log(`[BOOKING DEBUG] Request ${requestId}: Attempt ${attempt + 1}: Checking reservation for slot ${slotIndex}`, {
               reservationId,
               timestamp: new Date().toISOString()
             });
@@ -1034,7 +1018,6 @@ export async function generateNextTokenAndReserveSlot(
 
               if (isStale) {
                 // Reservation is stale - clean it up and allow new booking
-                console.log(`[BOOKING DEBUG] Request ${requestId}: Slot ${slotIndex} has STALE reservation - cleaning up`, {
                   reservationId,
                   reservedAt: reservedAt?.toDate?.()?.toISOString(),
                   existingData: reservationData
@@ -1045,7 +1028,6 @@ export async function generateNextTokenAndReserveSlot(
               } else {
                 // Reservation exists and is not stale - another active transaction has it
                 rejectedReasons.alreadyReserved++;
-                console.log(`[BOOKING DEBUG] Request ${requestId}: Slot ${slotIndex} reservation already exists (not stale) - skipping`, {
                   reservationId,
                   reservedAt: reservedAt?.toDate?.()?.toISOString(),
                   existingData: reservationData
@@ -1062,11 +1044,9 @@ export async function generateNextTokenAndReserveSlot(
 
             if (hasActiveAppointmentAtSlot) {
               rejectedReasons.hasActiveAppointment++;
-              console.log(`[BOOKING DEBUG] Request ${requestId}: Slot ${slotIndex} has active appointment - skipping`);
               continue;
             }
 
-            console.log(`[BOOKING DEBUG] Request ${requestId}: Attempt ${attempt + 1}: Attempting to CREATE reservation for slot ${slotIndex}`, {
               reservationId,
               timestamp: new Date().toISOString(),
               candidatesCount: candidates.length,
@@ -1089,7 +1069,6 @@ export async function generateNextTokenAndReserveSlot(
               reservedBy: 'appointment-booking',
             });
 
-            console.log(`[BOOKING DEBUG] Request ${requestId}: Attempt ${attempt + 1}: Reservation SET in transaction for slot ${slotIndex}`, {
               reservationId,
               timestamp: new Date().toISOString()
             });
@@ -1115,7 +1094,6 @@ export async function generateNextTokenAndReserveSlot(
             numericToken = calculatedNumericToken;
             tokenNumber = calculatedTokenNumber;
 
-            console.log(`[BOOKING DEBUG] Request ${requestId}: Token assigned based on slotIndex`, {
               slotIndex: chosenSlotIndex,
               calculatedNumericToken,
               calculatedTokenNumber,
@@ -1267,7 +1245,6 @@ export async function generateNextTokenAndReserveSlot(
           }
         }
 
-        console.log(`[BOOKING DEBUG] Request ${requestId}: Transaction SUCCESS - about to commit`, {
           tokenNumber,
           numericToken,
           slotIndex: chosenSlotIndex,
@@ -1276,7 +1253,6 @@ export async function generateNextTokenAndReserveSlot(
           timestamp: new Date().toISOString()
         });
 
-        console.log(`[BOOKING DEBUG] Request ${requestId}: Transaction about to return`, {
           tokenNumber,
           slotIndex: chosenSlotIndex,
           reservationId: reservationRef.id,
@@ -1331,14 +1307,12 @@ export async function generateNextTokenAndReserveSlot(
       }
 
       const isConflict = isReservationConflict(error);
-      console.log(`[BOOKING DEBUG] Request ${requestId}: isReservationConflict check result:`, {
         isConflict,
         willRetry: isConflict && attempt < MAX_TRANSACTION_ATTEMPTS - 1,
         attemptsRemaining: MAX_TRANSACTION_ATTEMPTS - attempt - 1
       });
 
       if (isConflict) {
-        console.log(`[BOOKING DEBUG] Request ${requestId}: ✅ Reservation conflict detected - WILL RETRY`, {
           isReservationConflict: true,
           attemptsRemaining: MAX_TRANSACTION_ATTEMPTS - attempt - 1,
           nextAttempt: attempt + 2
@@ -1986,9 +1960,6 @@ async function prepareAdvanceShift({
         return null;
       }
 
-      console.log('[Walk-in Scheduling] Scheduler assigned new walk-in to slot:', newAssignment.slotIndex);
-      console.log('[Walk-in Scheduling] Blocked cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
-      console.log('[Walk-in Scheduling] Active walk-ins with times:', activeWalkInsWithTimes.map(w => ({ slotIndex: w.slotIndex, time: w.slotTime })));
 
       // CRITICAL: Check if the assigned slot is already reserved by a concurrent request
       // This must happen IMMEDIATELY after scheduler assignment to prevent race conditions
@@ -2007,7 +1978,6 @@ async function prepareAdvanceShift({
 
       if (assignedAppointment) {
         const assignedSlotMeta = slots[newAssignment.slotIndex];
-        console.log(`[Walk-in Scheduling] Assigned slot ${newAssignment.slotIndex} is a cancelled/no-show slot at time:`, assignedSlotMeta?.time);
 
         // Check if this cancelled slot should be blocked (has walk-ins after it)
         if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
@@ -2015,7 +1985,6 @@ async function prepareAdvanceShift({
           console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot, rejecting:', newAssignment.slotIndex);
           return null;
         } else if (assignedAppointment) {
-          console.log(`[Walk-in Scheduling] Assigned cancelled slot ${newAssignment.slotIndex} is available (no walk-ins after it)`);
         }
       }
 
@@ -2864,11 +2833,9 @@ export async function calculateWalkInDetails(
 
   // Force booking logic: first try available slots, then overflow if none found
   if (forceBook) {
-    console.log('[FORCE BOOK] Force booking enabled - checking for available slots first');
     
     // First priority: Check if there are available slots within the 15-minute closing window
     if (chosenSlot) {
-      console.log('[FORCE BOOK] Found available slot within closing window:', {
         slotIndex: chosenSlot.index,
         time: format(chosenSlot.time, 'hh:mm a'),
         sessionIndex: chosenSlot.sessionIndex
@@ -2910,7 +2877,6 @@ export async function calculateWalkInDetails(
     }
     
     // Second priority: No slots available - create overflow slot after session end time
-    console.log('[FORCE BOOK] No available slots found - creating overflow slot after session end time');
     
     const dayOfWeek = format(date, 'EEEE');
     const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
@@ -2966,7 +2932,6 @@ export async function calculateWalkInDetails(
     const numericToken =
       (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
     
-    console.log('[FORCE BOOK] Created overflow slot after session end time:', {
       effectiveSessionEnd: format(effectiveSessionEnd, 'hh:mm a'),
       overflowEndTime: format(addMinutes(overflowTime, consultationTime), 'hh:mm a'),
       slotIndex: overflowSlotIndex,

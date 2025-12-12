@@ -30,15 +30,6 @@ export async function shiftAppointmentsForNewBreak(
         const breakStart = parseISO(breakPeriod.startTime);
         const breakDuration = breakPeriod.duration || 0;
 
-        console.log('[BREAK SERVICE] Starting adjustment for new break', {
-            breakStart: format(breakStart, 'hh:mm a'),
-            breakDuration,
-            date: dateStr,
-            sessionIndex,
-            doctorName,
-            clinicId
-        });
-
         const appointmentsQuery = query(
             collection(db, 'appointments'),
             where('doctor', '==', doctorName),
@@ -154,10 +145,6 @@ export async function shiftAppointmentsForNewBreak(
 
         if (updates.length > 0) {
             await batch.commit();
-            console.log(`[BREAK SERVICE] ✅ Successfully adjusted ${updates.length} appointments (Copy & Cancel)`, {
-                breakStart: format(breakStart, 'hh:mm a'),
-                firstAdjustment: updates[0]?.originalData.time + ' -> ' + updates[0]?.newData.time
-            });
         }
     } catch (error) {
         console.error('[BREAK SERVICE] ❌ Error shifting appointments:', error);

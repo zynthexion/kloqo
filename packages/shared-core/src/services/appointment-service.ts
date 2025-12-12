@@ -249,7 +249,6 @@ function buildCandidateSlots(
       // CRITICAL: For advance bookings, NEVER allow slots reserved for walk-ins (last 15% of each session)
       if (type === 'A' && reservedWSlots.has(slotIndex)) {
         const slot = slots[slotIndex];
-        console.log(`[SLOT FILTER] Rejecting slot ${slotIndex} - reserved for walk-ins in session ${slot?.sessionIndex}`);
         return; // Skip reserved walk-in slots
       }
       candidates.push(slotIndex);
@@ -265,11 +264,9 @@ function buildCandidateSlots(
       // CRITICAL: Also check if preferred slot is not reserved for walk-ins
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
-        console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - reserved for walk-ins in session ${preferredSessionIndex}`);
       } else if (isAfter(slotTime, oneHourFromNow)) {
         addCandidate(preferredSlotIndex);
       } else {
-        console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - within 1 hour from now`);
       }
 
       // CRITICAL: If preferred slot is not available, only look for alternatives within the SAME session
@@ -1068,7 +1065,6 @@ export async function generateNextTokenAndReserveSlot(
 
               if (isStale) {
                 // Reservation is stale - clean it up and allow new booking
-                console.log(`[BOOKING DEBUG] Slot ${slotIndex} has STALE reservation - cleaning up`, {
                   reservationId,
                   reservedAt: reservedAt?.toDate?.()?.toISOString(),
                   existingData: reservationData
@@ -1813,13 +1809,9 @@ const prepareAdvanceShift = async ({
         assignment => assignment.id === '__new_walk_in__'
       );
       if (!newAssignment) {
-        console.log('[Walk-in Scheduling] No assignment found for new walk-in');
         return null;
       }
 
-      console.log('[Walk-in Scheduling] Scheduler assigned new walk-in to slot:', newAssignment.slotIndex);
-      console.log('[Walk-in Scheduling] Blocked cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
-      console.log('[Walk-in Scheduling] Active walk-ins with times:', activeWalkInsWithTimes.map(w => ({ slotIndex: w.slotIndex, time: w.slotTime })));
 
       // Check if the assigned slot is a cancelled slot
       const assignedAppointment = effectiveAppointments.find(
@@ -1829,7 +1821,6 @@ const prepareAdvanceShift = async ({
 
       if (assignedAppointment) {
         const assignedSlotMeta = slots[newAssignment.slotIndex];
-        console.log(`[Walk-in Scheduling] Assigned slot ${newAssignment.slotIndex} is a cancelled/no-show slot at time:`, assignedSlotMeta?.time);
 
         // Check if this cancelled slot should be blocked (has walk-ins after it)
         if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
@@ -1837,7 +1828,6 @@ const prepareAdvanceShift = async ({
           console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot, rejecting:', newAssignment.slotIndex);
           return null;
         } else if (assignedAppointment) {
-          console.log(`[Walk-in Scheduling] Assigned cancelled slot ${newAssignment.slotIndex} is available (no walk-ins after it)`);
         }
       }
 

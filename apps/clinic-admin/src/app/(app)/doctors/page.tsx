@@ -658,7 +658,8 @@ export default function DoctorsPage() {
     startTransition(async () => {
       const doctorRef = doc(db, "doctors", selectedDoctor.id);
       try {
-        const existingLeaveSlots: (LeaveSlot | string)[] = selectedDoctor.leaveSlots || [];
+        // deprecated: leaveSlots
+        const existingLeaveSlots: any[] = [];
         const cleanedLeaveSlots: (LeaveSlot | string)[] = [];
 
         for (const leave of existingLeaveSlots) {
@@ -754,7 +755,8 @@ export default function DoctorsPage() {
       return slot;
     }).filter(slot => slot.timeSlots.length > 0);
 
-    const existingLeaveSlots: (LeaveSlot | string)[] = selectedDoctor.leaveSlots || [];
+    // deprecated: leaveSlots
+    const existingLeaveSlots: any[] = [];
     const cleanedLeaveSlots: (LeaveSlot | string)[] = [];
 
     for (const leave of existingLeaveSlots) {
@@ -773,7 +775,7 @@ export default function DoctorsPage() {
         continue;
       }
 
-      const validLeaveSubSlots = leave.slots.filter(leaveSubSlot => {
+      const validLeaveSubSlots = leave.slots.filter((leaveSubSlot: TimeSlot) => {
         return !(leaveSubSlot.from === timeSlot.from && leaveSubSlot.to === timeSlot.to);
       });
 
@@ -984,65 +986,9 @@ export default function DoctorsPage() {
 
   // LEGACY: Keep dailyLeaveSlots for backward compatibility with old UI code
   const dailyLeaveSlots = useMemo(() => {
-    if (!selectedDoctor?.leaveSlots) return [];
-
-    const slotsForDate: Date[] = (selectedDoctor.leaveSlots || [])
-      .map(leave => {
-        // Handle string-based ISO dates
-        if (typeof leave === 'string') {
-          try {
-            const d = parseISO(leave);
-            return !isNaN(d.getTime()) && isSameDay(d, leaveCalDate) ? d : null;
-          } catch {
-            return null;
-          }
-        }
-        // Handle object-based leave slots
-        if (leave && leave.date && Array.isArray(leave.slots)) {
-          if (isSameDay(parse(leave.date, 'yyyy-MM-dd', new Date()), leaveCalDate)) {
-            return leave.slots.flatMap((slot: TimeSlot) => {
-              const start = parseTimeUtil(slot.from, leaveCalDate);
-              const end = parseTimeUtil(slot.to, leaveCalDate);
-              const consultationTime = selectedDoctor.averageConsultingTime || 15;
-              const innerSlots = [];
-              let current = start;
-              while (isBefore(current, end)) {
-                innerSlots.push(current);
-                current = addMinutes(current, consultationTime);
-              }
-              return innerSlots;
-            });
-          }
-        }
-        return null;
-      })
-      .flat() // Flatten the array of arrays from object slots
-      .filter((date): date is Date => date !== null);
-
-    if (slotsForDate.length === 0) return [];
-
-    slotsForDate.sort((a, b) => a.getTime() - b.getTime());
-
-    const combinedBreaks: { start: Date; end: Date }[] = [];
-    let currentBreak: { start: Date; end: Date } | null = null;
-    const consultationTime = selectedDoctor.averageConsultingTime || 15;
-
-    for (const slot of slotsForDate) {
-      if (!currentBreak) {
-        currentBreak = { start: slot, end: addMinutes(slot, consultationTime) };
-      } else if (slot.getTime() === currentBreak.end.getTime()) {
-        currentBreak.end = addMinutes(slot, consultationTime);
-      } else {
-        combinedBreaks.push(currentBreak);
-        currentBreak = { start: slot, end: addMinutes(slot, consultationTime) };
-      }
-    }
-    if (currentBreak) {
-      combinedBreaks.push(currentBreak);
-    }
-
-    return combinedBreaks;
-  }, [selectedDoctor?.leaveSlots, leaveCalDate, selectedDoctor?.averageConsultingTime]);
+    // deprecated: leaveSlots - return empty array since we use breakPeriods now
+    return [];
+  }, [leaveCalDate]);
 
   const canCancelBreak = useMemo(() => {
     return true;
@@ -1138,8 +1084,8 @@ export default function DoctorsPage() {
     }
 
     const breakSession = availabilityForDay.timeSlots[breakSessionIndex];
-    const breakSessionStart = parse(breakSession.from, 'hh:mm a', leaveCalDate);
-    const breakSessionEnd = parse(breakSession.to, 'hh:mm a', leaveCalDate);
+    const breakSessionStart = parseTimeUtil(breakSession.from, leaveCalDate);
+    const breakSessionEnd = parseTimeUtil(breakSession.to, leaveCalDate);
 
     // Get breaks for this session
     const breaksForSession = getSessionBreaks(selectedDoctor, leaveCalDate, breakSessionIndex);
@@ -1150,14 +1096,23 @@ export default function DoctorsPage() {
       s => s.sessionIndex === breakSessionIndex
     );
 
+
+
     let breakSessionEffectiveEnd: Date;
-    if (storedExtension) {
+    // CRITICAL FIX: Validate that the stored extension actually belongs to THIS session time.
+    // If the doctor changed their schedule, the sessionIndex might be the same but the times different.
+    const currentSessionEndStr = format(breakSessionEnd, 'hh:mm a');
+    const isExtensionValid = storedExtension && storedExtension.originalEndTime === currentSessionEndStr;
+
+    if (isExtensionValid && storedExtension) {
       breakSessionEffectiveEnd = storedExtension.totalExtendedBy > 0
         ? addMinutes(breakSessionEnd, storedExtension.totalExtendedBy)
         : breakSessionEnd;
     } else {
-      const extension = calculateSessionExtension(breakSessionIndex, breaksForSession, breakSessionEnd);
-      breakSessionEffectiveEnd = extension.newSessionEnd;
+      if (storedExtension) {
+      }
+      // No stored extension - default to original end to correctly detect overruns
+      breakSessionEffectiveEnd = breakSessionEnd;
     }
 
     // Convert range to array of slot ISO strings
@@ -1244,34 +1199,7 @@ export default function DoctorsPage() {
       hasOverrun = overrunMinutes > 0;
       minimalExtension = overrunMinutes;
 
-      console.log('[BREAK EXT DEBUG] Overrun calculation', {
-        date: format(leaveCalDate, 'd MMMM yyyy'),
-        doctor: selectedDoctor.name,
-        sessionIndex: breakSessionIndex,
-        breakDuration,
-        consultationTime,
-        originalEnd: format(breakSessionEnd, 'hh:mm a'),
-        effectiveEnd: format(breakSessionEffectiveEnd, 'hh:mm a'),
-        lastAppointment: {
-          time: lastAppointment.time,
-          arriveByTime: lastAppointment.arriveByTime,
-          usingArriveByTime: !!lastAppointment.arriveByTime
-        },
-        lastTokenBefore,
-        lastTokenAfter,
-        lastAppointmentEnd: format(lastAppointmentEnd, 'hh:mm a'),
-        overrunMinutes,
-        hasOverrun
-      });
-    } else {
-      console.log('[BREAK EXT DEBUG] No appointments in session on selected date', {
-        date: format(leaveCalDate, 'd MMMM yyyy'),
-        doctor: selectedDoctor.name,
-        sessionIndex: breakSessionIndex,
-        breakDuration,
-        originalEnd: format(breakSessionEnd, 'hh:mm a'),
-        effectiveEnd: format(breakSessionEffectiveEnd, 'hh:mm a')
-      });
+
     }
 
     setExtensionOptions({
@@ -1436,10 +1364,8 @@ export default function DoctorsPage() {
 
       // Update leaveSlots (for backward compatibility)
       const allBreakSlots = mergedBreaks.flatMap(b => b.slots);
-      const existingLeaveSlots = (selectedDoctor.leaveSlots || []).filter((slot: any) => {
-        const slotDate = typeof slot === 'string' ? parseISO(slot) : slot.toDate();
-        return !isSameDay(slotDate, leaveCalDate);
-      });
+      // deprecated: leaveSlots
+      const existingLeaveSlots: any[] = [];
       const updatedLeaveSlots = [...existingLeaveSlots, ...allBreakSlots];
 
       await updateDoc(doctorRef, {
@@ -1650,18 +1576,51 @@ export default function DoctorsPage() {
         breakPeriods[dateKey] = remainingBreaks;
       }
 
-      // NOTE: We do NOT update availabilityExtensions here.
-      // The extension remains because shifted appointments still occupy the extended time slots.
+      // Recalculate availabilityExtensions for this session
+      const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+      const availabilityExtensions = { ...(selectedDoctor.availabilityExtensions || {}) };
 
-      // Update leaveSlots
-      const slotsToRemove = new Set(breakToRemove.slots);
-      const updatedLeaveSlots = (selectedDoctor.leaveSlots || []).filter((slot: any) => {
-        const slotStr = typeof slot === 'string' ? slot : (slot.toISOString ? slot.toISOString() : slot);
-        return !slotsToRemove.has(slotStr);
-      });
+      if (!availabilityExtensions[dateStr]) {
+        availabilityExtensions[dateStr] = { sessions: [] };
+      }
+
+      // Calculate new total duration from remaining breaks
+      const totalBreakMinutes = remainingBreaks.reduce((sum, bp) => sum + bp.duration, 0);
+
+      // Update the session extension entry
+      const existingSessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => s.sessionIndex === currentSession.sessionIndex);
+
+      const newSessionExtension = {
+        sessionIndex: currentSession.sessionIndex,
+        breaks: remainingBreaks,
+        // If no breaks remain, extension is 0. If breaks remain, we keep the extension as sum of breaks? 
+        // Or strictly speaking, we should probably reset to just the break duration unless user manually extended further?
+        // For simplicity and correctness, let's reset to sum of breaks. 
+        // If they manually extended beyond breaks, that data is lost on cancel, which is probably safer.
+        totalExtendedBy: totalBreakMinutes,
+        originalEndTime: currentSession.originalEnd ? format(currentSession.originalEnd, 'hh:mm a') : '',
+        newEndTime: currentSession.originalEnd
+          ? format(addMinutes(currentSession.originalEnd, totalBreakMinutes), 'hh:mm a')
+          : ''
+      };
+
+      if (existingSessionExtIndex >= 0) {
+        if (remainingBreaks.length === 0) {
+          // Remove the extension entry if no breaks
+          availabilityExtensions[dateStr].sessions.splice(existingSessionExtIndex, 1);
+        } else {
+          availabilityExtensions[dateStr].sessions[existingSessionExtIndex] = newSessionExtension;
+        }
+      }
+
+      // Cleanup if date entry empty
+      if (availabilityExtensions[dateStr].sessions.length === 0) {
+        delete availabilityExtensions[dateStr];
+      }
 
       await updateDoc(doctorRef, {
         breakPeriods: Object.keys(breakPeriods).length > 0 ? breakPeriods : {},
+        availabilityExtensions: Object.keys(availabilityExtensions).length > 0 ? availabilityExtensions : {},
         leaveSlots: updatedLeaveSlots
       });
 

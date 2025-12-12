@@ -340,6 +340,53 @@ function ScheduleBreakContent() {
                 });
                 updates['leaveSlots'] = updatedLeaveSlots;
 
+                // Recalculate availabilityExtensions for this session
+                const availabilityExtensions = { ...(freshData.availabilityExtensions || {}) };
+                if (!availabilityExtensions[dateKey]) {
+                    availabilityExtensions[dateKey] = { sessions: [] };
+                }
+
+                const totalBreakMinutes = updatedBreaks.reduce((sum, bp) => sum + bp.duration, 0);
+                const sessionIndex = breakPeriod.sessionIndex;
+
+                // We need session info to calculate original end.
+                // Since we are inside the cancellation logic, we might not have 'currentSession' readily available if we are just cancelling based on ID.
+                // However, we can try to find the session from availabilitySlots.
+
+                const dayOfWeek = format(selectedDate, 'EEEE');
+                const availabilityForDay = freshData.availabilitySlots?.find(s => s.day === dayOfWeek);
+                let originalEndStr = '';
+
+                if (availabilityForDay && availabilityForDay.timeSlots[sessionIndex]) {
+                    originalEndStr = availabilityForDay.timeSlots[sessionIndex].to;
+                }
+
+                const existingSessionExtIndex = availabilityExtensions[dateKey].sessions.findIndex((s: any) => s.sessionIndex === sessionIndex);
+
+                const newSessionExtension = {
+                    sessionIndex: sessionIndex,
+                    breaks: updatedBreaks,
+                    totalExtendedBy: totalBreakMinutes,
+                    originalEndTime: originalEndStr ? format(parseTime(originalEndStr, selectedDate), 'hh:mm a') : '',
+                    newEndTime: originalEndStr
+                        ? format(addMinutes(parseTime(originalEndStr, selectedDate), totalBreakMinutes), 'hh:mm a')
+                        : ''
+                };
+
+                if (existingSessionExtIndex >= 0) {
+                    if (updatedBreaks.length === 0) {
+                        availabilityExtensions[dateKey].sessions.splice(existingSessionExtIndex, 1);
+                    } else {
+                        availabilityExtensions[dateKey].sessions[existingSessionExtIndex] = newSessionExtension;
+                    }
+                }
+
+                if (availabilityExtensions[dateKey].sessions.length === 0) {
+                    delete availabilityExtensions[dateKey];
+                }
+
+                updates['availabilityExtensions'] = availabilityExtensions;
+
                 await updateDoc(doctorRef, updates);
 
                 toast({
@@ -484,8 +531,8 @@ function ScheduleBreakContent() {
         }
 
         const breakSession = availabilityForDay.timeSlots[breakSessionIndex];
-        const breakSessionStart = parse(breakSession.from, 'hh:mm a', selectedDate);
-        const breakSessionEnd = parse(breakSession.to, 'hh:mm a', selectedDate);
+        const breakSessionStart = parseTime(breakSession.from, selectedDate);
+        const breakSessionEnd = parseTime(breakSession.to, selectedDate);
 
         const breaksForSession = getSessionBreaks(doctor, selectedDate, breakSessionIndex);
         const dateKey = format(selectedDate, 'd MMMM yyyy');
@@ -499,14 +546,20 @@ function ScheduleBreakContent() {
         const breakDuration = differenceInMinutes(endDate, startDate) + slotDuration;
 
         let breakSessionEffectiveEnd: Date;
-        if (storedExtension) {
+        // CRITICAL FIX: Validate that the stored extension actually belongs to THIS session time.
+        // If the doctor changed their schedule, the sessionIndex might be the same but the times different.
+        const currentSessionEndStr = format(breakSessionEnd, 'hh:mm a');
+        const isExtensionValid = storedExtension && storedExtension.originalEndTime === currentSessionEndStr;
+
+        if (isExtensionValid && storedExtension) {
             breakSessionEffectiveEnd = storedExtension.totalExtendedBy > 0
                 ? addMinutes(breakSessionEnd, storedExtension.totalExtendedBy)
                 : breakSessionEnd;
         } else {
-            const extension = calculateSessionExtension(breakSessionIndex, breaksForSession, breakSessionEnd);
-            breakSessionEffectiveEnd = extension.newSessionEnd;
+            // No stored extension - default to original end to correctly detect overruns
+            breakSessionEffectiveEnd = breakSessionEnd;
         }
+
 
         const selectedBreakSlots: string[] = [];
         let currentTime = new Date(startDate);

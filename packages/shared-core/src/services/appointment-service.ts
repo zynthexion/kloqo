@@ -14,7 +14,7 @@ import {
   type DocumentSnapshot,
   type Transaction,
 } from 'firebase/firestore';
-import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, isSameMinute, isSameDay } from 'date-fns';
+import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, parseISO, isSameMinute, isSameDay } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString } from '../utils/break-helpers';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
@@ -29,11 +29,11 @@ function isReservationConflict(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-
+  // Check for Firestore error codes or custom error messages
   return (
-    error.message === RESERVATION_CONFLICT_CODE ||
-    (typeof (error as { code?: string }).code === 'string' &&
-      (error as { code?: string }).code === RESERVATION_CONFLICT_CODE)
+    (error as any).code === RESERVATION_CONFLICT_CODE ||
+    error.message.includes('reservation') ||
+    error.message.includes('conflict')
   );
 }
 
@@ -48,31 +48,58 @@ interface LoadedDoctor {
   slots: DailySlot[];
 }
 
+export function isSlotBlockedByLeave(doctor: Doctor, slotTime: Date): boolean {
+  if (!doctor) return false;
+
+  const dateStr = format(slotTime, 'd MMMM yyyy');
+  const isoDateStr = format(slotTime, 'yyyy-MM-dd');
+  const shortDateStr = format(slotTime, 'd MMM yyyy');
+
+  // Only check breakPeriods (Primary Source of Truth)
+  if (doctor.breakPeriods) {
+    // Try multiple key formats: "12 December 2025", "2025-12-12", "12 Dec 2025"
+    let breaks = doctor.breakPeriods[dateStr] || doctor.breakPeriods[isoDateStr] || doctor.breakPeriods[shortDateStr];
+
+    if (breaks) {
+      return breaks.some(breakPeriod => {
+        try {
+          // Method 1: Explicit slots list
+          if (breakPeriod.slots && Array.isArray(breakPeriod.slots)) {
+            const isExplicitlyListed = breakPeriod.slots.some(s => {
+              // Try parsing slot as ISO first, then strict format
+              const sDate = typeof s === 'string' ? parseISO(s) : new Date(s);
+              return isSameMinute(sDate, slotTime);
+            });
+            if (isExplicitlyListed) return true;
+          }
+
+          // Method 2: Range check
+          // Use parseISO for more robust handling of ISO strings
+          const breakStart = typeof breakPeriod.startTime === 'string' ? parseISO(breakPeriod.startTime) : new Date(breakPeriod.startTime);
+          const breakEnd = typeof breakPeriod.endTime === 'string' ? parseISO(breakPeriod.endTime) : new Date(breakPeriod.endTime);
+
+          const slotDuration = doctor.averageConsultingTime || 15;
+          const slotEnd = addMinutes(slotTime, slotDuration);
+
+          // Check overlap
+          const isBlocked = isBefore(slotTime, breakEnd) && isAfter(slotEnd, breakStart);
+          return isBlocked;
+        } catch (e) {
+          console.warn('Error parsing break dates', e);
+          return false;
+        }
+      });
+    }
+  }
+
+  return false;
+}
+
 export function getLeaveBlockedIndices(doctor: Doctor, slots: DailySlot[], date: Date): number[] {
   const blockedIndices: number[] = [];
-  if (!doctor.leaveSlots || doctor.leaveSlots.length === 0) return blockedIndices;
 
   for (const slot of slots) {
-    const isLeave = (doctor.leaveSlots || []).some(leave => {
-      if (typeof leave === 'string') {
-        try {
-          const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
-          return isSameMinute(leaveDate, slot.time);
-        } catch { return false; }
-      }
-      if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), date)) {
-        return leave.slots.some((leaveSlot: any) => {
-          try {
-            const leaveStart = parseTimeString(leaveSlot.from, date);
-            const leaveEnd = parseTimeString(leaveSlot.to, date);
-            const slotEnd = addMinutes(slot.time, doctor.averageConsultingTime || 15);
-            return isBefore(slot.time, leaveEnd) && isAfter(slotEnd, leaveStart);
-          } catch { return false; }
-        });
-      }
-      return false;
-    });
-    if (isLeave) {
+    if (isSlotBlockedByLeave(doctor, slot.time)) {
       blockedIndices.push(slot.index);
     }
   }
@@ -130,28 +157,32 @@ async function loadDoctorAndSlots(
   const slots: DailySlot[] = [];
   let slotIndex = 0;
 
-  // Check for availability extension (session-specific)
-  const dateStr = format(date, 'd MMMM yyyy');
-  const extensionForDate = doctor.availabilityExtensions?.[dateStr];
-
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseTimeString(session.from, date);
     let endTime = parseTimeString(session.to, date);
 
-    // If there is an extension for this specific session, use it
-    if (extensionForDate?.sessions?.length) {
-      const sessionExtension = extensionForDate.sessions.find(s => s.sessionIndex === sessionIndex);
-      const newEndTimeStr = sessionExtension?.newEndTime;
-      if (newEndTimeStr && sessionExtension?.totalExtendedBy > 0) {
-        try {
-          const extendedEndTime = parseTimeString(newEndTimeStr, date);
-          // Only use extended time if it's actually later than the original end time
-          if (isAfter(extendedEndTime, endTime)) {
-            endTime = extendedEndTime;
+    // Check for availability extension (session-specific)
+    const dateKey = format(date, 'd MMMM yyyy');
+    const extensionForDate = (doctor as any).availabilityExtensions?.[dateKey];
+
+    if (extensionForDate) {
+      const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+
+      if (sessionExtension) {
+        const newEndTimeStr = sessionExtension.newEndTime;
+
+        if (newEndTimeStr && sessionExtension.totalExtendedBy > 0) {
+          try {
+            const extendedEndTime = parseTimeString(newEndTimeStr, date);
+
+            // Only use extended time if it's actually later than the original end time
+            if (isAfter(extendedEndTime, endTime)) {
+              endTime = extendedEndTime;
+            }
+          } catch (error) {
+            console.error('Error parsing extended end time, using original:', error);
+            // Fall back to original end time if parsing fails
           }
-        } catch (error) {
-          console.error('Error parsing extended end time, using original:', error);
-          // Fall back to original end time if parsing fails
         }
       }
     }
@@ -663,7 +694,8 @@ export async function generateNextTokenAndReserveSlot(
             return (
               appointment.bookedVia !== 'Walk-in' &&
               typeof appointment.slotIndex === 'number' &&
-              ACTIVE_STATUSES.has(appointment.status)
+              ACTIVE_STATUSES.has(appointment.status) &&
+              !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
             );
           }).length;
 
@@ -1075,7 +1107,6 @@ export async function generateNextTokenAndReserveSlot(
             const reservedWSlots = calculatePerSessionReservedSlots(slots, now);
             if (type === 'A' && reservedWSlots.has(slotIndex)) {
               const slot = slots[slotIndex];
-
               continue; // NEVER allow advance bookings to use reserved walk-in slots
             }
 

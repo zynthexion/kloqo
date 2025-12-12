@@ -18,7 +18,7 @@ import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreD
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
-import { updateAppointmentAndDoctorStatuses } from '@kloqo/shared-core';
+import { updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
   Form,
@@ -158,68 +158,17 @@ type BreakInterval = {
 };
 
 function buildBreakIntervals(doctor: Doctor | null | undefined, referenceDate: Date | null | undefined): BreakInterval[] {
-  if (!doctor?.leaveSlots || !referenceDate) {
+  if (!doctor?.breakPeriods || !referenceDate) {
     return [];
   }
 
-  const consultationTime = doctor.averageConsultingTime || 15;
+  const dateKey = format(referenceDate, 'd MMMM yyyy');
+  const breaks = doctor.breakPeriods[dateKey] || [];
 
-  const slotsForDay = (doctor.leaveSlots || [])
-    .map((leave) => {
-      if (typeof leave === 'string') {
-        try {
-          return parseISO(leave);
-        } catch {
-          return null;
-        }
-      }
-      if (leave && typeof (leave as any).toDate === 'function') {
-        try {
-          return (leave as any).toDate();
-        } catch {
-          return null;
-        }
-      }
-      if (leave instanceof Date) {
-        return leave;
-      }
-      return null;
-    })
-    .filter((date): date is Date => !!date && !isNaN(date.getTime()) && isSameDay(date, referenceDate))
-    .sort((a, b) => a.getTime() - b.getTime());
-
-  if (slotsForDay.length === 0) {
-    return [];
-  }
-
-  const intervals: BreakInterval[] = [];
-  let currentInterval: BreakInterval | null = null;
-
-  for (const slot of slotsForDay) {
-    if (!currentInterval) {
-      currentInterval = {
-        start: slot,
-        end: addMinutes(slot, consultationTime),
-      };
-      continue;
-    }
-
-    if (slot.getTime() === currentInterval.end.getTime()) {
-      currentInterval.end = addMinutes(slot, consultationTime);
-    } else {
-      intervals.push(currentInterval);
-      currentInterval = {
-        start: slot,
-        end: addMinutes(slot, consultationTime),
-      };
-    }
-  }
-
-  if (currentInterval) {
-    intervals.push(currentInterval);
-  }
-
-  return intervals;
+  return breaks.map(bp => ({
+    start: parseDateFns(bp.startTime, 'hh:mm a', referenceDate),
+    end: parseDateFns(bp.endTime, 'hh:mm a', referenceDate)
+  }));
 }
 
 function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
@@ -252,14 +201,20 @@ function isDoctorAdvanceCapacityReachedOnDate(
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseDateFns(session.from, 'hh:mm a', date);
 
-    // Check if there's an availability extension for this session
+    // Check for availability extension (session-specific)
     const originalSessionEnd = parseDateFns(session.to, 'hh:mm a', date);
     let sessionEnd = originalSessionEnd;
     const extensions = doctor.availabilityExtensions?.[dateKey];
+
+    console.log(`[ClinicAdmin] Capacity Check for ${dateKey}, Session ${sessionIndex}:`, {
+      hasExtension: !!extensions
+    });
+
     if (extensions?.sessions && Array.isArray(extensions.sessions)) {
       const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
       if (sessionExtension?.newEndTime) {
         sessionEnd = parseDateFns(sessionExtension.newEndTime, 'hh:mm a', date);
+        console.log(`[ClinicAdmin] Extended Session End to: ${format(sessionEnd, 'hh:mm a')}`);
       }
     }
 
@@ -299,7 +254,8 @@ function isDoctorAdvanceCapacityReachedOnDate(
       appointment.doctor === doctor.name &&
       appointment.bookedVia !== 'Walk-in' &&
       appointment.date === formattedDate &&
-      (appointment.status === 'Pending' || appointment.status === 'Confirmed')
+      (appointment.status === 'Pending' || appointment.status === 'Confirmed') &&
+      !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
     );
   }).length;
 
@@ -862,14 +818,35 @@ export default function AppointmentsPage() {
       return newDate;
     };
 
-    for (const session of todaySlots.timeSlots) {
+    // Check for availability extension (session-specific)
+    const dateKey = format(now, 'd MMMM yyyy');
+    const extensionForDate = doctor.availabilityExtensions?.[dateKey];
+
+    return todaySlots.timeSlots.some((session, sessionIndex) => {
       const sessionStart = getTimeOnDate(session.from, now);
-      const sessionEnd = getTimeOnDate(session.to, now);
+      let sessionEnd = getTimeOnDate(session.to, now);
+
+      // Apply extension if exists
+      if (extensionForDate) {
+        const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+        if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+          try {
+            const extendedEndTime = getTimeOnDate(sessionExtension.newEndTime, now);
+            // Only use extended time if it's actually later than the original end time
+            if (isAfter(extendedEndTime, sessionEnd)) {
+              sessionEnd = extendedEndTime;
+            }
+          } catch (error) {
+            console.error('Error parsing extended end time:', error);
+          }
+        }
+      }
+
       const bookingWindowStart = subMinutes(sessionStart, 30);
       const bookingWindowEnd = subMinutes(sessionEnd, 30);
-      if (now >= bookingWindowStart && now <= bookingWindowEnd) return true;
-    }
-    return false;
+
+      return now >= bookingWindowStart && now <= bookingWindowEnd;
+    });
   };
 
   const isWalkInAvailable = useMemo(() => {
@@ -1473,19 +1450,7 @@ export default function AppointmentsPage() {
                 timestamp: new Date().toISOString()
               });
 
-              // ⚠️⚠️⚠️ RESERVATION UPDATE DEBUG ⚠️⚠️⚠️
-              console.error(`[RESERVATION DELETION TRACKER] ✅ CLINIC APP - UPDATING slot-reservation (NOT deleting)`, {
-                app: 'kloqo-clinic-admin',
-                page: 'appointments/page.tsx (walk-in)',
-                action: 'transaction.update(reservationRef, {status: "booked"})',
-                reservationId: reservationId,
-                reservationPath: reservationRef.path,
-                appointmentId: appointmentRef.id,
-                appointmentToken: appointmentData.tokenNumber,
-                slotIndex: actualSlotIndex,
-                timestamp: new Date().toISOString(),
-                stackTrace: new Error().stack
-              });
+
 
               // CRITICAL: Mark reservation as booked instead of deleting it
               // This acts as a persistent lock to prevent race conditions where other clients
@@ -1499,39 +1464,16 @@ export default function AppointmentsPage() {
               // Create appointment atomically in the same transaction
               transaction.set(appointmentRef, appointmentData);
 
-              console.log(`[CLINIC WALK-IN DEBUG] Transaction operations queued - about to commit`, {
-                reservationUpdated: true,
-                appointmentCreated: true,
-                timestamp: new Date().toISOString()
-              });
+
             });
 
-            // ⚠️⚠️⚠️ RESERVATION UPDATE DEBUG ⚠️⚠️⚠️
-            console.error(`[RESERVATION DELETION TRACKER] ✅ CLINIC APP - Transaction COMMITTED (reservation was updated to booked)`, {
-              app: 'kloqo-clinic-admin',
-              page: 'appointments/page.tsx (walk-in)',
-              reservationId: reservationId,
-              appointmentId: appointmentRef.id,
-              appointmentToken: appointmentData.tokenNumber,
-              slotIndex: actualSlotIndex,
-              timestamp: new Date().toISOString()
-            });
 
-            console.log(`[CLINIC WALK-IN DEBUG] Transaction COMMITTED successfully`, {
-              appointmentId: appointmentRef.id,
-              slotIndex: actualSlotIndex,
-              timestamp: new Date().toISOString()
-            });
+
+
 
             setAppointments(prev => [...prev, appointmentData]);
           } catch (error: any) {
-            console.error(`[CLINIC WALK-IN DEBUG] Transaction FAILED`, {
-              errorMessage: error.message,
-              errorCode: error.code,
-              errorName: error.name,
-              reservationId,
-              timestamp: new Date().toISOString()
-            });
+
 
             if (error.code === 'SLOT_ALREADY_BOOKED' || error.code === 'RESERVATION_MISMATCH') {
               toast({
@@ -1583,13 +1525,33 @@ export default function AppointmentsPage() {
           const availabilityForDay = selectedDoctor.availabilitySlots?.find(s => s.day === dayOfWeek);
 
           // Calculate global slotIndex across all sessions (matching patient app logic)
+          // Calculate global slotIndex across all sessions (matching patient app logic)
           if (availabilityForDay) {
             let globalSlotIndex = 0;
+            // Check for availability extension (session-specific)
+            const dateKey = format(values.date, 'd MMMM yyyy');
+            const extensionForDate = selectedDoctor.availabilityExtensions?.[dateKey];
+
             for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
               const session = availabilityForDay.timeSlots[i];
               let currentTime = parseDateFns(session.from, 'hh:mm a', values.date);
-              const endTime = parseDateFns(session.to, 'hh:mm a', values.date);
+              let endTime = parseDateFns(session.to, 'hh:mm a', values.date);
               const slotDuration = selectedDoctor.averageConsultingTime || 15;
+
+              // Apply extension for this specific session
+              if (extensionForDate) {
+                const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === i);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                  try {
+                    const extendedEndTime = parseDateFns(sessionExtension.newEndTime, 'hh:mm a', values.date);
+                    if (isAfter(extendedEndTime, endTime)) {
+                      endTime = extendedEndTime;
+                    }
+                  } catch (e) {
+                    console.error('Error parsing extension time for slot index calculation', e);
+                  }
+                }
+              }
 
               while (isBefore(currentTime, endTime)) {
                 if (format(currentTime, "hh:mm a") === appointmentTimeStr) {
@@ -1661,10 +1623,30 @@ export default function AppointmentsPage() {
               const slotDuration = selectedDoctor.averageConsultingTime || 15;
               let globalSlotIndex = 0;
               let foundSlot = false;
+
+              // Check for availability extension (session-specific)
+              const dateKey = format(values.date, 'd MMMM yyyy');
+              const extensionForDate = selectedDoctor.availabilityExtensions?.[dateKey];
+
               for (let i = 0; i < availabilityForDay.timeSlots.length && !foundSlot; i++) {
                 const session = availabilityForDay.timeSlots[i];
                 let currentTime = parseDateFns(session.from, 'hh:mm a', values.date);
-                const endTime = parseDateFns(session.to, 'hh:mm a', values.date);
+                let endTime = parseDateFns(session.to, 'hh:mm a', values.date);
+
+                // Apply extension for this specific session
+                if (extensionForDate) {
+                  const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === i);
+                  if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                      const extendedEndTime = parseDateFns(sessionExtension.newEndTime, 'hh:mm a', values.date);
+                      if (isAfter(extendedEndTime, endTime)) {
+                        endTime = extendedEndTime;
+                      }
+                    } catch (e) {
+                      console.error('Error parsing extension time for recalculation', e);
+                    }
+                  }
+                }
 
                 while (isBefore(currentTime, endTime) && !foundSlot) {
                   if (globalSlotIndex === actualSlotIndex) {
@@ -1813,10 +1795,7 @@ export default function AppointmentsPage() {
           });
 
           if (existingActiveAppointments.length > 0) {
-            console.error(`[CLINIC APPOINTMENT DEBUG] ⚠️ DUPLICATE DETECTED - Appointment already exists at slotIndex ${actualSlotIndex}`, {
-              existingAppointmentIds: existingActiveAppointments.map(docSnap => docSnap.id),
-              timestamp: new Date().toISOString()
-            });
+
             toast({
               variant: "destructive",
               title: "Slot Already Booked",
@@ -1835,29 +1814,16 @@ export default function AppointmentsPage() {
           // This prevents race conditions across different browsers/devices
           try {
             await runTransaction(db, async (transaction) => {
-              console.log(`[CLINIC APPOINTMENT DEBUG] Transaction STARTED`, {
-                reservationId,
-                appointmentId,
-                slotIndex: actualSlotIndex,
-                timestamp: new Date().toISOString()
-              });
+
 
               const reservationRef = doc(db, 'slot-reservations', reservationId);
               const reservationDoc = await transaction.get(reservationRef);
 
-              console.log(`[CLINIC APPOINTMENT DEBUG] Reservation check result`, {
-                reservationId,
-                exists: reservationDoc.exists(),
-                data: reservationDoc.exists() ? reservationDoc.data() : null,
-                timestamp: new Date().toISOString()
-              });
+
 
               if (!reservationDoc.exists()) {
                 // Reservation was already claimed by another request - slot is taken
-                console.error(`[CLINIC APPOINTMENT DEBUG] Reservation does NOT exist - already claimed`, {
-                  reservationId,
-                  timestamp: new Date().toISOString()
-                });
+
                 const conflictError = new Error('Reservation already claimed by another booking');
                 (conflictError as { code?: string }).code = 'SLOT_ALREADY_BOOKED';
                 throw conflictError;
@@ -1865,23 +1831,12 @@ export default function AppointmentsPage() {
 
               // Verify the reservation matches our slot
               const reservationData = reservationDoc.data();
-              console.log(`[CLINIC APPOINTMENT DEBUG] Verifying reservation match`, {
-                reservationSlotIndex: reservationData?.slotIndex,
-                expectedSlotIndex: actualSlotIndex,
-                reservationClinicId: reservationData?.clinicId,
-                expectedClinicId: clinicId,
-                reservationDoctor: reservationData?.doctorName,
-                expectedDoctor: selectedDoctor.name,
-                timestamp: new Date().toISOString()
-              });
+
 
               if (reservationData?.slotIndex !== actualSlotIndex ||
                 reservationData?.clinicId !== clinicId ||
                 reservationData?.doctorName !== selectedDoctor.name) {
-                console.error(`[CLINIC APPOINTMENT DEBUG] Reservation mismatch`, {
-                  reservationData,
-                  expected: { slotIndex: actualSlotIndex, clinicId, doctorName: selectedDoctor.name }
-                });
+
                 const conflictError = new Error('Reservation does not match booking details');
                 (conflictError as { code?: string }).code = 'RESERVATION_MISMATCH';
                 throw conflictError;
@@ -1900,36 +1855,16 @@ export default function AppointmentsPage() {
                 });
 
                 if (stillActive.length > 0) {
-                  console.error(`[CLINIC APPOINTMENT DEBUG] ⚠️ DUPLICATE DETECTED IN TRANSACTION - Appointment exists at slotIndex ${actualSlotIndex}`, {
-                    existingAppointmentIds: stillActive.map(snap => snap.id),
-                    timestamp: new Date().toISOString()
-                  });
+
                   const conflictError = new Error('An appointment already exists at this slot');
                   (conflictError as { code?: string }).code = 'SLOT_ALREADY_BOOKED';
                   throw conflictError;
                 }
               }
 
-              console.log(`[CLINIC APPOINTMENT DEBUG] No existing appointment found - deleting reservation and creating appointment`, {
-                reservationId,
-                appointmentId,
-                slotIndex: actualSlotIndex,
-                timestamp: new Date().toISOString()
-              });
 
-              // ⚠️⚠️⚠️ RESERVATION UPDATE DEBUG ⚠️⚠️⚠️
-              console.error(`[RESERVATION DELETION TRACKER] ✅ CLINIC APP - UPDATING slot-reservation (NOT deleting)`, {
-                app: 'kloqo-clinic-admin',
-                page: 'appointments/page.tsx (advance booking)',
-                action: 'transaction.update(reservationRef, {status: "booked"})',
-                reservationId: reservationId,
-                reservationPath: reservationRef.path,
-                appointmentId: appointmentId,
-                appointmentToken: appointmentData.tokenNumber,
-                slotIndex: actualSlotIndex,
-                timestamp: new Date().toISOString(),
-                stackTrace: new Error().stack
-              });
+
+
 
               // CRITICAL: Mark reservation as booked instead of deleting it
               // This acts as a persistent lock to prevent race conditions where other clients
@@ -1943,37 +1878,15 @@ export default function AppointmentsPage() {
               // Create appointment atomically in the same transaction
               transaction.set(appointmentRef, appointmentData);
 
-              console.log(`[CLINIC APPOINTMENT DEBUG] Transaction operations queued - about to commit`, {
-                reservationUpdated: true,
-                appointmentCreated: true,
-                timestamp: new Date().toISOString()
-              });
+
             });
 
-            // ⚠️⚠️⚠️ RESERVATION UPDATE DEBUG ⚠️⚠️⚠️
-            console.error(`[RESERVATION DELETION TRACKER] ✅ CLINIC APP - Transaction COMMITTED (reservation was updated to booked)`, {
-              app: 'kloqo-clinic-admin',
-              page: 'appointments/page.tsx (advance booking)',
-              reservationId: reservationId,
-              appointmentId: appointmentId,
-              appointmentToken: appointmentData.tokenNumber,
-              slotIndex: actualSlotIndex,
-              timestamp: new Date().toISOString()
-            });
 
-            console.log(`[CLINIC APPOINTMENT DEBUG] Transaction COMMITTED successfully`, {
-              appointmentId,
-              slotIndex: actualSlotIndex,
-              timestamp: new Date().toISOString()
-            });
+
+
           } catch (error: any) {
-            console.error(`[CLINIC APPOINTMENT DEBUG] Transaction FAILED`, {
-              errorMessage: error.message,
-              errorCode: error.code,
-              errorName: error.name,
-              reservationId,
-              timestamp: new Date().toISOString()
-            });
+
+
 
             if (error.code === 'SLOT_ALREADY_BOOKED' || error.code === 'RESERVATION_MISMATCH') {
               toast({
@@ -2681,41 +2594,8 @@ export default function AppointmentsPage() {
   }, [selectedDoctor]);
 
   const leaveDates = useMemo(() => {
-    if (!selectedDoctor?.leaveSlots) return [];
-
-    // Get all dates from leaveSlots
-    const allLeaveDates = (selectedDoctor.leaveSlots || [])
-      .map(leave => {
-        if (typeof leave === 'string') {
-          try { return parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date()); } catch { return null; }
-        }
-        if (leave && leave.date) {
-          try { return parse(leave.date, 'yyyy-MM-dd', new Date()); } catch { return null; }
-        }
-        return null;
-      })
-      .filter((date): date is Date => date !== null);
-
-    // Filter out dates that only have breaks (not full-day leaves)
-    // If a date has breaks in breakPeriods, it's not a leave date
-    const datesWithBreaks = new Set<string>();
-    if (selectedDoctor.breakPeriods) {
-      Object.keys(selectedDoctor.breakPeriods).forEach(dateKey => {
-        try {
-          const breakDate = parse(dateKey, 'd MMMM yyyy', new Date());
-          datesWithBreaks.add(format(breakDate, 'yyyy-MM-dd'));
-        } catch {
-          // Ignore invalid date keys
-        }
-      });
-    }
-
-    // Only include dates that don't have breaks (actual leave dates)
-    return allLeaveDates.filter(date => {
-      const dateStr = format(date, 'yyyy-MM-dd');
-      return !datesWithBreaks.has(dateStr);
-    });
-  }, [selectedDoctor?.leaveSlots, selectedDoctor?.breakPeriods]);
+    return [] as Date[];
+  }, []);
 
   const isAdvanceCapacityReached = useMemo(() => {
     if (!selectedDoctor || appointmentType !== 'Advanced Booking' || !selectedDate) {
@@ -2860,7 +2740,8 @@ export default function AppointmentsPage() {
       const sessionEffectiveEnd = getSessionEnd(selectedDoctor, selectedDate, sessionIndex) || parseDateFns(session.to, 'hh:mm a', selectedDate);
 
       // First, collect all slots with their times
-      while (isBefore(currentTime, sessionEnd)) {
+      // Use sessionEffectiveEnd to include extended slots in the base calculation
+      while (isBefore(currentTime, sessionEffectiveEnd)) {
         const slotTime = new Date(currentTime);
         allSessionSlots.push({ time: slotTime, globalIndex: globalSlotIndex });
         globalSlotIndex++;
@@ -2884,24 +2765,7 @@ export default function AppointmentsPage() {
         return appointmentEndTime <= sessionEffectiveEnd;
       });
 
-      // Debug logging for reserved slots calculation
-      console.log(`[RESERVED SLOTS DEBUG] Session ${sessionIndex} (${session.from} - ${session.to})`, {
-        sessionIndex,
-        totalSlotsInSession: allSessionSlots.length,
-        bookedSlotsInSession: allSessionSlots.filter(s => bookedGlobalIndices.has(s.globalIndex)).length,
-        futureFreeSlotsCount: futureFreeSlots.length,
-        futureFreeSlots: futureFreeSlots.map(s => ({
-          globalIndex: s.globalIndex,
-          time: format(s.time, 'hh:mm a'),
-          adjustedTime: sessionBreakIntervals.length > 0
-            ? format(applySessionBreakOffsets(s.time, sessionBreakIntervals), 'hh:mm a')
-            : format(s.time, 'hh:mm a')
-        })),
-        sessionEffectiveEnd: format(sessionEffectiveEnd, 'hh:mm a'),
-        bookedGlobalIndices: Array.from(bookedGlobalIndices).filter(idx =>
-          allSessionSlots.some(s => s.globalIndex === idx)
-        )
-      });
+
 
       if (futureFreeSlots.length > 0) {
         const futureSlotCount = futureFreeSlots.length;
@@ -2914,26 +2778,12 @@ export default function AppointmentsPage() {
           reservedSlots.add(futureFreeSlots[i].globalIndex);
         }
 
-        console.log(`[RESERVED SLOTS DEBUG] Session ${sessionIndex} - Reserved calculation`, {
-          sessionIndex,
-          futureSlotCount,
-          sessionMinimumWalkInReserve,
-          reservedWSlotsStart,
-          reservedSlotIndices: Array.from(reservedSlots),
-          reservedSlotTimes: Array.from(reservedSlots).map(idx => {
-            const slot = futureFreeSlots.find(s => s.globalIndex === idx);
-            return slot ? format(slot.time, 'hh:mm a') : 'N/A';
-          })
-        });
+
 
         reservedSlotsBySession.set(sessionIndex, reservedSlots);
       } else {
         // No future free slots, no reserved slots
-        console.log(`[RESERVED SLOTS DEBUG] Session ${sessionIndex} - No future free slots`, {
-          sessionIndex,
-          totalSlotsInSession: allSessionSlots.length,
-          bookedSlotsInSession: allSessionSlots.filter(s => bookedGlobalIndices.has(s.globalIndex)).length
-        });
+
         reservedSlotsBySession.set(sessionIndex, new Set<number>());
       }
     });
@@ -2942,7 +2792,7 @@ export default function AppointmentsPage() {
 
     const sessions = availabilityForDay.timeSlots.map((session, sessionIndex) => {
       const slots = [];
-      let foundFirstAvailable = false;
+
       let slotTimeIterator = parseDateFns(session.from, 'hh:mm a', selectedDate);
       const sessionOriginalEnd = parseDateFns(session.to, 'hh:mm a', selectedDate);
 
@@ -2951,28 +2801,7 @@ export default function AppointmentsPage() {
       const sessionBreakIntervals = getSessionBreakIntervals(selectedDoctor, selectedDate, sessionIndex);
       const sessionEffectiveEnd = getSessionEnd(selectedDoctor, selectedDate, sessionIndex) || sessionOriginalEnd;
 
-      // Debug logging for session 1
-      if (sessionIndex === 1) {
-        const dateKey = format(selectedDate, 'd MMMM yyyy');
-        const extensions = selectedDoctor.availabilityExtensions?.[dateKey];
-        console.log('[SESSION END DEBUG] Session 1', {
-          sessionIndex,
-          sessionOriginalEnd: format(sessionOriginalEnd, 'hh:mm a'),
-          sessionEffectiveEnd: format(sessionEffectiveEnd, 'hh:mm a'),
-          extensions: extensions?.sessions?.map(s => ({
-            sessionIndex: s.sessionIndex,
-            totalExtendedBy: s.totalExtendedBy,
-            originalEndTime: s.originalEndTime,
-            newEndTime: s.newEndTime
-          })),
-          breaks: sessionBreaks.map(b => ({
-            sessionIndex: b.sessionIndex,
-            startTime: b.startTimeFormatted,
-            endTime: b.endTimeFormatted,
-            duration: b.duration
-          }))
-        });
-      }
+
 
       // Use currentTime state which updates every minute, not a static new Date()
       const now = currentTime;
@@ -2999,10 +2828,24 @@ export default function AppointmentsPage() {
         }
       }
 
-      while (slotTimeIterator < sessionOriginalEnd) {
+      while (slotTimeIterator < sessionEffectiveEnd) {
         totalSlotsGenerated++;
         const slotTime = format(slotTimeIterator, "hh:mm a");
+
         let status: 'available' | 'booked' | 'leave' = 'available';
+
+        // Debug all slots
+        console.log(`[SLOT DEBUG] Checking slot ${slotTime}`, {
+          sessionIndex,
+          slotTime,
+          status,
+          isBeforeNow: isBefore(slotTimeIterator, now),
+          isOneHourSkipped: isToday(selectedDate) && appointmentType === 'Advanced Booking' && !isAfter(slotTimeIterator, addMinutes(now, 60)),
+          isWinReserved: sessionReservedSlots.has(sessionStartGlobalIndex + currentSlotIndexInSession),
+          globalIndex: sessionStartGlobalIndex + currentSlotIndexInSession,
+          isLeave: isSlotBlockedByLeave(selectedDoctor, slotTimeIterator)
+        });
+
 
         // Skip past slots - don't show slots that are in the past
         if (isBefore(slotTimeIterator, now)) {
@@ -3013,76 +2856,14 @@ export default function AppointmentsPage() {
         }
 
         // For advance bookings, skip slots reserved for walk-ins (last 15% of each session)
-        if (appointmentType === 'Advanced Booking') {
-          // Calculate the global slot index for this slot
-          const globalSlotIndexForThisSlot = sessionStartGlobalIndex + currentSlotIndexInSession;
+        // Note: We don't filter out walk-in reserved slots here for Advanced Booking display
+        // The reservation is enforced during the actual booking transaction
+        // This matches the behavior of Patient and Nurse apps
 
-          // Check if this slot is reserved for walk-ins in this session
-          if (sessionReservedSlots.has(globalSlotIndexForThisSlot)) {
-            console.log(`[SLOT FILTER DEBUG] Skipping reserved slot`, {
-              sessionIndex,
-              slotTime,
-              globalSlotIndex: globalSlotIndexForThisSlot,
-              sessionStartGlobalIndex,
-              currentSlotIndexInSession,
-              reservedSlots: Array.from(sessionReservedSlots)
-            });
-            reservedSlotsSkipped++;
-            currentSlotIndexInSession++;
-            slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
-            continue;
-          }
-        }
-
-        // Check if slot falls on a leave slot
-        const isLeave = (selectedDoctor.leaveSlots || []).some(leave => {
-          if (typeof leave === 'string') {
-            try {
-              const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
-              // For string leaves, check if it matches the specific slot time
-              return isSameMinute(leaveDate, slotTimeIterator);
-            } catch {
-              return false;
-            }
-          }
-          if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), selectedDate)) {
-            // For range leaves, check if slot falls within any of the leave slots
-            return leave.slots.some((leaveSlot: any) => {
-              try {
-                const leaveStart = parseDateFns(leaveSlot.from, "hh:mm a", selectedDate);
-                const leaveEnd = parseDateFns(leaveSlot.to, "hh:mm a", selectedDate);
-                const slotEnd = addMinutes(slotTimeIterator, selectedDoctor.averageConsultingTime || 15);
-
-                // Check for overlap: (StartA < EndB) && (EndA > StartB)
-                return isBefore(slotTimeIterator, leaveEnd) && isAfter(slotEnd, leaveStart);
-              } catch {
-                return false;
-              }
-            });
-          }
-          return false;
-        });
-
-        if (isLeave) {
-          console.log(`[SLOT FILTER DEBUG] Skipping leave slot`, {
-            sessionIndex,
-            slotTime
-          });
-          // Mark status as leave if we want to show it as blocked, or just continue to skip
-          // The requirement is "slots blocked ... are visible", implying they should NOT be visible.
-          // However, if we skip it, the loop continues to find the NEXT available slot.
-          // If we want to show it as "Leave" (blocked), we should set status='leave'.
-          // But the previous analysis showed that 'available' slots are pushed to the list.
-          // If we set status='leave', we need to decide if we push it.
-          // If we DON'T push it, it won't be seen.
-          // If we DO push it, it will be seen but disabled.
-          // Given the user said "visible and bookable", making it hidden is the safest fix.
-          // But wait, the sessionSlots code currently ONLY pushes 'available' slots (if !foundFirstAvailable).
-          // So if we skip here, we effectively hide it.
-          currentSlotIndexInSession++;
-          slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
-          continue;
-        }
+        // Note: We don't check for leave here because:
+        // 1. Breaks are handled separately through break offset logic
+        // 2. Actual leave days would make the entire session unavailable
+        // 3. The isSlotBlockedByLeave function was incorrectly treating breaks as leave
 
         // For same-day bookings, skip slots within 1-hour window from current time
         // Slots within 1 hour are reserved for W tokens only - don't show them for A tokens
@@ -3099,78 +2880,60 @@ export default function AppointmentsPage() {
           }
         }
 
-        // Note: Breaks don't block slots - slots are still available for booking
-        // Break offsets only affect arriveByTime, cutOffTime, noShowTime
-        // The 'time' field stores the original slot time (never changes)
-
-        // Filter out slots where slot time + break duration + consultation time would be outside session availability
-        // Calculate what the adjusted time would be (slot + session-specific break offsets)
-        const adjustedTime = sessionBreakIntervals.length > 0
-          ? applySessionBreakOffsets(slotTimeIterator, sessionBreakIntervals)
-          : slotTimeIterator;
-
-        // Skip slot if the adjusted time is already beyond the session end,
-        // or if adjusted time + consultation time would exceed this session's effective end time
-        const appointmentEndTime = addMinutes(adjustedTime, slotDuration);
-
-        // Debug logging for slot filtering
-        if (sessionIndex === 1 && format(slotTimeIterator, 'hh:mm a') === '09:30 PM') {
-          console.log('[SLOT FILTER DEBUG] Session 1, Slot 09:30 PM', {
-            sessionIndex,
-            originalSlotTime: format(slotTimeIterator, 'hh:mm a'),
-            adjustedTime: format(adjustedTime, 'hh:mm a'),
-            appointmentEndTime: format(appointmentEndTime, 'hh:mm a'),
-            sessionEffectiveEnd: format(sessionEffectiveEnd, 'hh:mm a'),
-            slotDuration,
-            sessionBreakIntervals: sessionBreakIntervals.length,
-            shouldFilter: adjustedTime >= sessionEffectiveEnd || appointmentEndTime > sessionEffectiveEnd
-          });
-        }
-
-        if (adjustedTime >= sessionEffectiveEnd || appointmentEndTime > sessionEffectiveEnd) {
-          currentSlotIndexInSession++;
-          slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
-          continue; // Skip slot - appointment would finish after session end
-        }
+        // Note: Break offsets are NOT used for slot display filtering
+        // They are only used for calculating arriveByTime, cutOffTime, noShowTime in the booking logic
+        // Slots are displayed based on their original time, not adjusted time
 
         if (slotTime in bookedSlotsForDay) {
           status = 'booked';
           bookedSlotsCount++;
+          console.log(`[SLOT DEBUG] Slot ${slotTime} is BOOKED, skipping`);
         } else {
           availableSlotsCount++;
         }
 
-        // Only show the first available slot per session
         if (status === 'available') {
-          if (!foundFirstAvailable) {
-            const slotTimeString = format(slotTimeIterator, 'hh:mm a');
-            const slotIndex = otherAppointments.find(appointment => appointment.time === slotTimeString)?.slotIndex;
-            const isCancelledSlot =
-              typeof slotIndex === 'number' &&
-              otherAppointments.some(appointment => appointment.slotIndex === slotIndex && appointment.status === 'Cancelled');
+          console.log(`[SLOT DEBUG] Pushing available slot ${format(slotTimeIterator, 'hh:mm a')}`);
+          const slotTimeString = format(slotTimeIterator, 'hh:mm a');
+          const slotIndex = otherAppointments.find(appointment => appointment.time === slotTimeString)?.slotIndex;
+          const isCancelledSlot =
+            typeof slotIndex === 'number' &&
+            otherAppointments.some(appointment => appointment.slotIndex === slotIndex && appointment.status === 'Cancelled');
 
-            slots.push({
-              time: slotTime,
-              status,
-              slotIndex,
-              isCancelled: isCancelledSlot,
-            });
-            foundFirstAvailable = true;
-          }
+          slots.push({
+            time: slotTime,
+            status,
+            slotIndex,
+            isCancelled: isCancelledSlot,
+          });
 
+          // For Clinic Admin, only show the first available slot per session
+          break;
         }
 
         currentSlotIndexInSession++;
         slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
       }
 
-      // Display session-specific breaks in title
+      // Display session-specific breaks in title (only show breaks that haven't ended yet)
       let sessionTitle = `Session ${sessionIndex + 1} (${session.from} - ${session.to})`;
       if (sessionBreaks.length > 0) {
-        const breakTexts = sessionBreaks.map(bp => {
-          return `${bp.startTimeFormatted} - ${bp.endTimeFormatted}`;
+        // Filter out breaks that have already ended
+        const activeBreaks = sessionBreaks.filter(bp => {
+          try {
+            const breakEnd = parseDateFns(bp.endTimeFormatted, 'hh:mm a', selectedDate);
+            return isAfter(breakEnd, now) || breakEnd.getTime() >= now.getTime();
+          } catch {
+            return true; // If parsing fails, show the break
+          }
         });
-        sessionTitle += ` [Break: ${breakTexts.join(', ')}]`;
+
+        if (activeBreaks.length > 0) {
+          const breakTexts = activeBreaks.map(bp => {
+            return `${bp.startTimeFormatted} - ${bp.endTimeFormatted}`;
+          });
+          sessionTitle += ` [Break: ${breakTexts.join(', ')}]`;
+        }
       }
 
       // Show extension info if session was extended
@@ -3182,31 +2945,38 @@ export default function AppointmentsPage() {
       return { title: sessionTitle, slots };
     });
 
-    return sessions.filter(s => s.slots.length > 0);
+    const res = sessions.filter(s => s.slots.length > 0);
+    console.log('[DEBUG] Session Slots computed:', {
+      isAdvanceCapacityReached,
+      sessionsCount: sessions.length,
+      slotsCount: res.length,
+      firstSessionSlots: sessions[0]?.slots.length
+    });
+    return res;
   }, [selectedDate, selectedDoctor, appointments, isEditing, editingAppointment, appointmentType, currentTime, isAdvanceCapacityReached]);
 
   const isAppointmentOnLeave = (appointment: Appointment): boolean => {
     if (!doctors.length || !appointment) return false;
     const doctorForApt = doctors.find(d => d.name === appointment.doctor);
-    if (!doctorForApt || !doctorForApt.leaveSlots) return false;
-    const aptDate = parse(appointment.date, "d MMMM yyyy", new Date());
+    if (!doctorForApt?.breakPeriods) return false;
 
-    return (doctorForApt.leaveSlots || []).some(leave => {
-      if (typeof leave === 'string') {
-        const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
-        const aptTime = parse(appointment.time, "hh:mm a", aptDate);
-        return leaveDate.getTime() === aptTime.getTime();
-      }
-      if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), aptDate)) {
-        const aptTime = parseDateFns(appointment.time, "hh:mm a", new Date(0));
-        return leave.slots.some((leaveSlot: any) => {
-          const leaveStart = parseDateFns(leaveSlot.from, "hh:mm a", new Date(0));
-          const leaveEnd = parseDateFns(leaveSlot.to, "hh:mm a", new Date(0));
-          return aptTime >= leaveStart && aptTime < leaveEnd;
-        });
-      }
+    const dateKey = appointment.date; // Already in 'd MMMM yyyy' format
+    const breaks = doctorForApt.breakPeriods[dateKey] || [];
+
+    if (breaks.length === 0) return false;
+
+    try {
+      const aptDate = parse(appointment.date, "d MMMM yyyy", new Date());
+      const aptTime = parseDateFns(appointment.time, "hh:mm a", aptDate);
+
+      return breaks.some((bp: any) => {
+        const breakStart = parseDateFns(bp.startTime, "hh:mm a", aptDate);
+        const breakEnd = parseDateFns(bp.endTime, "hh:mm a", aptDate);
+        return aptTime >= breakStart && aptTime < breakEnd;
+      });
+    } catch {
       return false;
-    });
+    }
   };
 
   const filteredAppointments = useMemo(() => {

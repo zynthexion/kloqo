@@ -245,7 +245,26 @@ export default function SlotVisualizerPage() {
 
     availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
       let currentTime = parseTime(session.from, selectedDate);
-      const sessionEnd = parseTime(session.to, selectedDate);
+      let sessionEnd = parseTime(session.to, selectedDate);
+
+      // Check for availability extension (session-specific)
+      const dateKey = format(selectedDate, 'd MMMM yyyy');
+      const extensionForDate = (selectedDoctor as any).availabilityExtensions?.[dateKey];
+
+      if (extensionForDate) {
+        const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+        if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+          try {
+            const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+            // Only use extended time if it's actually later than the original end time
+            if (isAfter(extendedEndTime, sessionEnd)) {
+              sessionEnd = extendedEndTime;
+            }
+          } catch (error) {
+            console.error('Error parsing extended end time:', error);
+          }
+        }
+      }
 
       while (isBefore(currentTime, sessionEnd)) {
         slots.push({

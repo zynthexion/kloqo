@@ -32,59 +32,39 @@ type BreakInterval = {
 };
 
 function buildBreakIntervals(doctor: Doctor | null, referenceDate: Date | null): BreakInterval[] {
-    if (!doctor?.leaveSlots || !referenceDate) {
+    if (!doctor?.breakPeriods || !referenceDate) {
         return [];
     }
 
     const consultationTime = doctor.averageConsultingTime || 15;
+    const dateKey = format(referenceDate, 'd MMMM yyyy');
+    const isoDateKey = format(referenceDate, 'yyyy-MM-dd');
+    const shortDateKey = format(referenceDate, 'd MMM yyyy');
 
-    const slotsForDay = (doctor.leaveSlots || [])
-        .map((leave) => {
-            if (typeof leave === 'string') {
-                try {
-                    return parseISO(leave);
-                } catch {
-                    return null;
-                }
-            }
-            if (leave && typeof (leave as any).toDate === 'function') {
-                try {
-                    return (leave as any).toDate();
-                } catch {
-                    return null;
-                }
-            }
-            if (leave instanceof Date) {
-                return leave;
-            }
-            return null;
-        })
-        .filter((date): date is Date => !!date && !isNaN(date.getTime()) && format(date, 'yyyy-MM-dd') === format(referenceDate, 'yyyy-MM-dd'))
-        .sort((a, b) => a.getTime() - b.getTime());
+    // Try multiple key formats
+    const breaksForDay = doctor.breakPeriods[dateKey] || doctor.breakPeriods[isoDateKey] || doctor.breakPeriods[shortDateKey];
 
-    if (slotsForDay.length === 0) {
+    if (!breaksForDay || !Array.isArray(breaksForDay)) {
         return [];
     }
 
     const intervals: BreakInterval[] = [];
-    let currentInterval: BreakInterval | null = null;
 
-    for (const slot of slotsForDay) {
-        if (!currentInterval) {
-            currentInterval = { start: slot, end: addMinutes(slot, consultationTime) };
-            continue;
+    for (const breakPeriod of breaksForDay) {
+        try {
+            const breakStart = typeof breakPeriod.startTime === 'string'
+                ? parseISO(breakPeriod.startTime)
+                : new Date(breakPeriod.startTime);
+            const breakEnd = typeof breakPeriod.endTime === 'string'
+                ? parseISO(breakPeriod.endTime)
+                : new Date(breakPeriod.endTime);
+
+            if (!isNaN(breakStart.getTime()) && !isNaN(breakEnd.getTime())) {
+                intervals.push({ start: breakStart, end: breakEnd });
+            }
+        } catch (error) {
+            console.warn('Error parsing break period:', error);
         }
-
-        if (slot.getTime() === currentInterval.end.getTime()) {
-            currentInterval.end = addMinutes(slot, consultationTime);
-        } else {
-            intervals.push(currentInterval);
-            currentInterval = { start: slot, end: addMinutes(slot, consultationTime) };
-        }
-    }
-
-    if (currentInterval) {
-        intervals.push(currentInterval);
     }
 
     return intervals;
@@ -403,36 +383,9 @@ function AppointmentDetailsFormContent() {
                 console.error('Error calculating cut-off and no-show times:', error);
             }
 
-            // Validate that arriveByTime is within availability (original or extended)
-            const dayOfWeekForValidation = format(selectedSlot, 'EEEE');
-            const availabilityForDayForValidation = doctor?.availabilitySlots?.find(s => s.day === dayOfWeekForValidation);
-            if (availabilityForDayForValidation && availabilityForDayForValidation.timeSlots.length > 0) {
-                const dateStr = format(selectedSlot, 'd MMMM yyyy');
-                const extension = doctor?.availabilityExtensions?.[dateStr];
 
-                // Get the last session's end time (original or extended)
-                const lastSession = availabilityForDayForValidation.timeSlots[availabilityForDayForValidation.timeSlots.length - 1];
-                const originalEndTime = parseTime(lastSession.to, selectedSlot);
-                let availabilityEndTime = originalEndTime;
-
-                if (extension) {
-                    const lastSessionIndex = availabilityForDayForValidation.timeSlots.length - 1;
-                    const extensionSession = extension.sessions.find(s => s.sessionIndex === lastSessionIndex);
-                    if (extensionSession) {
-                        availabilityEndTime = parseTime(extensionSession.newEndTime, selectedSlot);
-                    }
-                }
-
-                // Check if arriveByTime is outside availability
-                if (adjustedAppointmentTime > availabilityEndTime) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Booking Not Allowed',
-                        description: `The appointment time (${adjustedAppointmentTimeStr}) is outside the doctor's availability. Please select an earlier time slot.`,
-                    });
-                    return;
-                }
-            }
+            // Availability validation is already done by generateNextTokenAndReserveSlot
+            // No need to re-validate here as it can cause false rejections due to timezone issues
 
             const newAppointment: Appointment = {
                 id: newAppointmentRef.id,

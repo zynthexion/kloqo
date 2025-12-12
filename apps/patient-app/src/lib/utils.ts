@@ -5,68 +5,53 @@ import type { Doctor } from "@/firebase/firestore/use-doctors";
 import type { Appointment } from "@/lib/types";
 
 export type BreakInterval = {
-    start: Date;
-    end: Date;
+  start: Date;
+  end: Date;
 };
 
 export function buildBreakIntervals(doctor: Doctor | null | undefined, referenceDate: Date | null | undefined): BreakInterval[] {
-    if (!doctor?.leaveSlots || !referenceDate) return [];
-    
-    const slotDuration = doctor.averageConsultingTime || 15;
-    const slotsForDay = (doctor.leaveSlots || [])
-        .map((leave) => {
-            if (typeof leave === 'string') {
-                try {
-                    return parseISO(leave);
-                } catch {
-                    return null;
-                }
-            }
-            if (leave && typeof (leave as any).toDate === 'function') {
-                try {
-                    return (leave as any).toDate();
-                } catch {
-                    return null;
-                }
-            }
-            if (leave instanceof Date) {
-                return leave;
-            }
-            return null;
-        })
-        .filter((date): date is Date => !!date && !isNaN(date.getTime()) && isSameDay(date, referenceDate))
-        .sort((a, b) => a.getTime() - b.getTime());
+  if (!doctor?.breakPeriods || !referenceDate) return [];
 
-    if (slotsForDay.length === 0) {
-        return [];
+  const dateKey = format(referenceDate, 'd MMMM yyyy');
+  const isoDateKey = format(referenceDate, 'yyyy-MM-dd');
+  const shortDateKey = format(referenceDate, 'd MMM yyyy');
+
+  // Try multiple key formats
+  const breaksForDay = doctor.breakPeriods[dateKey] || doctor.breakPeriods[isoDateKey] || doctor.breakPeriods[shortDateKey];
+
+  if (!breaksForDay || !Array.isArray(breaksForDay)) {
+    return [];
+  }
+
+  const intervals: BreakInterval[] = [];
+
+  for (const breakPeriod of breaksForDay) {
+    try {
+      const breakStart = typeof breakPeriod.startTime === 'string'
+        ? parseISO(breakPeriod.startTime)
+        : new Date(breakPeriod.startTime);
+      const breakEnd = typeof breakPeriod.endTime === 'string'
+        ? parseISO(breakPeriod.endTime)
+        : new Date(breakPeriod.endTime);
+
+      if (!isNaN(breakStart.getTime()) && !isNaN(breakEnd.getTime())) {
+        intervals.push({ start: breakStart, end: breakEnd });
+      }
+    } catch (error) {
+      console.warn('Error parsing break period:', error);
     }
+  }
 
-    const intervals: BreakInterval[] = [];
-    let currentStart = new Date(slotsForDay[0]);
-    let currentEnd = addMinutes(currentStart, slotDuration);
-
-    for (let i = 1; i < slotsForDay.length; i++) {
-        const slot = slotsForDay[i];
-        if (slot.getTime() === currentEnd.getTime()) {
-            currentEnd = addMinutes(currentEnd, slotDuration);
-        } else {
-            intervals.push({ start: currentStart, end: currentEnd });
-            currentStart = new Date(slot);
-            currentEnd = addMinutes(currentStart, slotDuration);
-        }
-    }
-
-    intervals.push({ start: currentStart, end: currentEnd });
-    return intervals;
+  return intervals;
 }
 
 export function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
-    return intervals.reduce((acc, interval) => {
-        if (acc.getTime() >= interval.start.getTime()) {
-            return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
-        }
-        return acc;
-    }, new Date(originalTime));
+  return intervals.reduce((acc, interval) => {
+    if (acc.getTime() >= interval.start.getTime()) {
+      return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
+    }
+    return acc;
+  }, new Date(originalTime));
 }
 
 export function cn(...inputs: ClassValue[]) {
@@ -138,7 +123,7 @@ export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?
       const arriveDateTime = parse(appointment.arriveByTime, "hh:mm a", appointmentDate);
       // Add break offsets if doctor info is available
       const breakIntervals = doctor ? buildBreakIntervals(doctor, appointmentDate) : [];
-      const adjustedArriveDateTime = breakIntervals.length > 0 
+      const adjustedArriveDateTime = breakIntervals.length > 0
         ? applyBreakOffsets(arriveDateTime, breakIntervals)
         : arriveDateTime;
       const displayTime = subMinutes(adjustedArriveDateTime, 15);
@@ -147,10 +132,10 @@ export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?
     // For time field, add break offsets if doctor info is available
     const appointmentTime = parseTime(appointment.time, appointmentDate);
     const breakIntervals = doctor ? buildBreakIntervals(doctor, appointmentDate) : [];
-    const adjustedAppointmentTime = breakIntervals.length > 0 
+    const adjustedAppointmentTime = breakIntervals.length > 0
       ? applyBreakOffsets(appointmentTime, breakIntervals)
       : appointmentTime;
-    const actualTime = appointment.delay && appointment.delay > 0 
+    const actualTime = appointment.delay && appointment.delay > 0
       ? addMinutes(adjustedAppointmentTime, appointment.delay)
       : adjustedAppointmentTime;
     const arriveByDateTime = subMinutes(actualTime, 15);
@@ -175,7 +160,7 @@ export const getDisplayTimeFromAppointment = (appointment: Appointment, doctor?:
     const appointmentTime = parseTime(appointment.time, appointmentDate);
     // Add break offsets if doctor info is available
     const breakIntervals = doctor ? buildBreakIntervals(doctor, appointmentDate) : [];
-    const adjustedTime = breakIntervals.length > 0 
+    const adjustedTime = breakIntervals.length > 0
       ? applyBreakOffsets(appointmentTime, breakIntervals)
       : appointmentTime;
     return format(adjustedTime, 'hh:mm a');
@@ -185,59 +170,59 @@ export const getDisplayTimeFromAppointment = (appointment: Appointment, doctor?:
 };
 
 export const parseAppointmentDateTime = (dateStr: string, timeStr: string): Date => {
-    // Assuming dateStr is "d MMMM yyyy" and timeStr is "hh:mm a"
-    try {
-        const date = parse(dateStr, "d MMMM yyyy", new Date());
-        const [time, modifier] = timeStr.split(' ');
-        let [hours, minutes] = time.split(':').map(Number);
-        if (modifier && modifier.toUpperCase() === 'PM' && hours < 12) {
-            hours += 12;
-        }
-        if (modifier && modifier.toUpperCase() === 'AM' && hours === 12) {
-            hours = 0;
-        }
-        return set(date, { hours, minutes, seconds: 0, milliseconds: 0 });
-
-    } catch(e) {
-        console.error("Failed to parse date/time", { dateStr, timeStr, e });
-        // Fallback to a clearly invalid date to avoid silent errors
-        return new Date(0); 
+  // Assuming dateStr is "d MMMM yyyy" and timeStr is "hh:mm a"
+  try {
+    const date = parse(dateStr, "d MMMM yyyy", new Date());
+    const [time, modifier] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    if (modifier && modifier.toUpperCase() === 'PM' && hours < 12) {
+      hours += 12;
     }
+    if (modifier && modifier.toUpperCase() === 'AM' && hours === 12) {
+      hours = 0;
+    }
+    return set(date, { hours, minutes, seconds: 0, milliseconds: 0 });
+
+  } catch (e) {
+    console.error("Failed to parse date/time", { dateStr, timeStr, e });
+    // Fallback to a clearly invalid date to avoid silent errors
+    return new Date(0);
+  }
 };
 
 export const isWithinBookingWindow = (doctor: Doctor): boolean => {
-    const now = new Date();
-    const todayStr = format(now, 'EEEE');
-    const todaysAvailability = doctor.availabilitySlots?.find(slot => slot.day === todayStr);
+  const now = new Date();
+  const todayStr = format(now, 'EEEE');
+  const todaysAvailability = doctor.availabilitySlots?.find(slot => slot.day === todayStr);
 
-    if (!todaysAvailability || !todaysAvailability.timeSlots.length) {
-        return false;
-    }
+  if (!todaysAvailability || !todaysAvailability.timeSlots.length) {
+    return false;
+  }
 
-    // Get first session start time
-    const firstSession = todaysAvailability.timeSlots[0];
-    const lastSession = todaysAvailability.timeSlots[todaysAvailability.timeSlots.length - 1];
-    const firstSessionStart = parseTime(firstSession.from, now);
-    const lastSessionStart = parseTime(lastSession.from, now);
-    const lastSessionEnd = parseTime(lastSession.to, now);
-    
-    // Walk-in opens 30 minutes before the first session starts
-    const walkInWindowStart = subMinutes(firstSessionStart, 30);
-    
-    // Walk-in closes 15 minutes before consultation end,
-    // plus any break duration that falls within the last session window
-    const breakIntervals = buildBreakIntervals(doctor, now);
-    let breakMinutesInLastSession = 0;
-    if (breakIntervals.length > 0) {
-        for (const interval of breakIntervals) {
-            const overlapStart = interval.start > lastSessionStart ? interval.start : lastSessionStart;
-            const overlapEnd = interval.end < lastSessionEnd ? interval.end : lastSessionEnd;
-            if (overlapEnd > overlapStart) {
-                breakMinutesInLastSession += differenceInMinutes(overlapEnd, overlapStart);
-            }
-        }
+  // Get first session start time
+  const firstSession = todaysAvailability.timeSlots[0];
+  const lastSession = todaysAvailability.timeSlots[todaysAvailability.timeSlots.length - 1];
+  const firstSessionStart = parseTime(firstSession.from, now);
+  const lastSessionStart = parseTime(lastSession.from, now);
+  const lastSessionEnd = parseTime(lastSession.to, now);
+
+  // Walk-in opens 30 minutes before the first session starts
+  const walkInWindowStart = subMinutes(firstSessionStart, 30);
+
+  // Walk-in closes 15 minutes before consultation end,
+  // plus any break duration that falls within the last session window
+  const breakIntervals = buildBreakIntervals(doctor, now);
+  let breakMinutesInLastSession = 0;
+  if (breakIntervals.length > 0) {
+    for (const interval of breakIntervals) {
+      const overlapStart = interval.start > lastSessionStart ? interval.start : lastSessionStart;
+      const overlapEnd = interval.end < lastSessionEnd ? interval.end : lastSessionEnd;
+      if (overlapEnd > overlapStart) {
+        breakMinutesInLastSession += differenceInMinutes(overlapEnd, overlapStart);
+      }
     }
-    const walkInWindowEnd = addMinutes(subMinutes(lastSessionEnd, 15), breakMinutesInLastSession);
-    
-    return isWithinInterval(now, { start: walkInWindowStart, end: walkInWindowEnd });
+  }
+  const walkInWindowEnd = addMinutes(subMinutes(lastSessionEnd, 15), breakMinutesInLastSession);
+
+  return isWithinInterval(now, { start: walkInWindowStart, end: walkInWindowEnd });
 };

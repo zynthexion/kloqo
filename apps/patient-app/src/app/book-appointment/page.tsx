@@ -13,6 +13,7 @@ import { collection, onSnapshot, query, where, doc, getDoc, Firestore, getDocs }
 import { useFirestore } from '@/firebase';
 import { useLanguage } from '@/contexts/language-context';
 import { parseAppointmentDateTime, parseTime } from '@/lib/utils';
+import { updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave } from '@kloqo/shared-core';
 import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { formatMonthYear, formatDate, formatDayOfWeek } from '@/lib/date-utils';
@@ -44,49 +45,37 @@ type BreakInterval = {
 };
 
 function buildBreakIntervals(doctor: Doctor | null, referenceDate: Date | null): BreakInterval[] {
-    if (!doctor?.leaveSlots || !referenceDate) return [];
+    if (!doctor?.breakPeriods || !referenceDate) return [];
 
-    const slotDuration = doctor.averageConsultingTime || 15;
-    const slotsForDay = doctor.leaveSlots
-        .map((leave) => {
-            if (typeof leave === 'string') {
-                return parseISO(leave);
-            }
-            if (leave && typeof (leave as any).toDate === 'function') {
-                try {
-                    return (leave as any).toDate();
-                } catch {
-                    return null;
-                }
-            }
-            if (leave instanceof Date) {
-                return leave;
-            }
-            return null;
-        })
-        .filter((date): date is Date => !!date && !isNaN(date.getTime()) && isSameDay(date, referenceDate))
-        .sort((a, b) => a.getTime() - b.getTime());
+    const dateKey = format(referenceDate, 'd MMMM yyyy');
+    const isoDateKey = format(referenceDate, 'yyyy-MM-dd');
+    const shortDateKey = format(referenceDate, 'd MMM yyyy');
 
-    if (slotsForDay.length === 0) {
+    const breaksForDay = doctor.breakPeriods[dateKey] || doctor.breakPeriods[isoDateKey] || doctor.breakPeriods[shortDateKey];
+
+    if (!breaksForDay || !Array.isArray(breaksForDay)) {
         return [];
     }
 
     const intervals: BreakInterval[] = [];
-    let currentStart = new Date(slotsForDay[0]);
-    let currentEnd = addMinutes(currentStart, slotDuration);
 
-    for (let i = 1; i < slotsForDay.length; i++) {
-        const slot = slotsForDay[i];
-        if (slot.getTime() === currentEnd.getTime()) {
-            currentEnd = addMinutes(currentEnd, slotDuration);
-        } else {
-            intervals.push({ start: currentStart, end: currentEnd });
-            currentStart = new Date(slot);
-            currentEnd = addMinutes(currentStart, slotDuration);
+    for (const breakPeriod of breaksForDay) {
+        try {
+            const breakStart = typeof breakPeriod.startTime === 'string'
+                ? parseISO(breakPeriod.startTime)
+                : new Date(breakPeriod.startTime);
+            const breakEnd = typeof breakPeriod.endTime === 'string'
+                ? parseISO(breakPeriod.endTime)
+                : new Date(breakPeriod.endTime);
+
+            if (!isNaN(breakStart.getTime()) && !isNaN(breakEnd.getTime())) {
+                intervals.push({ start: breakStart, end: breakEnd });
+            }
+        } catch (error) {
+            console.warn('Error parsing break period:', error);
         }
     }
 
-    intervals.push({ start: currentStart, end: currentEnd });
     return intervals;
 }
 
@@ -323,13 +312,6 @@ function BookAppointmentContent() {
         const slotDuration = doctor.averageConsultingTime || 15;
         const now = currentTime; // Use current time to calculate capacity based on future slots only
 
-        console.log('[CAPACITY DEBUG] Starting capacity check', {
-            doctor: doctor.name,
-            date: format(selectedDate, 'd MMMM yyyy'),
-            dayOfWeek,
-            slotDuration,
-            currentTime: format(now, 'hh:mm a')
-        });
 
         // Calculate total FUTURE slots per session and maximum advance tokens per session (85% of future slots in each session)
         // This dynamically adjusts as time passes - capacity is recalculated based on remaining future slots
@@ -355,7 +337,10 @@ function BookAppointmentContent() {
             // Only count future slots (including current time)
             while (isBefore(currentTime, sessionEnd)) {
                 const slotTime = new Date(currentTime);
-                if (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime()) {
+                // Check if slot is blocked by leave/break
+                const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
+
+                if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
                     futureSlotCount += 1;
                 }
                 currentTime = addMinutes(currentTime, slotDuration);
@@ -365,16 +350,9 @@ function BookAppointmentContent() {
                 slotsBySession.push({ sessionIndex, slotCount: futureSlotCount });
             }
 
-            console.log(`[CAPACITY DEBUG] Session ${sessionIndex}:`, {
-                from: session.from,
-                to: session.to,
-                extendedTo: sessionEnd.getTime() !== originalSessionEnd.getTime() ? format(sessionEnd, 'hh:mm a') : undefined,
-                futureSlotCount
-            });
         });
 
         if (slotsBySession.length === 0) {
-            console.log('[CAPACITY DEBUG] No future slots available');
             return false;
         }
 
@@ -386,10 +364,8 @@ function BookAppointmentContent() {
             maximumAdvanceTokens += sessionAdvanceCapacity;
         });
 
-        console.log('[CAPACITY DEBUG] Maximum advance tokens:', maximumAdvanceTokens);
 
         if (maximumAdvanceTokens === 0) {
-            console.log('[CAPACITY DEBUG] Maximum advance tokens is 0, capacity reached');
             return true;
         }
 
@@ -398,31 +374,16 @@ function BookAppointmentContent() {
             return (
                 appointment.bookedVia !== 'Walk-in' &&
                 appointment.date === formattedDate &&
-                (appointment.status === 'Pending' || appointment.status === 'Confirmed')
+                (appointment.status === 'Pending' || appointment.status === 'Confirmed') &&
+                !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
             );
         });
 
         const activeAdvanceCount = activeAdvanceAppointments.length;
 
-        console.log('[CAPACITY DEBUG] Active advance appointments:', {
-            count: activeAdvanceCount,
-            appointments: activeAdvanceAppointments.map(apt => ({
-                id: apt.id,
-                time: apt.time,
-                status: apt.status,
-                slotIndex: apt.slotIndex,
-                cancelledByBreak: apt.cancelledByBreak,
-                previousAppointmentId: apt.previousAppointmentId
-            }))
-        });
 
         const capacityReached = activeAdvanceCount >= maximumAdvanceTokens;
 
-        console.log('[CAPACITY DEBUG] Final decision:', {
-            activeAdvanceCount,
-            maximumAdvanceTokens,
-            capacityReached
-        });
 
         return capacityReached;
     }, [doctor, selectedDate, allAppointments, currentTime]);
@@ -459,7 +420,28 @@ function BookAppointmentContent() {
 
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let slotCurrentTime = parseTime(session.from, selectedDate);
-            const endTime = parseTime(session.to, selectedDate);
+            let endTime = parseTime(session.to, selectedDate);
+
+            // Check for availability extension (session-specific)
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
+            const extensionForDate = doctor.availabilityExtensions?.[dateKey];
+
+            if (extensionForDate) {
+                const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        // Only use extended time if it's actually later than the original end time
+                        if (isAfter(extendedEndTime, endTime)) {
+                            endTime = extendedEndTime;
+                        }
+                    } catch (error) {
+                        console.error('Error parsing extended end time, using original:', error);
+                    }
+                }
+            }
+
             const allSessionSlots: Array<{ time: Date; globalIndex: number }> = [];
             const futureSessionSlots: number[] = [];
 
@@ -505,18 +487,41 @@ function BookAppointmentContent() {
         return doctorAvailabilityForDay.timeSlots.map((session, sessionIndex) => {
             const allPossibleSlots: Date[] = [];
             let slotCurrentTime = parseTime(session.from, selectedDate);
-            const endTime = parseTime(session.to, selectedDate);
+            let endTime = parseTime(session.to, selectedDate);
+
+            // Check for extension for this specific session
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
+            const extensionForDate = doctor.availabilityExtensions?.[dateKey];
+
+            if (extensionForDate) {
+                const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        if (isAfter(extendedEndTime, endTime)) {
+                            endTime = extendedEndTime;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing extension time', e);
+                    }
+                }
+            }
 
             while (isBefore(slotCurrentTime, endTime)) {
                 allPossibleSlots.push(new Date(slotCurrentTime));
                 slotCurrentTime = addMinutes(slotCurrentTime, consultationTime);
             }
 
-            // Map slots with their status (matching clinic/nurse app logic)
+
+            // CRITICAL: Filter out slots blocked by leave/break
+            const visibleSlots = allPossibleSlots.filter(slot => !isSlotBlockedByLeave(doctor, slot));
+
+
+            // Map slots with its status (matching clinic/nurse app logic)
             // CRITICAL: Filter out reserved W slots (last 15% of each session) from UI for advance bookings
             // Only show slots that are actually available for advance bookings
             const sessionReservedSlots = reservedSlotsBySession.get(sessionIndex) || new Set<number>();
-            let allSlotsWithStatus = allPossibleSlots.map(slot => {
+            let allSlotsWithStatus = visibleSlots.map(slot => {
                 // Find the global slot index for this slot
                 const slotInfo = allSlotsForDay.find(s =>
                     s.time.getTime() === slot.getTime() && s.sessionIndex === sessionIndex
@@ -571,7 +576,10 @@ function BookAppointmentContent() {
                 return !sessionReservedSlots.has(globalIdx);
             });
 
+
             // Filter out slots where slot time + break duration would be outside availability
+            // REMOVED: This filter conflicts with availability extensions.
+            /*
             const breakIntervals = buildBreakIntervals(doctor, selectedDate);
             const dateStr = format(selectedDate, 'd MMMM yyyy');
             const extension = doctor?.availabilityExtensions?.[dateStr];
@@ -603,6 +611,9 @@ function BookAppointmentContent() {
                 // Hide slot if adjusted time would be outside availability
                 return adjustedTime <= availabilityEndTime;
             });
+            */
+            // Instead, define breakIntervals for use in subsessions
+            const breakIntervals = buildBreakIntervals(doctor, selectedDate);
 
             // Show all slots (not just the first available)
             const allVisibleSlots = allSlotsWithStatus;
@@ -611,7 +622,23 @@ function BookAppointmentContent() {
             const subsessions: SubsessionSlots[] = [];
             const twoHoursInMinutes = 120;
             const sessionStartTime = parseTime(session.from, selectedDate);
-            const sessionEndTime = parseTime(session.to, selectedDate);
+
+            let sessionEndTime = parseTime(session.to, selectedDate);
+
+            // Check for extension for this specific session to update sessionEndTime for grouping
+            if (extensionForDate) {
+                const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        if (isAfter(extendedEndTime, sessionEndTime)) {
+                            sessionEndTime = extendedEndTime;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing extension time for grouping', e);
+                    }
+                }
+            }
             const sessionDurationInMinutes = differenceInMinutes(sessionEndTime, sessionStartTime);
 
             let subsessionStart = sessionStartTime;

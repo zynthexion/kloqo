@@ -1,9 +1,10 @@
 import { collection, query, where, orderBy, getDocs, getDoc, Firestore, runTransaction, doc, serverTimestamp, type Transaction, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
-import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse } from 'date-fns';
+import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, isSameMinute, isSameDay } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString, getSessionEnd } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
+import { getLeaveBlockedIndices } from './appointment-service';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
@@ -2510,7 +2511,32 @@ export async function calculateWalkInDetails(
   const futureFreeSlots: DailySlot[] = [];
   const allFreeSlots: DailySlot[] = [];
   for (const slot of slots) {
-    if (!occupiedSlots.has(slot.index)) {
+    // Check if slot is on leave
+    const isLeave = (doctor.leaveSlots || []).some(leave => {
+      if (typeof leave === 'string') {
+        try {
+          const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
+          return isSameMinute(leaveDate, slot.time);
+        } catch {
+          return false;
+        }
+      }
+      if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), date)) {
+        return leave.slots.some((leaveSlot: any) => {
+          try {
+            const leaveStart = parseTimeString(leaveSlot.from, date);
+            const leaveEnd = parseTimeString(leaveSlot.to, date);
+            const slotEnd = addMinutes(slot.time, doctor.averageConsultingTime || 15);
+            return isBefore(slot.time, leaveEnd) && isAfter(slotEnd, leaveStart);
+          } catch {
+            return false;
+          }
+        });
+      }
+      return false;
+    });
+
+    if (!occupiedSlots.has(slot.index) && !isLeave) {
       allFreeSlots.push(slot);
       if (slot.time >= now) {
         futureFreeSlots.push(slot);
@@ -2697,8 +2723,10 @@ export async function previewWalkInPlacement(
   doctorId?: string
 ): Promise<WalkInPreviewResult> {
   const DEBUG = process.env.NEXT_PUBLIC_DEBUG_WALK_IN === 'true';
-  const { slots } = await loadDoctorAndSlots(firestore, clinicId, doctorName, date, doctorId);
+  const { doctor, slots } = await loadDoctorAndSlots(firestore, clinicId, doctorName, date, doctorId);
   const appointments = await fetchDayAppointments(firestore, clinicId, doctorName, date);
+  // Calculate blocked slot indices due to leave
+  const blockedIndices = getLeaveBlockedIndices(doctor, slots, date);
 
   const activeAdvanceAppointments = appointments.filter(appointment => {
     return (
@@ -2752,10 +2780,16 @@ export async function previewWalkInPlacement(
     slots,
     now: new Date(),
     walkInTokenAllotment,
-    advanceAppointments: activeAdvanceAppointments.map(entry => ({
-      id: entry.id,
-      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-    })),
+    advanceAppointments: [
+      ...activeAdvanceAppointments.map(entry => ({
+        id: entry.id,
+        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+      })),
+      ...blockedIndices.map(idx => ({
+        id: `blocked-leave-${idx}`,
+        slotIndex: idx
+      }))
+    ],
     walkInCandidates,
   });
 

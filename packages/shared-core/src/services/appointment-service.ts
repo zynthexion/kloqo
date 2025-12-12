@@ -14,7 +14,7 @@ import {
   type DocumentSnapshot,
   type Transaction,
 } from 'firebase/firestore';
-import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse } from 'date-fns';
+import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, isSameMinute, isSameDay } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString } from '../utils/break-helpers';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
@@ -46,6 +46,37 @@ interface DailySlot {
 interface LoadedDoctor {
   doctor: Doctor;
   slots: DailySlot[];
+}
+
+export function getLeaveBlockedIndices(doctor: Doctor, slots: DailySlot[], date: Date): number[] {
+  const blockedIndices: number[] = [];
+  if (!doctor.leaveSlots || doctor.leaveSlots.length === 0) return blockedIndices;
+
+  for (const slot of slots) {
+    const isLeave = (doctor.leaveSlots || []).some(leave => {
+      if (typeof leave === 'string') {
+        try {
+          const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
+          return isSameMinute(leaveDate, slot.time);
+        } catch { return false; }
+      }
+      if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), date)) {
+        return leave.slots.some((leaveSlot: any) => {
+          try {
+            const leaveStart = parseTimeString(leaveSlot.from, date);
+            const leaveEnd = parseTimeString(leaveSlot.to, date);
+            const slotEnd = addMinutes(slot.time, doctor.averageConsultingTime || 15);
+            return isBefore(slot.time, leaveEnd) && isAfter(slotEnd, leaveStart);
+          } catch { return false; }
+        });
+      }
+      return false;
+    });
+    if (isLeave) {
+      blockedIndices.push(slot.index);
+    }
+  }
+  return blockedIndices;
 }
 
 async function loadDoctorAndSlots(
@@ -530,6 +561,8 @@ export async function generateNextTokenAndReserveSlot(
     typeof appointmentData.doctorId === 'string' ? appointmentData.doctorId : undefined
   );
   const totalSlots = slots.length;
+  // Calculate blocked slot indices due to leave
+  const blockedIndices = getLeaveBlockedIndices(doctorProfile, slots, date);
   // Use current time (already defined above) to calculate capacity based on future slots only
 
   // Calculate maximum advance tokens per session (85% of FUTURE slots in each session)
@@ -590,9 +623,30 @@ export async function generateNextTokenAndReserveSlot(
 
         const excludeAppointmentId =
           typeof appointmentData.existingAppointmentId === 'string' ? appointmentData.existingAppointmentId : undefined;
-        const effectiveAppointments = excludeAppointmentId
+        const rawEffectiveAppointments = excludeAppointmentId
           ? appointments.filter(appointment => appointment.id !== excludeAppointmentId)
           : appointments;
+
+        // Inject blocked slots as confirmed booking to block the scheduler
+        const blockedAppointments: Appointment[] = blockedIndices.map(idx => ({
+          id: `blocked-leave-${idx}`,
+          slotIndex: idx,
+          status: 'Confirmed',
+          bookedVia: 'Advanced Booking',
+          clinicId,
+          doctor: doctorName,
+          date: dateStr,
+          patientId: 'blocked-system',
+          patientName: 'Blocked (Leave)',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          time: slots[idx] ? format(slots[idx].time, 'hh:mm a') : '',
+          tokenNumber: `L${idx}`,
+          department: doctorProfile.department || '',
+          phone: '',
+        } as unknown as Appointment));
+
+        const effectiveAppointments = [...rawEffectiveAppointments, ...blockedAppointments];
 
         if (DEBUG_BOOKING) {
           console.info('[nurse booking] attempt', attempt, {
@@ -2682,6 +2736,9 @@ export async function rebalanceWalkInSchedule(
     return;
   }
 
+  // Calculate blocked slot indices due to leave
+  const blockedIndices = getLeaveBlockedIndices(doctor, slots, date);
+
   if (DEBUG_BOOKING) {
     console.info('[nurse booking] rebalance start', {
       doctor: doctor.name,
@@ -2745,10 +2802,16 @@ export async function rebalanceWalkInSchedule(
       slots,
       now,
       walkInTokenAllotment: walkInSpacingValue,
-      advanceAppointments: freshAdvanceAppointments.map(entry => ({
-        id: entry.id,
-        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-      })),
+      advanceAppointments: [
+        ...freshAdvanceAppointments.map(entry => ({
+          id: entry.id,
+          slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+        })),
+        ...blockedIndices.map(idx => ({
+          id: `blocked-leave-${idx}`,
+          slotIndex: idx
+        }))
+      ],
       walkInCandidates,
     });
 

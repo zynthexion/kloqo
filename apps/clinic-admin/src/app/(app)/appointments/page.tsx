@@ -17,7 +17,7 @@ import type { Appointment, Doctor, Patient, User } from "@/lib/types";
 import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreDoc, updateDoc, increment, arrayUnion, deleteDoc, writeBatch, serverTimestamp, addDoc, orderBy, onSnapshot, runTransaction } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays } from "date-fns";
+import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
 import { updateAppointmentAndDoctorStatuses } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
@@ -1350,7 +1350,7 @@ export default function AppointmentsPage() {
             createdAt: serverTimestamp(),
             cutOffTime: cutOffTime,
             noShowTime: noShowTime,
-            ...(isForceBooked && { isForceBooked: true }), // Mark as force booked
+            ...((walkInEstimate as any)?.isForceBooked && { isForceBooked: true }), // Mark as force booked
           };
 
           // CRITICAL: Check for existing appointments at this slot before creating
@@ -3034,6 +3034,56 @@ export default function AppointmentsPage() {
           }
         }
 
+        // Check if slot falls on a leave slot
+        const isLeave = (selectedDoctor.leaveSlots || []).some(leave => {
+          if (typeof leave === 'string') {
+            try {
+              const leaveDate = parse(leave, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date());
+              // For string leaves, check if it matches the specific slot time
+              return isSameMinute(leaveDate, slotTimeIterator);
+            } catch {
+              return false;
+            }
+          }
+          if (leave.date && isSameDay(parse(leave.date, "yyyy-MM-dd", new Date()), selectedDate)) {
+            // For range leaves, check if slot falls within any of the leave slots
+            return leave.slots.some((leaveSlot: any) => {
+              try {
+                const leaveStart = parseDateFns(leaveSlot.from, "hh:mm a", selectedDate);
+                const leaveEnd = parseDateFns(leaveSlot.to, "hh:mm a", selectedDate);
+                const slotEnd = addMinutes(slotTimeIterator, selectedDoctor.averageConsultingTime || 15);
+
+                // Check for overlap: (StartA < EndB) && (EndA > StartB)
+                return isBefore(slotTimeIterator, leaveEnd) && isAfter(slotEnd, leaveStart);
+              } catch {
+                return false;
+              }
+            });
+          }
+          return false;
+        });
+
+        if (isLeave) {
+          console.log(`[SLOT FILTER DEBUG] Skipping leave slot`, {
+            sessionIndex,
+            slotTime
+          });
+          // Mark status as leave if we want to show it as blocked, or just continue to skip
+          // The requirement is "slots blocked ... are visible", implying they should NOT be visible.
+          // However, if we skip it, the loop continues to find the NEXT available slot.
+          // If we want to show it as "Leave" (blocked), we should set status='leave'.
+          // But the previous analysis showed that 'available' slots are pushed to the list.
+          // If we set status='leave', we need to decide if we push it.
+          // If we DON'T push it, it won't be seen.
+          // If we DO push it, it will be seen but disabled.
+          // Given the user said "visible and bookable", making it hidden is the safest fix.
+          // But wait, the sessionSlots code currently ONLY pushes 'available' slots (if !foundFirstAvailable).
+          // So if we skip here, we effectively hide it.
+          currentSlotIndexInSession++;
+          slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
+          continue;
+        }
+
         // For same-day bookings, skip slots within 1-hour window from current time
         // Slots within 1 hour are reserved for W tokens only - don't show them for A tokens
         if (isToday(selectedDate) && appointmentType === 'Advanced Booking') {
@@ -3822,7 +3872,7 @@ export default function AppointmentsPage() {
                                                   {walkInEstimate && (
                                                     <div className="text-sm text-amber-900 py-2 px-3 bg-amber-100 rounded-md">
                                                       <p className="font-medium">Current Estimate:</p>
-                                                      <p>Token: {walkInEstimate.token}</p>
+                                                      <p>Token: {walkInEstimate.numericToken}</p>
                                                       <p>Time: {format(walkInEstimate.estimatedTime, 'hh:mm a')}</p>
                                                     </div>
                                                   )}
@@ -4011,7 +4061,7 @@ export default function AppointmentsPage() {
                                                         <p className="font-bold text-lg">{walkInEstimate.patientsAhead} ahead</p>
                                                       </div>
                                                     </div>
-                                                    {walkInEstimate.isForceBooked && (
+                                                    {!!(walkInEstimate as any).isForceBooked && (
                                                       <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
                                                         <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
                                                           <AlertTriangle className="h-3 w-3" />
@@ -4036,7 +4086,7 @@ export default function AppointmentsPage() {
                                                         <p className="font-bold text-lg">{walkInEstimate.patientsAhead} ahead</p>
                                                       </div>
                                                     </div>
-                                                    {walkInEstimate.isForceBooked && (
+                                                    {!!(walkInEstimate as any).isForceBooked && (
                                                       <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
                                                         <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
                                                           <AlertTriangle className="h-3 w-3" />

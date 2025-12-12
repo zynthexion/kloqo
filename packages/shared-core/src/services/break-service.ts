@@ -6,11 +6,13 @@ import {
     doc,
     writeBatch,
     Timestamp,
+    getDoc,
     type Firestore
 } from 'firebase/firestore';
 import { format, addMinutes, parseISO } from 'date-fns';
 import type { Appointment, BreakPeriod } from '@kloqo/shared-types';
 import { parseTime } from '../utils/break-helpers';
+import { sendBreakUpdateNotification } from './notification-service';
 
 /**
  * Shifts appointments physically (updates slotIndex and time) to accommodate a new break.
@@ -145,6 +147,52 @@ export async function shiftAppointmentsForNewBreak(
 
         if (updates.length > 0) {
             await batch.commit();
+
+            // 4. Send Notifications for Shifted Appointments
+            // We do this AFTER the batch commit to ensure data consistency
+            // If notifications fail, the schedule change is still valid
+            try {
+                // Fetch clinic name for notifications
+                let clinicName = 'The Clinic';
+                try {
+                    const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
+                    if (clinicDoc.exists()) {
+                        clinicName = clinicDoc.data().name || 'The Clinic';
+                    }
+                } catch (err) {
+                    console.warn('[BREAK SERVICE] Failed to fetch clinic name for notifications:', err);
+                }
+
+                // Send notifications in parallel (ignoring failures)
+                await Promise.allSettled(updates.map(async (update) => {
+                    const { originalData, newData, newDocRef } = update;
+
+                    if (!originalData.patientId) return;
+
+                    try {
+                        await sendBreakUpdateNotification({
+                            firestore: db,
+                            patientId: originalData.patientId,
+                            appointmentId: newDocRef.id, // Use new appointment ID
+                            doctorName: doctorName,
+                            clinicName: clinicName,
+                            oldTime: originalData.time,
+                            newTime: newData.time,
+                            oldDate: originalData.date, // Should be same date
+                            newDate: newData.date,      // Should be same date
+                            reason: 'Doctor break scheduled',
+                            oldArriveByTime: originalData.arriveByTime,
+                            newArriveByTime: newData.arriveByTime
+                        });
+                    } catch (notifErr) {
+                        console.error(`[BREAK SERVICE] Failed to notify patient ${originalData.patientId} about schedule change:`, notifErr);
+                    }
+                }));
+
+            } catch (notificationError) {
+                console.error('[BREAK SERVICE] Error in notification block:', notificationError);
+                // Don't throw here - the main operation (schedule shift) succeeded
+            }
         }
     } catch (error) {
         console.error('[BREAK SERVICE] ❌ Error shifting appointments:', error);

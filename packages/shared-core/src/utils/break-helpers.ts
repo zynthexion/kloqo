@@ -42,7 +42,14 @@ export interface BreakValidationResult {
 // ============================================================================
 
 export function parseTime(timeStr: string, referenceDate: Date): Date {
-  return parse(timeStr, 'hh:mm a', referenceDate);
+  if (!timeStr || typeof timeStr !== 'string' || timeStr.trim() === '') {
+    throw new Error(`Invalid time string: "${timeStr}"`);
+  }
+  try {
+    return parse(timeStr, 'hh:mm a', referenceDate);
+  } catch (error) {
+    throw new Error(`Failed to parse time "${timeStr}": ${error}`);
+  }
 }
 
 // ============================================================================
@@ -558,7 +565,7 @@ export function isWithin15MinutesOfClosing(
     doctorName: doctor?.name,
     date: format(date, 'yyyy-MM-dd hh:mm a'),
   });
-  
+
   if (!doctor?.availabilitySlots?.length) {
     console.log('[isWithin15MinutesOfClosing] ❌ No availability slots');
     return false;
@@ -584,10 +591,10 @@ export function isWithin15MinutesOfClosing(
   // Get day of week
   const dayOfWeek = format(date, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
-  
+
   console.log('[isWithin15MinutesOfClosing] Day of week:', dayOfWeek);
   console.log('[isWithin15MinutesOfClosing] Availability for day:', availabilityForDay ? 'Found' : 'Not found');
-  
+
   if (!availabilityForDay?.timeSlots?.length) {
     console.log('[isWithin15MinutesOfClosing] ❌ No time slots for this day');
     return false;
@@ -599,7 +606,7 @@ export function isWithin15MinutesOfClosing(
 
   // Check if we're within 15 minutes of closing
   const fifteenMinutesBeforeClosing = subMinutes(lastSessionEndTime, 15);
-  
+
   console.log('[isWithin15MinutesOfClosing] Closing window:', {
     lastSessionEnd: format(lastSessionEndTime, 'hh:mm a'),
     fifteenMinBefore: format(fifteenMinutesBeforeClosing, 'hh:mm a'),
@@ -607,10 +614,10 @@ export function isWithin15MinutesOfClosing(
     isAfterWindow: isAfter(now, fifteenMinutesBeforeClosing),
     isBeforeEnd: isBefore(now, lastSessionEndTime),
   });
-  
+
   const result = isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
   console.log('[isWithin15MinutesOfClosing] Result:', result ? '✅ TRUE' : '❌ FALSE');
-  
+
   return result;
 }
 

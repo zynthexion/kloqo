@@ -256,7 +256,7 @@ function isDoctorAdvanceCapacityReachedOnDate(
     const originalSessionEnd = parseDateFns(session.to, 'hh:mm a', date);
     let sessionEnd = originalSessionEnd;
     const extensions = doctor.availabilityExtensions?.[dateKey];
-    if (extensions?.sessions) {
+    if (extensions?.sessions && Array.isArray(extensions.sessions)) {
       const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
       if (sessionExtension?.newEndTime) {
         sessionEnd = parseDateFns(sessionExtension.newEndTime, 'hh:mm a', date);

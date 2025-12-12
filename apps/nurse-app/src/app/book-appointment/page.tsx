@@ -281,7 +281,7 @@ function BookAppointmentContent() {
             const originalSessionEnd = parseTime(session.to, selectedDate);
             let sessionEnd = originalSessionEnd;
             const extensions = doctor.availabilityExtensions?.[dateKey];
-            if (extensions?.sessions) {
+            if (extensions?.sessions && Array.isArray(extensions.sessions)) {
                 const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
                 if (sessionExtension?.newEndTime) {
                     sessionEnd = parseTime(sessionExtension.newEndTime, selectedDate);

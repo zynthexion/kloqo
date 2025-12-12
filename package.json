@@ -7,15 +7,15 @@
         "packages/*"
     ],
     "scripts": {
-        "dev": "turbo run dev",
-        "build": "turbo run build",
-        "lint": "turbo run lint",
-        "typecheck": "turbo run typecheck",
+        "dev": "echo 'Run specific dev script, e.g., npm run dev:patient'",
+        "build": "npm run build --workspaces --if-present",
+        "lint": "npm run lint --workspaces --if-present",
+        "typecheck": "npm run typecheck --workspaces --if-present",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:ui": "vitest --ui",
         "test:coverage": "vitest run --coverage",
-        "clean": "turbo run clean && rm -rf node_modules",
+        "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
         "dev:patient": "npm run dev --workspace=patient-app",
         "dev:nurse": "npm run dev --workspace=nurse-app",
         "dev:clinic": "npm run dev --workspace=clinic-admin",
@@ -24,7 +24,6 @@
     "devDependencies": {
         "@vitest/ui": "^4.0.15",
         "happy-dom": "^20.0.11",
-        "turbo": "^2.3.3",
         "typescript": "^5.7.2",
         "vitest": "^4.0.15"
     },

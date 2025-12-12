@@ -249,6 +249,7 @@ function buildCandidateSlots(
       // CRITICAL: For advance bookings, NEVER allow slots reserved for walk-ins (last 15% of each session)
       if (type === 'A' && reservedWSlots.has(slotIndex)) {
         const slot = slots[slotIndex];
+
         return; // Skip reserved walk-in slots
       }
       candidates.push(slotIndex);
@@ -264,9 +265,11 @@ function buildCandidateSlots(
       // CRITICAL: Also check if preferred slot is not reserved for walk-ins
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
+
       } else if (isAfter(slotTime, oneHourFromNow)) {
         addCandidate(preferredSlotIndex);
       } else {
+
       }
 
       // CRITICAL: If preferred slot is not available, only look for alternatives within the SAME session
@@ -1018,12 +1021,7 @@ export async function generateNextTokenAndReserveSlot(
             const reservedWSlots = calculatePerSessionReservedSlots(slots, now);
             if (type === 'A' && reservedWSlots.has(slotIndex)) {
               const slot = slots[slotIndex];
-              console.error(`[BOOKING DEBUG] ⚠️ REJECTED - Slot ${slotIndex} is reserved for walk-ins in session ${slot?.sessionIndex}`, {
-                slotIndex,
-                sessionIndex: slot?.sessionIndex,
-                type,
-                timestamp: new Date().toISOString()
-              });
+
               continue; // NEVER allow advance bookings to use reserved walk-in slots
             }
 
@@ -1065,10 +1063,7 @@ export async function generateNextTokenAndReserveSlot(
 
               if (isStale) {
                 // Reservation is stale - clean it up and allow new booking
-                  reservationId,
-                  reservedAt: reservedAt?.toDate?.()?.toISOString(),
-                  existingData: reservationData
-                });
+
                 // Delete the stale reservation within the transaction
                 transaction.delete(reservationDocRef);
                 // Continue to create new reservation below
@@ -1098,14 +1093,7 @@ export async function generateNextTokenAndReserveSlot(
 
             // Verify assignment was successful
             if (numericToken !== calculatedNumericToken || tokenNumber !== calculatedTokenNumber) {
-              console.error(`[BOOKING DEBUG] ⚠️ TOKEN ASSIGNMENT FAILED`, {
-                slotIndex: chosenSlotIndex,
-                expectedNumericToken: calculatedNumericToken,
-                actualNumericToken: numericToken,
-                expectedTokenNumber: calculatedTokenNumber,
-                actualTokenNumber: tokenNumber,
-                timestamp: new Date().toISOString()
-              });
+
               // Force correct values
               numericToken = calculatedNumericToken;
               tokenNumber = calculatedTokenNumber;
@@ -1126,14 +1114,6 @@ export async function generateNextTokenAndReserveSlot(
           const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
 
           if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
-            console.warn(`[BOOKING DEBUG] Token not properly assigned in loop - fixing now`, {
-              slotIndex: chosenSlotIndex,
-              currentNumericToken: numericToken,
-              expectedNumericToken,
-              currentTokenNumber: tokenNumber,
-              expectedTokenNumber,
-              timestamp: new Date().toISOString()
-            });
             numericToken = expectedNumericToken;
             tokenNumber = expectedTokenNumber;
           }
@@ -1159,6 +1139,7 @@ export async function generateNextTokenAndReserveSlot(
           throw new Error('Failed to reserve slot.');
         }
 
+
         transaction.set(reservationRef, {
           clinicId,
           doctorName,
@@ -1182,14 +1163,7 @@ export async function generateNextTokenAndReserveSlot(
           const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
 
           if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
-            console.error(`[BOOKING DEBUG] ⚠️ TOKEN MISMATCH DETECTED - Correcting`, {
-              slotIndex: chosenSlotIndex,
-              currentNumericToken: numericToken,
-              expectedNumericToken,
-              currentTokenNumber: tokenNumber,
-              expectedTokenNumber,
-              timestamp: new Date().toISOString()
-            });
+
             numericToken = expectedNumericToken;
             tokenNumber = expectedTokenNumber;
           }
@@ -1809,8 +1783,10 @@ const prepareAdvanceShift = async ({
         assignment => assignment.id === '__new_walk_in__'
       );
       if (!newAssignment) {
+
         return null;
       }
+
 
 
       // Check if the assigned slot is a cancelled slot
@@ -1822,12 +1798,14 @@ const prepareAdvanceShift = async ({
       if (assignedAppointment) {
         const assignedSlotMeta = slots[newAssignment.slotIndex];
 
+
         // Check if this cancelled slot should be blocked (has walk-ins after it)
         if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
           // This shouldn't happen since we blocked them, but reject if it does
           console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot, rejecting:', newAssignment.slotIndex);
           return null;
         } else if (assignedAppointment) {
+
         }
       }
 

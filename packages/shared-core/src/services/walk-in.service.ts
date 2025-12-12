@@ -224,6 +224,7 @@ function buildCandidateSlots(
       // CRITICAL: For advance bookings, NEVER allow slots reserved for walk-ins (last 15% of each session)
       if (type === 'A' && reservedWSlots.has(slotIndex)) {
         const slot = slots[slotIndex];
+
         return; // Skip reserved walk-in slots
       }
       candidates.push(slotIndex);
@@ -239,9 +240,11 @@ function buildCandidateSlots(
       // CRITICAL: Also check if preferred slot is not reserved for walk-ins
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
+
       } else if (isAfter(slotTime, oneHourFromNow)) {
         addCandidate(preferredSlotIndex);
       } else {
+
       }
 
       // CRITICAL: If preferred slot is not available, only look for alternatives within the SAME session
@@ -572,11 +575,7 @@ export async function generateNextTokenAndReserveSlot(
     totalMinimumWalkInReserve += sessionMinimumWalkInReserve;
   });
 
-    totalSlots,
-    maximumAdvanceTokens,
-    sessions: slotsBySession.size,
-    timestamp: new Date().toISOString()
-  });
+
 
   const appointmentsRef = collection(firestore, 'appointments');
   const appointmentsQuery = query(
@@ -588,58 +587,38 @@ export async function generateNextTokenAndReserveSlot(
   );
 
   const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    requestId,
-    clinicId,
-    doctorName,
-    date: dateStr,
-    type,
-    preferredSlotIndex: appointmentData.slotIndex,
-    timestamp: new Date().toISOString()
-  });
+
 
   for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
     const appointmentDocRefs = appointmentsSnapshot.docs.map(docSnap => doc(firestore, 'appointments', docSnap.id));
 
-      existingAppointmentsCount: appointmentsSnapshot.docs.length,
-      timestamp: new Date().toISOString()
-    });
+
 
     try {
       // Add timeout wrapper for Safari compatibility
       const transactionPromise = runTransaction(firestore, async transaction => {
-          timestamp: new Date().toISOString(),
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
-        });
+
 
         // CRITICAL: Only prepare counter for walk-ins, not for advance bookings
         // Advance bookings use slotIndex + 1 for tokens, so counter is not needed
         let counterState: TokenCounterState | null = null;
 
         if (type === 'W') {
-            counterRef: counterRef.path,
-            timestamp: new Date().toISOString()
-          });
+
 
           counterState = await prepareNextTokenNumber(transaction, counterRef);
 
-            nextNumber: counterState.nextNumber,
-            timestamp: new Date().toISOString()
-          });
+
         } else {
-            timestamp: new Date().toISOString()
-          });
+
         }
 
-          appointmentCount: appointmentDocRefs.length,
-          timestamp: new Date().toISOString()
-        });
+
 
         const appointmentSnapshots = await Promise.all(appointmentDocRefs.map(ref => transaction.get(ref)));
 
-          appointmentCount: appointmentSnapshots.length,
-          timestamp: new Date().toISOString()
-        });
+
         const appointments = appointmentSnapshots
           .filter(snapshot => snapshot.exists())
           .map(snapshot => {
@@ -653,15 +632,7 @@ export async function generateNextTokenAndReserveSlot(
           ? appointments.filter(appointment => appointment.id !== excludeAppointmentId)
           : appointments;
 
-        if (DEBUG_BOOKING) {
-          console.info('[patient booking] attempt', attempt, {
-            type,
-            clinicId,
-            doctorName,
-            totalSlots,
-            effectiveAppointments: effectiveAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex, status: a.status, bookedVia: a.bookedVia })),
-          });
-        }
+
 
         if (type === 'A' && maximumAdvanceTokens >= 0) {
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
@@ -672,34 +643,16 @@ export async function generateNextTokenAndReserveSlot(
             );
           }).length;
 
-            activeAdvanceTokens,
-            maximumAdvanceTokens,
-            totalSlots,
-            minimumWalkInReserve: totalMinimumWalkInReserve,
-            willBlock: maximumAdvanceTokens === 0 || activeAdvanceTokens >= maximumAdvanceTokens,
-            effectiveAppointmentsCount: effectiveAppointments.length,
-            advanceAppointments: effectiveAppointments
-              .filter(a => a.bookedVia !== 'Walk-in' && typeof a.slotIndex === 'number' && ACTIVE_STATUSES.has(a.status))
-              .map(a => ({ id: a.id, slotIndex: a.slotIndex, status: a.status, tokenNumber: a.tokenNumber })),
-            timestamp: new Date().toISOString()
-          });
+
 
           if (maximumAdvanceTokens === 0 || activeAdvanceTokens >= maximumAdvanceTokens) {
-            console.error(`[BOOKING DEBUG] Request ${requestId}: ❌ CAPACITY REACHED - Blocking advance booking`, {
-              activeAdvanceTokens,
-              maximumAdvanceTokens,
-              timestamp: new Date().toISOString()
-            });
+
             const capacityError = new Error('Advance booking capacity for the day has been reached.');
             (capacityError as { code?: string }).code = 'A_CAPACITY_REACHED';
             throw capacityError;
           }
 
-            activeAdvanceTokens,
-            maximumAdvanceTokens,
-            remainingCapacity: maximumAdvanceTokens - activeAdvanceTokens,
-            timestamp: new Date().toISOString()
-          });
+
         }
 
         let numericToken: number = 0;
@@ -907,29 +860,12 @@ export async function generateNextTokenAndReserveSlot(
             appointments: effectiveAppointments,
           });
 
-            totalCandidates: candidates.length,
-            candidates: candidates,
-            totalSlots,
-            maximumAdvanceTokens,
-            occupiedSlotsCount: occupiedSlots.size,
-            occupiedSlots: Array.from(occupiedSlots),
-            type,
-            timestamp: new Date().toISOString()
-          });
+
 
           if (candidates.length === 0) {
             const reservedWSlots = calculatePerSessionReservedSlots(slots, now);
             const reservedSlotsCount = reservedWSlots.size;
-            console.error(`[BOOKING DEBUG] Request ${requestId}: ❌ NO CANDIDATE SLOTS AVAILABLE`, {
-              type,
-              totalSlots,
-              maximumAdvanceTokens,
-              reservedSlotsCount,
-              occupiedSlotsCount: occupiedSlots.size,
-              occupiedSlots: Array.from(occupiedSlots),
-              oneHourFromNow: addMinutes(now, 60).toISOString(),
-              timestamp: new Date().toISOString()
-            });
+
             // If a preferred slot was provided, check if it's in a specific session
             if (typeof appointmentData.slotIndex === 'number') {
               const preferredSlot = slots[appointmentData.slotIndex];
@@ -963,21 +899,14 @@ export async function generateNextTokenAndReserveSlot(
             if (type === 'A' && reservedWSlots.has(slotIndex)) {
               rejectedReasons.reservedForWalkIn++;
               const slot = slots[slotIndex];
-              console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ REJECTED - Slot ${slotIndex} is reserved for walk-ins in session ${slot?.sessionIndex}`, {
-                slotIndex,
-                sessionIndex: slot?.sessionIndex,
-                type,
-                timestamp: new Date().toISOString()
-              });
+
               continue; // NEVER allow advance bookings to use reserved walk-in slots
             }
 
             const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
             const reservationDocRef = doc(firestore, 'slot-reservations', reservationId);
 
-              reservationId,
-              timestamp: new Date().toISOString()
-            });
+
 
             // CRITICAL: Check reservation inside transaction - this ensures we see the latest state
             // We MUST read the reservation document as part of the transaction's read set
@@ -1018,20 +947,14 @@ export async function generateNextTokenAndReserveSlot(
 
               if (isStale) {
                 // Reservation is stale - clean it up and allow new booking
-                  reservationId,
-                  reservedAt: reservedAt?.toDate?.()?.toISOString(),
-                  existingData: reservationData
-                });
+
                 // Delete the stale reservation within the transaction
                 transaction.delete(reservationDocRef);
                 // Continue to create new reservation below
               } else {
                 // Reservation exists and is not stale - another active transaction has it
                 rejectedReasons.alreadyReserved++;
-                  reservationId,
-                  reservedAt: reservedAt?.toDate?.()?.toISOString(),
-                  existingData: reservationData
-                });
+
                 continue;
               }
             }
@@ -1044,14 +967,11 @@ export async function generateNextTokenAndReserveSlot(
 
             if (hasActiveAppointmentAtSlot) {
               rejectedReasons.hasActiveAppointment++;
+
               continue;
             }
 
-              reservationId,
-              timestamp: new Date().toISOString(),
-              candidatesCount: candidates.length,
-              currentSlotIndex: slotIndex
-            });
+
 
             // CRITICAL: Reserve the slot atomically using transaction.set()
             // By reading the document first with transaction.get(), we add it to the transaction's read set
@@ -1069,9 +989,7 @@ export async function generateNextTokenAndReserveSlot(
               reservedBy: 'appointment-booking',
             });
 
-              reservationId,
-              timestamp: new Date().toISOString()
-            });
+
 
             // Store the reservation reference - we've successfully reserved this slot
             // If the transaction commits, this reservation will exist
@@ -1094,25 +1012,11 @@ export async function generateNextTokenAndReserveSlot(
             numericToken = calculatedNumericToken;
             tokenNumber = calculatedTokenNumber;
 
-              slotIndex: chosenSlotIndex,
-              calculatedNumericToken,
-              calculatedTokenNumber,
-              assignedNumericToken: numericToken,
-              assignedTokenNumber: tokenNumber,
-              counterNextNumber: counterState?.nextNumber ?? 'N/A (not used for advance bookings)', // For debugging - should NOT be used
-              timestamp: new Date().toISOString()
-            });
+
 
             // Verify assignment was successful
             if (numericToken !== calculatedNumericToken || tokenNumber !== calculatedTokenNumber) {
-              console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ TOKEN ASSIGNMENT FAILED`, {
-                slotIndex: chosenSlotIndex,
-                expectedNumericToken: calculatedNumericToken,
-                actualNumericToken: numericToken,
-                expectedTokenNumber: calculatedTokenNumber,
-                actualTokenNumber: tokenNumber,
-                timestamp: new Date().toISOString()
-              });
+
               // Force correct values
               numericToken = calculatedNumericToken;
               tokenNumber = calculatedTokenNumber;
@@ -1128,18 +1032,7 @@ export async function generateNextTokenAndReserveSlot(
               (rejectedReasons.alreadyReserved === candidates.length ||
                 (rejectedReasons.alreadyReserved + rejectedReasons.hasActiveAppointment) === candidates.length);
 
-            console.error(`[BOOKING DEBUG] Request ${requestId}: ❌ NO SLOT RESERVED - All candidates rejected`, {
-              type,
-              totalCandidates: candidates.length,
-              totalSlots,
-              maximumAdvanceTokens,
-              reservedSlotsCount,
-              occupiedSlotsCount: occupiedSlots.size,
-              rejectedReasons,
-              allRejectedDueToReservations,
-              attempt: attempt + 1,
-              timestamp: new Date().toISOString()
-            });
+
 
             // If all candidates were rejected due to concurrent reservations, throw a retryable error
             if (allRejectedDueToReservations && attempt < MAX_TRANSACTION_ATTEMPTS - 1) {
@@ -1165,14 +1058,7 @@ export async function generateNextTokenAndReserveSlot(
             const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
 
             if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
-              console.warn(`[BOOKING DEBUG] Request ${requestId}: Token not properly assigned in loop - fixing now`, {
-                slotIndex: chosenSlotIndex,
-                currentNumericToken: numericToken,
-                expectedNumericToken,
-                currentTokenNumber: tokenNumber,
-                expectedTokenNumber,
-                timestamp: new Date().toISOString()
-              });
+
               numericToken = expectedNumericToken;
               tokenNumber = expectedTokenNumber;
             }
@@ -1180,9 +1066,7 @@ export async function generateNextTokenAndReserveSlot(
         }
 
         if (!reservationRef) {
-          if (DEBUG_BOOKING) {
-            console.warn('[patient booking] failed to reserve slot', { clinicId, doctorName, type, chosenSlotIndex });
-          }
+
           throw new Error('Failed to reserve slot.');
         }
 
@@ -1202,28 +1086,8 @@ export async function generateNextTokenAndReserveSlot(
           commitNextTokenNumber(transaction, counterRef, counterState);
         }
 
-        if (DEBUG_BOOKING) {
-          console.info('[patient booking] walk-in assignment', {
-            clinicId,
-            doctorName,
-            chosenSlotIndex,
-            sessionIndexForNew,
-            resolvedTimeString,
-            numericToken,
-            tokenNumber,
-          });
-        }
-        if (DEBUG_BOOKING) {
-          console.info('[patient booking] advance assignment', {
-            clinicId,
-            doctorName,
-            chosenSlotIndex,
-            sessionIndexForNew,
-            resolvedTimeString,
-            numericToken,
-            tokenNumber,
-          });
-        }
+
+
 
         // CRITICAL: Ensure token matches slotIndex before returning
         // This is a final safety check to prevent token/slotIndex mismatches
@@ -1232,32 +1096,15 @@ export async function generateNextTokenAndReserveSlot(
           const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
 
           if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
-            console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ TOKEN MISMATCH DETECTED - Correcting`, {
-              slotIndex: chosenSlotIndex,
-              currentNumericToken: numericToken,
-              expectedNumericToken,
-              currentTokenNumber: tokenNumber,
-              expectedTokenNumber,
-              timestamp: new Date().toISOString()
-            });
+
             numericToken = expectedNumericToken;
             tokenNumber = expectedTokenNumber;
           }
         }
 
-          tokenNumber,
-          numericToken,
-          slotIndex: chosenSlotIndex,
-          reservationId: reservationRef.id,
-          tokenMatchesSlot: type === 'A' ? numericToken === chosenSlotIndex + 1 : true,
-          timestamp: new Date().toISOString()
-        });
 
-          tokenNumber,
-          slotIndex: chosenSlotIndex,
-          reservationId: reservationRef.id,
-          timestamp: new Date().toISOString()
-        });
+
+
 
         return {
           tokenNumber,
@@ -1278,62 +1125,17 @@ export async function generateNextTokenAndReserveSlot(
 
       return await Promise.race([transactionPromise, timeoutPromise]) as typeof transactionPromise extends Promise<infer T> ? T : never;
     } catch (error) {
-      const errorDetails = {
-        requestId,
-        attempt: attempt + 1,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorCode: (error as { code?: string }).code,
-        errorName: error instanceof Error ? error.name : undefined,
-        timestamp: new Date().toISOString()
-      };
-
-      console.error(`[BOOKING DEBUG] Request ${requestId}: Transaction FAILED (attempt ${attempt + 1})`, errorDetails);
-      console.error(`[BOOKING DEBUG] Request ${requestId}: Full error object:`, error);
-      console.error(`[BOOKING DEBUG] Request ${requestId}: Error type check:`, {
-        isError: error instanceof Error,
-        hasCode: typeof (error as { code?: string }).code === 'string',
-        errorCode: (error as { code?: string }).code,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
-        isSafari: typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-      });
-
-      // Check if this is a timeout error (Safari-specific)
-      if (error instanceof Error && error.message.includes('timeout')) {
-        console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ TIMEOUT DETECTED - This may be a Safari-specific issue`, {
-          errorMessage: error.message,
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
-        });
-      }
-
       const isConflict = isReservationConflict(error);
-        isConflict,
-        willRetry: isConflict && attempt < MAX_TRANSACTION_ATTEMPTS - 1,
-        attemptsRemaining: MAX_TRANSACTION_ATTEMPTS - attempt - 1
-      });
 
-      if (isConflict) {
-          isReservationConflict: true,
-          attemptsRemaining: MAX_TRANSACTION_ATTEMPTS - attempt - 1,
-          nextAttempt: attempt + 2
-        });
-        if (attempt < MAX_TRANSACTION_ATTEMPTS - 1) {
-          // Add a small delay before retry to allow other transactions to complete
-          await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
-          continue;
-        }
+      if (isConflict && attempt < MAX_TRANSACTION_ATTEMPTS - 1) {
+        // Add a small delay before retry to allow other transactions to complete
+        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+        continue;
       }
 
-      console.error(`[BOOKING DEBUG] Request ${requestId}: ❌ Transaction failed and will NOT retry`, {
-        ...errorDetails,
-        isReservationConflict: isConflict,
-        reason: isConflict ? 'Max attempts reached' : 'Not a reservation conflict'
-      });
       throw error;
     }
   }
-
-  console.error(`[BOOKING DEBUG] Request ${requestId}: All ${MAX_TRANSACTION_ATTEMPTS} attempts exhausted`);
 
   throw new Error('No available slots match the booking rules.');
 }
@@ -1395,17 +1197,7 @@ async function prepareAdvanceShift({
 
   const hasExistingWalkIns = activeWalkIns.length > 0;
 
-  if (DEBUG_BOOKING) {
-    console.info('[patient booking] prepareAdvanceShift start', {
-      clinicId,
-      doctorName,
-      dateStr,
-      walkInSpacingValue,
-      totalSlots,
-      activeAdvanceAppointments: activeAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })),
-      activeWalkIns: activeWalkIns.map(w => ({ id: w.id, slotIndex: w.slotIndex })),
-    });
-  }
+
 
   // CRITICAL: Read existing reservations BEFORE calling scheduler
   // This prevents concurrent walk-ins from getting the same slot
@@ -1758,11 +1550,7 @@ async function prepareAdvanceShift({
   // Effective bucket count = cancelled slots in bucket - walk-ins using bucket slots
   const firestoreBucketCount = Math.max(0, bucketCount - usedBucketSlots);
 
-  console.info('[Walk-in Scheduling] Bucket calculation:', {
-    cancelledSlotsInBucket: bucketCount,
-    walkInsOutsideAvailability: usedBucketSlots,
-    effectiveBucketCount: firestoreBucketCount,
-  });
+
 
   const averageConsultingTime = doctor.averageConsultingTime || 15;
   const totalMinutes =
@@ -1788,7 +1576,7 @@ async function prepareAdvanceShift({
   // Only cancelled slots that have walk-ins AFTER them go to bucket
   const cancelledSlotsInBucket = new Set<number>();
   if (hasExistingWalkIns) {
-    console.warn('[Walk-in Scheduling] Building cancelled slots in bucket. Active walk-ins:', activeWalkInsWithTimes.length);
+
     for (const appointment of effectiveAppointments) {
       if (
         (appointment.status === 'Cancelled' || appointment.status === 'No-show') &&
@@ -1801,12 +1589,7 @@ async function prepareAdvanceShift({
           const isInBucketWindow = !isAfter(slotMeta.time, oneHourAhead);
           const hasActiveAppt = slotsWithActiveAppointments.has(appointment.slotIndex);
 
-          console.warn(`[Walk-in Scheduling] Checking cancelled slot ${appointment.slotIndex}:`, {
-            time: slotMeta.time.toISOString(),
-            isInBucketWindow,
-            hasActiveAppt,
-            status: appointment.status,
-          });
+
 
           if (
             isInBucketWindow &&
@@ -1817,31 +1600,28 @@ async function prepareAdvanceShift({
               walkIn => walkIn.slotTime && isAfter(walkIn.slotTime, slotMeta.time)
             );
 
-            console.warn(`[Walk-in Scheduling] Cancelled slot ${appointment.slotIndex}: hasWalkInsAfter=${hasWalkInsAfter}`, {
-              cancelledSlotTime: slotMeta.time.toISOString(),
-              walkInTimes: activeWalkInsWithTimes.map(w => w.slotTime?.toISOString()),
-            });
+
 
             if (hasWalkInsAfter) {
               // This is a cancelled slot with walk-ins after it - block it from walk-in scheduling
               // It goes to bucket (only A tokens can use it, or bucket can use it when all slots filled)
               cancelledSlotsInBucket.add(appointment.slotIndex);
-              console.warn(`[Walk-in Scheduling] ✅ BLOCKING cancelled slot ${appointment.slotIndex} (has walk-ins after)`);
+
             } else {
               // If no walk-ins after this slot, it's NOT in bucket - walk-ins CAN use it
-              console.warn(`[Walk-in Scheduling] ❌ NOT blocking cancelled slot ${appointment.slotIndex} (no walk-ins after)`);
+
             }
           } else {
-            console.warn(`[Walk-in Scheduling] Skipping cancelled slot ${appointment.slotIndex}: isInBucketWindow=${isInBucketWindow}, hasActiveAppt=${hasActiveAppt}`);
+
           }
         }
       }
     }
   } else {
-    console.warn('[Walk-in Scheduling] No existing walk-ins, skipping bucket logic');
+
   }
 
-  console.warn('[Walk-in Scheduling] Final cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
+
 
   // Also track cancelled slots that walk-ins CAN use (no walk-ins after them)
   const cancelledSlotsAvailableForWalkIns: Array<{ slotIndex: number; slotTime: Date }> = [];
@@ -1911,34 +1691,27 @@ async function prepareAdvanceShift({
 
       // Add cancelled slots in bucket as blocked slots (treat as occupied)
       // These are cancelled slots that have walk-ins AFTER them, so walk-ins cannot use them
-      console.warn('[Walk-in Scheduling] Before blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
-      console.warn('[Walk-in Scheduling] Cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
+
+
 
       if (cancelledSlotsInBucket.size > 0) {
-        console.warn('[Walk-in Scheduling] ✅ BLOCKING cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
+
         cancelledSlotsInBucket.forEach(slotIndex => {
           blockedAdvanceAppointments.push({
             id: `__blocked_cancelled_${slotIndex}`,
             slotIndex: slotIndex,
           });
-          console.warn(`[Walk-in Scheduling] Added blocked cancelled slot ${slotIndex} to advance appointments`);
+
         });
       } else {
-        console.warn('[Walk-in Scheduling] ❌ No cancelled slots to block (bucket is empty)');
+
       }
 
-      console.warn('[Walk-in Scheduling] After blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
-      console.warn('[Walk-in Scheduling] Blocked advance appointments:', blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })));
+
+
 
       const allWalkInCandidates = [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate];
-      console.warn('[Walk-in Scheduling] Scheduler inputs:', {
-        totalSlots: slots.length,
-        blockedAdvanceCount: blockedAdvanceAppointments.length,
-        existingWalkInsCount: baseWalkInCandidates.length,
-        reservedCount: reservedWalkInCandidates.length,
-        existingWalkInSlots: baseWalkInCandidates.map(w => w.currentSlotIndex),
-        reservedSlots: reservedWalkInCandidates.map(w => w.currentSlotIndex),
-      });
+
 
       const schedule = computeWalkInSchedule({
         slots,
@@ -1952,13 +1725,12 @@ async function prepareAdvanceShift({
         assignment => assignment.id === '__new_walk_in__'
       );
       if (!newAssignment) {
-        console.warn('[Walk-in Scheduling] No assignment found for new walk-in - all slots may be full', {
-          totalSlots: slots.length,
-          blockedAdvanceCount: blockedAdvanceAppointments.length,
-          existingWalkInsCount: baseWalkInCandidates.length,
-        });
+
         return null;
       }
+
+
+
 
 
       // CRITICAL: Check if the assigned slot is already reserved by a concurrent request
@@ -1979,12 +1751,14 @@ async function prepareAdvanceShift({
       if (assignedAppointment) {
         const assignedSlotMeta = slots[newAssignment.slotIndex];
 
+
         // Check if this cancelled slot should be blocked (has walk-ins after it)
         if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
           // This shouldn't happen since we blocked them, but reject if it does
           console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot, rejecting:', newAssignment.slotIndex);
           return null;
         } else if (assignedAppointment) {
+
         }
       }
 
@@ -2117,11 +1891,7 @@ async function prepareAdvanceShift({
 
     // If bucket count is now 0, another concurrent request used it - fail and retry
     if (effectiveBucketCountInTx <= 0) {
-      console.warn('[Walk-in Scheduling] Bucket count became 0 during transaction - concurrent request used it', {
-        originalBucketCount: firestoreBucketCount,
-        bucketCountInTx: effectiveBucketCountInTx,
-        usedBucketSlotsInTx,
-      });
+
       const bucketError = new Error('Bucket slot was just used by another concurrent request. Retrying...');
       (bucketError as { code?: string }).code = RESERVATION_CONFLICT_CODE;
       throw bucketError;
@@ -2168,15 +1938,7 @@ async function prepareAdvanceShift({
 
       const advanceCountAfterLastWalkIn = advanceAppointmentsAfterLastWalkIn.length;
 
-      console.info('[Walk-in Scheduling] Bucket compensation - interval calculation:', {
-        lastWalkInSlotIndex,
-        walkInSpacingValue,
-        advanceCountAfterLastWalkIn,
-        advanceAppointmentsAfterLastWalkIn: advanceAppointmentsAfterLastWalkIn.map(a => ({
-          id: a.id,
-          slotIndex: a.slotIndex
-        }))
-      });
+
 
       if (advanceCountAfterLastWalkIn > walkInSpacingValue) {
         // Place walk-in after the nth advance appointment (where n = walkInSpacingValue)
@@ -2188,11 +1950,7 @@ async function prepareAdvanceShift({
         if (nthAdvanceSlotIndex >= 0) {
           // Place walk-in right after the nth advance appointment
           newSlotIndex = nthAdvanceSlotIndex + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - placing after nth advance:', {
-            nth: walkInSpacingValue,
-            nthAdvanceSlotIndex,
-            newSlotIndex
-          });
+
         } else {
           // Fallback: place after last advance appointment
           const lastAdvanceAfterWalkIn = advanceAppointmentsAfterLastWalkIn[advanceAppointmentsAfterLastWalkIn.length - 1];
@@ -2200,10 +1958,7 @@ async function prepareAdvanceShift({
             ? lastAdvanceAfterWalkIn.slotIndex
             : -1;
           newSlotIndex = lastAdvanceSlotIndex >= 0 ? lastAdvanceSlotIndex + 1 : lastSlotIndexFromSlots + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - fallback: placing after last advance:', {
-            lastAdvanceSlotIndex,
-            newSlotIndex
-          });
+
         }
       } else {
         // Not enough advance appointments - place after the last advance appointment
@@ -2213,17 +1968,11 @@ async function prepareAdvanceShift({
             ? lastAdvanceAfterWalkIn.slotIndex
             : -1;
           newSlotIndex = lastAdvanceSlotIndex >= 0 ? lastAdvanceSlotIndex + 1 : lastSlotIndexFromSlots + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - not enough advances, placing after last:', {
-            lastAdvanceSlotIndex,
-            newSlotIndex
-          });
+
         } else {
           // No advance appointments after last walk-in - place after last walk-in
           newSlotIndex = lastWalkInSlotIndex + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - no advances after walk-in, placing after walk-in:', {
-            lastWalkInSlotIndex,
-            newSlotIndex
-          });
+
         }
       }
     } else {
@@ -2240,12 +1989,7 @@ async function prepareAdvanceShift({
       const maxSlotIndex = Math.max(maxSlotIndexFromAppointments, lastSlotIndexFromSlots);
       newSlotIndex = maxSlotIndex + 1;
 
-      console.info('[Walk-in Scheduling] Bucket compensation - sequential placement (no walk-ins or spacing):', {
-        maxSlotIndexFromAppointments,
-        lastSlotIndexFromSlots,
-        maxSlotIndex,
-        newSlotIndex
-      });
+
     }
 
     // CRITICAL: Check if this slotIndex is already reserved or occupied by another concurrent request
@@ -2274,11 +2018,7 @@ async function prepareAdvanceShift({
     const hasReservation = bucketReservationSnapshot && bucketReservationSnapshot.exists();
 
     if (hasReservation || existingAppointmentAtSlot) {
-      console.warn('[Walk-in Scheduling] SlotIndex already reserved or occupied - concurrent request conflict', {
-        newSlotIndex,
-        hasReservation,
-        hasAppointment: !!existingAppointmentAtSlot,
-      });
+
       const slotError = new Error('Slot was just reserved by another concurrent request. Retrying...');
       (slotError as { code?: string }).code = RESERVATION_CONFLICT_CODE;
       throw slotError;
@@ -2294,14 +2034,7 @@ async function prepareAdvanceShift({
       type: 'bucket',
     });
 
-    console.info('[Walk-in Scheduling] Bucket compensation - interval-based placement:', {
-      lastWalkInSlotIndex,
-      walkInSpacingValue,
-      newSlotIndex,
-      totalSlots: slots.length,
-      lastSlotIndexFromSlots,
-      sessions: slots.length > 0 ? new Set(slots.map(s => s.sessionIndex)).size : 0,
-    });
+
 
     // Calculate time for the new slot based on its position
     // If newSlotIndex is within availability, use the slot's time
@@ -2313,10 +2046,7 @@ async function prepareAdvanceShift({
       // New slot is within availability - use the slot's time
       const slotMeta = slots[newSlotIndex];
       newSlotTime = slotMeta ? slotMeta.time : addMinutes(now, slotDuration);
-      console.info('[Walk-in Scheduling] Bucket compensation - slot within availability:', {
-        newSlotIndex,
-        slotTime: newSlotTime
-      });
+
     } else {
       // New slot is outside availability - calculate time based on reference appointment
       // Find the appointment at the slotIndex before newSlotIndex (or last appointment)
@@ -2337,11 +2067,7 @@ async function prepareAdvanceShift({
           const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
           const referenceTime = parse(referenceAppointment.time, 'hh:mm a', appointmentDate);
           newSlotTime = addMinutes(referenceTime, slotDuration);
-          console.info('[Walk-in Scheduling] Bucket compensation - time from reference appointment:', {
-            referenceSlotIndex: referenceAppointment.slotIndex,
-            referenceTime: referenceAppointment.time,
-            newSlotTime
-          });
+
         } catch (e) {
           // Fallback: use last slot time + duration
           const lastSlot = slots[slots.length - 1];
@@ -2357,19 +2083,11 @@ async function prepareAdvanceShift({
         newSlotTime = lastSlot
           ? addMinutes(lastSlot.time, slotDuration * slotsBeyondAvailability)
           : addMinutes(now, slotDuration);
-        console.info('[Walk-in Scheduling] Bucket compensation - time from last slot:', {
-          lastSlotIndexFromSlots,
-          slotsBeyondAvailability,
-          newSlotTime
-        });
+
       }
     }
 
-    console.info('[Walk-in Scheduling] Bucket compensation - final time calculation:', {
-      newSlotIndex,
-      newSlotTime,
-      isWithinAvailability: newSlotIndex < slots.length
-    });
+
 
     // Determine sessionIndex for the new slot
     let sessionIndexForNewSlot: number;
@@ -2416,20 +2134,15 @@ async function prepareAdvanceShift({
     // Note: Bucket count is calculated on-the-fly, so we don't need to update Firestore
     // The bucket count will automatically decrease next time because we'll count one less
     // cancelled slot (since we're using one from the bucket)
-    console.info('[Walk-in Scheduling] Using bucket slot, bucket count before:', firestoreBucketCount);
-    console.info('[Walk-in Scheduling] Bucket compensation - final assignment:', {
-      slotIndex: newSlotIndex,
-      sessionIndex: syntheticAssignment.sessionIndex,
-      slotTime: newSlotTime,
-      maxSlotIndexUsed: maxSlotIndex,
-    });
+
+
     usedBucketSlotIndex = newSlotIndex;
   }
 
   if (!scheduleAttempt) {
     // If failure was due to reservation conflict, throw error to trigger retry
     if (hasReservationConflict) {
-      console.error('[Walk-in Scheduling] Reservation conflict detected - throwing error to trigger retry');
+
       const conflictError = new Error(RESERVATION_CONFLICT_CODE);
       (conflictError as { code?: string }).code = RESERVATION_CONFLICT_CODE;
       throw conflictError;
@@ -2451,18 +2164,13 @@ async function prepareAdvanceShift({
   // Note: We cannot do a new Firestore read here as it would violate "all reads before all writes"
   // The existingReservations map contains all reservations we read at the start
   if (existingReservations.has(newAssignment.slotIndex)) {
-    console.error(`[Walk-in Scheduling] Reservation conflict detected for scheduler-assigned slot ${newAssignment.slotIndex} (from existingReservations map)`, {
-      slotIndex: newAssignment.slotIndex,
-      timestamp: new Date().toISOString()
-    });
+
     const conflictError = new Error(RESERVATION_CONFLICT_CODE);
     (conflictError as { code?: string }).code = RESERVATION_CONFLICT_CODE;
     throw conflictError;
   }
 
-  if (DEBUG_BOOKING) {
-    console.info('[patient booking] prepareAdvanceShift schedule', schedule.assignments);
-  }
+
 
   const reservationDeletes = new Map<string, DocumentReference>();
   const appointmentUpdates: Array<{
@@ -2628,11 +2336,11 @@ async function prepareAdvanceShift({
           // New time = current time + averageConsultingTime
           newAppointmentTime = addMinutes(currentAppointmentTime, averageConsultingTime);
         } catch (e) {
-          console.warn(`[BOOKING DEBUG] Failed to parse appointment time "${appointment.time}" for appointment ${appointment.id}, skipping time update`);
+
           continue;
         }
       } else {
-        console.warn(`[BOOKING DEBUG] Appointment ${appointment.id} has no time field, skipping time update`);
+
         continue;
       }
 
@@ -2674,7 +2382,7 @@ async function prepareAdvanceShift({
       // Find the sessionIndex for the new slotIndex
       const newSlotMeta = slots[newSlotIndex];
       if (!newSlotMeta) {
-        console.warn(`[BOOKING DEBUG] Slot ${newSlotIndex} does not exist in slots array, skipping appointment ${appointment.id}`);
+
         continue;
       }
       const newSessionIndex = newSlotMeta.sessionIndex;
@@ -2698,18 +2406,7 @@ async function prepareAdvanceShift({
         noShowTime,
       });
 
-      if (DEBUG_BOOKING || slotIndexChanged || timeChanged) {
-        console.info(`[BOOKING DEBUG] Updating appointment ${appointment.id}`, {
-          slotIndexChanged,
-          timeChanged,
-          oldSlotIndex: currentSlotIndex,
-          newSlotIndex,
-          oldTime: appointment.time,
-          newTime: newTimeString,
-          oldNoShowTime: appointment.noShowTime,
-          newNoShowTime: noShowTime,
-        });
-      }
+
 
       const cloned = updatedAdvanceMap.get(appointment.id);
       if (cloned) {
@@ -2758,13 +2455,7 @@ async function prepareAdvanceShift({
     }
   }
 
-  if (DEBUG_BOOKING) {
-    console.info('[patient booking] shift plan result', {
-      newAssignment,
-      reservationDeletes: Array.from(reservationDeletes.values()).map(ref => ref.path),
-      appointmentUpdates,
-    });
-  }
+
 
   return {
     newAssignment,
@@ -2833,14 +2524,12 @@ export async function calculateWalkInDetails(
 
   // Force booking logic: first try available slots, then overflow if none found
   if (forceBook) {
-    
+
+
     // First priority: Check if there are available slots within the 15-minute closing window
     if (chosenSlot) {
-        slotIndex: chosenSlot.index,
-        time: format(chosenSlot.time, 'hh:mm a'),
-        sessionIndex: chosenSlot.sessionIndex
-      });
-      
+
+
       // Use the available slot, but mark as force booked
       const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
       const patientsAhead = appointments.filter(appointment => {
@@ -2875,31 +2564,32 @@ export async function calculateWalkInDetails(
         isForceBooked: true, // Mark as force booked even though slot is available
       };
     }
-    
+
     // Second priority: No slots available - create overflow slot after session end time
-    
+
+
     const dayOfWeek = format(date, 'EEEE');
     const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-    
+
     if (!availabilityForDay?.timeSlots?.length) {
       throw new Error('Doctor availability information is missing for force booking.');
     }
-    
+
     // Get the last session index
     const lastSessionIndex = availabilityForDay.timeSlots.length - 1;
-    
+
     // Get effective session end time (includes extensions, considers breaks)
     const effectiveSessionEnd = getSessionEnd(doctor, date, lastSessionIndex);
-    
+
     if (!effectiveSessionEnd) {
       throw new Error('Could not determine session end time for force booking.');
     }
-    
+
     const consultationTime = doctor.averageConsultingTime || 15;
-    
+
     // Overflow slot starts at effective session end time
     const overflowTime = effectiveSessionEnd;
-    
+
     // Find the max slot index
     const allSlotIndices = [
       ...appointments
@@ -2907,16 +2597,16 @@ export async function calculateWalkInDetails(
         .map(apt => apt.slotIndex as number),
       ...slots.map(s => s.index)
     ];
-    
+
     const maxSlotIndex = allSlotIndices.length > 0 ? Math.max(...allSlotIndices) : -1;
     const overflowSlotIndex = maxSlotIndex + 1;
-    
+
     // Count patients ahead (all active appointments)
     const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
-    const patientsAhead = appointments.filter(appointment => 
+    const patientsAhead = appointments.filter(appointment =>
       allActiveStatuses.has(appointment.status)
     ).length;
-    
+
     // Numeric token: next after max existing W or slots length
     const existingNumericTokens = appointments
       .filter(appointment => appointment.bookedVia === 'Walk-in')
@@ -2931,16 +2621,9 @@ export async function calculateWalkInDetails(
 
     const numericToken =
       (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
-    
-      effectiveSessionEnd: format(effectiveSessionEnd, 'hh:mm a'),
-      overflowEndTime: format(addMinutes(overflowTime, consultationTime), 'hh:mm a'),
-      slotIndex: overflowSlotIndex,
-      sessionIndex: lastSessionIndex,
-      numericToken,
-      patientsAhead,
-      consultationTime
-    });
-    
+
+
+
     return {
       estimatedTime: overflowTime,
       patientsAhead,

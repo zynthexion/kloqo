@@ -4,7 +4,7 @@
  * especially under concurrent requests (race conditions).
  */
 
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { format } from 'date-fns';
 
 // Mock token counter
@@ -49,7 +49,7 @@ describe('Token Generation - Uniqueness', () => {
     const token1 = generateToken('Advance', date);
     const token2 = generateToken('Advance', date);
     const token3 = generateToken('Advance', date);
-    
+
     expect(token1).toBe('A1');
     expect(token2).toBe('A2');
     expect(token3).toBe('A3');
@@ -59,7 +59,7 @@ describe('Token Generation - Uniqueness', () => {
     tokenCounter = 0;
     const advanceToken = generateToken('Advance', new Date());
     const walkInToken = generateToken('Walk-in', new Date());
-    
+
     expect(advanceToken).toMatch(/^A\d+$/);
     expect(walkInToken).toMatch(/^W\d+$/);
   });
@@ -67,17 +67,17 @@ describe('Token Generation - Uniqueness', () => {
   test('CRITICAL: should reset counter for new day', () => {
     const today = new Date('2024-01-15');
     const tomorrow = new Date('2024-01-16');
-    
+
     // Today
     const token1 = generateToken('Advance', today);
     expect(token1).toBe('A1');
-    
+
     const token2 = generateToken('Advance', today);
     expect(token2).toBe('A2');
-    
+
     // Reset for new day
     resetCounterForNewDay(tomorrow, today);
-    
+
     // Tomorrow - counter should reset
     const token3 = generateToken('Advance', tomorrow);
     expect(token3).toBe('A1'); // Reset to A1
@@ -86,13 +86,13 @@ describe('Token Generation - Uniqueness', () => {
   test('CRITICAL: should not reset counter for same day', () => {
     const morning = new Date('2024-01-15 09:00:00');
     const afternoon = new Date('2024-01-15 15:00:00');
-    
+
     const token1 = generateToken('Advance', morning);
     expect(token1).toBe('A1');
-    
+
     // No reset for same day
     resetCounterForNewDay(afternoon, morning);
-    
+
     const token2 = generateToken('Advance', afternoon);
     expect(token2).toBe('A2'); // Continues from previous
   });
@@ -106,7 +106,7 @@ describe('Token Generation - Concurrency', () => {
   test('CRITICAL: should handle concurrent token generation without duplicates', async () => {
     // Simulate atomic counter increment using transaction
     let atomicCounter = 0;
-    
+
     const generateTokenAtomic = async (type: 'Advance' | 'Walk-in') => {
       // Simulate transaction
       return new Promise<string>((resolve) => {
@@ -140,21 +140,21 @@ describe('Token Generation - Concurrency', () => {
   test('CRITICAL: should handle race condition with transaction retry', async () => {
     let counter = 0;
     let conflictCount = 0;
-    
+
     const generateWithRetry = async () => {
       const maxRetries = 5;
-      
+
       for (let i = 0; i < maxRetries; i++) {
         try {
           // Simulate transaction
           const current = counter;
-          
+
           // Simulate conflict check
           if (Math.random() < 0.3 && i < maxRetries - 1) {
             conflictCount++;
             throw new Error('Transaction conflict');
           }
-          
+
           // Success
           counter = current + 1;
           return `A${counter}`;
@@ -175,7 +175,7 @@ describe('Token Generation - Concurrency', () => {
     // All tokens should be unique despite conflicts
     const uniqueTokens = new Set(tokens);
     expect(uniqueTokens.size).toBe(3);
-    
+
     // Some conflicts should have occurred
     console.log(`Conflicts handled: ${conflictCount}`);
   });
@@ -191,7 +191,7 @@ describe('Token Validation', () => {
     expect(isValidToken('A123')).toBe(true);
     expect(isValidToken('W5')).toBe(true);
     expect(isValidToken('W999')).toBe(true);
-    
+
     expect(isValidToken('B1')).toBe(false);
     expect(isValidToken('1A')).toBe(false);
     expect(isValidToken('A')).toBe(false);
@@ -238,7 +238,7 @@ describe('Token Counter Edge Cases', () => {
     tokenCounter = Number.MAX_SAFE_INTEGER - 1;
     const token1 = generateToken('Advance', new Date());
     expect(token1).toBeTruthy();
-    
+
     // This would overflow in JavaScript
     const token2 = generateToken('Advance', new Date());
     expect(token2).toBeTruthy();

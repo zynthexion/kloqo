@@ -384,7 +384,6 @@ function BookAppointmentContent() {
 
         const capacityReached = activeAdvanceCount >= maximumAdvanceTokens;
 
-
         return capacityReached;
     }, [doctor, selectedDate, allAppointments, currentTime]);
 
@@ -395,7 +394,9 @@ function BookAppointmentContent() {
     }, [isAdvanceCapacityReached]);
 
     const sessionSlots = useMemo((): SessionSlots[] => {
-        if (!doctor || isAdvanceCapacityReached) return [];
+        if (!doctor || isAdvanceCapacityReached) {
+            return [];
+        }
 
         const dayOfWeek = format(selectedDate, 'EEEE');
         const doctorAvailabilityForDay = (doctor.availabilitySlots || []).find(slot => slot.day === dayOfWeek);
@@ -456,7 +457,8 @@ function BookAppointmentContent() {
                 });
 
                 // Only include future slots (including current time) in the reserve calculation
-                if (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime()) {
+                // CRITICAL: Exclude slots blocked by leave/break to avoid inflating capacity
+                if ((isAfter(slotTime, now) || slotTime.getTime() >= now.getTime()) && !isSlotBlockedByLeave(doctor, slotTime)) {
                     futureSessionSlots.push(globalSlotIndex);
                 }
 

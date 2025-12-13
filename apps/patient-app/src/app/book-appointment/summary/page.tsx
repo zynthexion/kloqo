@@ -931,20 +931,26 @@ function BookingSummaryPage() {
                 let availabilityEndTime = actualOriginalEndTime;
 
                 // Only use extension if it's valid
-                if (extension) {
+                if (extension && extension.sessions && Array.isArray(extension.sessions)) {
                     try {
-                        const extensionOriginalEndTime = parseTime(extension.originalEndTime, appointmentDateForValidation);
-                        const extendedEndTime = parseTime(extension.newEndTime, appointmentDateForValidation);
+                        // Find extension for the last session
+                        const lastSessionIndex = availabilityForDayForValidation.timeSlots.length - 1;
+                        const sessionExtension = extension.sessions.find((s: any) => s.sessionIndex === lastSessionIndex);
 
-                        // Validate extension: originalEndTime should match actual session end time, and newEndTime should be later
-                        if (extensionOriginalEndTime.getTime() === actualOriginalEndTime.getTime() && isAfter(extendedEndTime, actualOriginalEndTime)) {
-                            availabilityEndTime = extendedEndTime;
-                        } else {
-                            console.warn('Invalid extension data - originalEndTime mismatch or newEndTime is not after original, ignoring extension', {
-                                extensionOriginalEndTime: extension.originalEndTime,
-                                actualOriginalEndTime: lastSession.to,
-                                newEndTime: extension.newEndTime
-                            });
+                        if (sessionExtension && sessionExtension.originalEndTime && sessionExtension.newEndTime) {
+                            const extensionOriginalEndTime = parseTime(sessionExtension.originalEndTime, appointmentDateForValidation);
+                            const extendedEndTime = parseTime(sessionExtension.newEndTime, appointmentDateForValidation);
+
+                            // Validate extension: originalEndTime should match actual session end time, and newEndTime should be later
+                            if (extensionOriginalEndTime.getTime() === actualOriginalEndTime.getTime() && isAfter(extendedEndTime, actualOriginalEndTime)) {
+                                availabilityEndTime = extendedEndTime;
+                            } else {
+                                console.warn('Invalid extension data - originalEndTime mismatch or newEndTime is not after original, ignoring extension', {
+                                    extensionOriginalEndTime: sessionExtension.originalEndTime,
+                                    actualOriginalEndTime: lastSession.to,
+                                    newEndTime: sessionExtension.newEndTime
+                                });
+                            }
                         }
                     } catch (error) {
                         console.error('Error parsing extension, using original end time:', error);

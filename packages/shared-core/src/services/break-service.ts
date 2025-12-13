@@ -96,9 +96,93 @@ export async function shiftAppointmentsForNewBreak(
             newData: any;
         }[] = [];
 
+        // Need session start info for slot calculations at the top
+        // But we are in a static context or service? We have 'sessionIndex'.
+        // We actually need to fetch doctor data FIRST if we want accurate slot indices.
+        // However, 'snapshot' contains 'd.slotIndex'. We rely on that.
+        // To classify "In Break" vs "Post Break", we use time comparison.
+        // To calculate "Slots", we need averageConsultingTime. 
+
+        // 1. ANALYZE PHASE: Calculate Dynamic Shift Amount
+        // We must fetch doctor data first to know sessionStart? 
+        // Or assume slots map to time perfectly? 
+        // We need 'startSlotIndex' and 'endSlotIndex' for the break.
+        // Calculating them:
+        // (BreakStart - SessionStart) / Duration.
+        // Where is SessionStart? We don't have it yet.
+        // Hack: We can estimate startSlotIndex via date diff if we assume session starts exactly on a slot boundary?
+        // Better: Fetch doctor data NOW, before the loop.
+
+        const doctorQuery = query(collection(db, 'doctors'), where('name', '==', doctorName), limit(1));
+        const doctorSnap = await getDocs(doctorQuery);
+        let startSlotIndex = 0;
+        let endSlotIndex = 0;
+        let sessionStart: Date | null = null;
+        let doctorData: any = null;
+
+        if (!doctorSnap.empty) {
+            doctorData = doctorSnap.docs[0].data();
+            const dayOfWeek = format(date, 'EEEE');
+            const availabilitySlot = doctorData.availabilitySlots?.find((s: any) => s.day === dayOfWeek);
+            if (availabilitySlot?.timeSlots?.[sessionIndex]) {
+                const sessionTime = availabilitySlot.timeSlots[sessionIndex];
+                sessionStart = parseTime(sessionTime.from, date);
+                const breakStartDiff = differenceInMinutes(breakStart, sessionStart);
+                startSlotIndex = Math.floor(breakStartDiff / averageConsultingTime);
+                const breakEndDiff = differenceInMinutes(breakEnd, sessionStart);
+                endSlotIndex = Math.ceil(breakEndDiff / averageConsultingTime) - 1;
+            }
+        }
+
+        // Now valid analysis
+        let dynamicShiftAmount = 0;
+        const displacedAppointments: any[] = [];
+        const slotsMap = new Map<number, { hasBreak: boolean, hasActive: boolean }>();
+        for (let i = startSlotIndex; i <= endSlotIndex; i++) slotsMap.set(i, { hasBreak: false, hasActive: false });
+
+        snapshot.docs.forEach(doc => {
+            const d = doc.data();
+            if (typeof d.slotIndex === 'number' && d.slotIndex >= startSlotIndex && d.slotIndex <= endSlotIndex) {
+                if (d.cancelledByBreak) {
+                    const s = slotsMap.get(d.slotIndex); if (s) s.hasBreak = true;
+                }
+                if (d.status !== 'Cancelled' && !d.cancelledByBreak && !d.status.startsWith('Completed')) {
+                    displacedAppointments.push({ ...d, id: doc.id });
+                    const s = slotsMap.get(d.slotIndex); if (s) s.hasActive = true;
+                }
+            }
+        });
+        displacedAppointments.sort((a, b) => (a.slotIndex || 0) - (b.slotIndex || 0));
+
+        for (let i = startSlotIndex; i <= endSlotIndex; i++) {
+            const s = slotsMap.get(i);
+            if (!s) continue;
+
+            // PRIORITY FIX:
+            // 1. If there is an Active Appt, we MUST add delay (+1) to make room for it,
+            //    regardless of whether there's a "dead" break block underneath.
+            // 2. If it's empty (no break, no active), we add delay (+1) to extend the break.
+            // 3. If it's purely dead (hasBreak, !hasActive), we add nothing (+0).
+
+            if (s.hasActive) {
+                dynamicShiftAmount += 1;
+            } else if (!s.hasBreak) {
+                dynamicShiftAmount += 1;
+            } else {
+                dynamicShiftAmount += 0;
+            }
+        }
+
+        if (dynamicShiftAmount === 0 && displacedAppointments.length === 0) {
+            console.log('[BREAK SERVICE] Redundant break. No changes.');
+            return;
+        }
+
+        // 2. SHIFT PHASE
         snapshot.docs.forEach(docSnap => {
             const appt = docSnap.data() as Appointment;
-
+            // SAFETY CHECK: Never shift an appointment that was already cancelled by a break (History)
+            if (appt.cancelledByBreak) return;
             // Skip if already cancelled (standard check)
             if (appt.status === 'Cancelled') return;
 
@@ -107,51 +191,44 @@ export async function shiftAppointmentsForNewBreak(
 
             const apptArriveBy = parseTime(baseTimeStr, date);
 
-            // Only shift appointments that are at or after the break start
-            if (apptArriveBy.getTime() < breakStart.getTime()) {
-                return; // Skip appointments before the break
+            // Skip appointments before the break
+            if (apptArriveBy.getTime() < breakStart.getTime()) return;
+
+            // Determine Shift Logic
+            const isDisplaced = displacedAppointments.some(d => d.id === docSnap.id);
+            let effectiveShiftSlots = 0;
+            let effectiveShiftMinutes = 0;
+
+            if (isDisplaced) {
+                // Compact Shift: Move to start of post-break + relative index
+                // Target Slot = (EndSlotIndex + 1) + (RelativeIndex in Displaced)
+                const relativeIndex = displacedAppointments.findIndex(d => d.id === docSnap.id);
+                const targetSlot = (endSlotIndex + 1) + relativeIndex;
+                effectiveShiftSlots = targetSlot - (appt.slotIndex || 0);
+                effectiveShiftMinutes = effectiveShiftSlots * averageConsultingTime;
+            } else {
+                // Post-Break Item: Shift by calculated dynamic delay
+                effectiveShiftSlots = dynamicShiftAmount;
+                effectiveShiftMinutes = dynamicShiftAmount * averageConsultingTime;
             }
 
-            const cutOffDate = appt.cutOffTime && typeof (appt.cutOffTime as any).toDate === 'function'
-                ? (appt.cutOffTime as any).toDate()
-                : appt.cutOffTime instanceof Date
-                    ? appt.cutOffTime
-                    : null;
-
-            const noShowDate = appt.noShowTime && typeof (appt.noShowTime as any).toDate === 'function'
-                ? (appt.noShowTime as any).toDate()
-                : appt.noShowTime instanceof Date
-                    ? appt.noShowTime
-                    : null;
-
-            const newArriveBy = addMinutes(apptArriveBy, breakDuration);
-            const newCutOffTime = cutOffDate ? addMinutes(cutOffDate, breakDuration) : null;
-            const newNoShowTime = noShowDate ? addMinutes(noShowDate, breakDuration) : null;
-
-            // Calculate new slot index
-            // For appointments during the break: shift to after the last cancelled slot
-            // For appointments after the break: shift by break duration
-            const slotsToShift = Math.ceil(breakDuration / averageConsultingTime);
+            const newArriveBy = addMinutes(apptArriveBy, effectiveShiftMinutes);
+            const cutOffDate = appt.cutOffTime instanceof Timestamp ? appt.cutOffTime.toDate() : null;
+            const noShowDate = appt.noShowTime instanceof Timestamp ? appt.noShowTime.toDate() : null;
+            const newCutOffTime = cutOffDate ? addMinutes(cutOffDate, effectiveShiftMinutes) : null;
+            const newNoShowTime = noShowDate ? addMinutes(noShowDate, effectiveShiftMinutes) : null;
             const newTimeStr = format(newArriveBy, 'hh:mm a');
 
             let newSlotIndex: number | null = null;
-
             if (typeof appt.slotIndex === 'number') {
-                // UNIFORM SHIFTING:
-                // Regardless of whether it's during or after the break,
-                // we shift everything by the break duration (tokens count).
-                // This ensures "Index 0" becomes "Index 6" (if break is 6 slots).
-                // It also aligns with the time calculation (Time + Duration).
-
-                newSlotIndex = appt.slotIndex + slotsToShift;
+                newSlotIndex = appt.slotIndex + effectiveShiftSlots;
             }
 
             // Prepare data for new appointment
-            // Note: Token numbers will be resequenced collectively after all shifts are complete
             const newDocRef = doc(collection(db, 'appointments'));
             const newData = {
                 ...appt,
-                id: newDocRef.id, // Explicitly set new ID
+                id: newDocRef.id,
                 time: newTimeStr,
                 arriveByTime: format(newArriveBy, 'hh:mm a'),
                 ...(newSlotIndex !== null ? { slotIndex: newSlotIndex } : {}),
@@ -170,6 +247,8 @@ export async function shiftAppointmentsForNewBreak(
 
         const batch = writeBatch(db);
 
+        const newlyBlockedSlots = new Set<number>();
+
         for (const update of updates) {
             const originalTime = parseTime(update.originalData.arriveByTime || update.originalData.time, date);
             originalTime.setSeconds(0, 0);
@@ -185,6 +264,11 @@ export async function shiftAppointmentsForNewBreak(
                     status: 'Completed',
                     cancelledByBreak: true
                 });
+
+                // Track that this slot is now blocked by a ghost appointment
+                if (typeof update.originalData.slotIndex === 'number') {
+                    newlyBlockedSlots.add(update.originalData.slotIndex);
+                }
 
                 // 2. Delete the slot reservation for the original appointment
                 // This ensures the slot is properly blocked during the break
@@ -205,96 +289,79 @@ export async function shiftAppointmentsForNewBreak(
 
         // --- NEW LOGIC: Create Dummy Appointments for Empty Slots in Break ---
         try {
-            // we need the doctor to find session start time for accurate slot index calculation
-            const doctorsQuery = query(
-                collection(db, 'doctors'),
-                where('name', '==', doctorName),
-                where('clinicId', '==', clinicId),
-                limit(1)
-            );
-            const doctorSnapshot = await getDocs(doctorsQuery);
-
-            if (!doctorSnapshot.empty) {
-                const doctorDoc = doctorSnapshot.docs[0];
-                const doctorData = doctorDoc.data();
-
-                // Find session start time
-                const dayOfWeek = format(date, 'EEEE');
-                const availabilitySlot = doctorData.availabilitySlots?.find((s: any) => s.day === dayOfWeek);
-                if (availabilitySlot && availabilitySlot.timeSlots && availabilitySlot.timeSlots[sessionIndex]) {
-                    const sessionTime = availabilitySlot.timeSlots[sessionIndex];
-                    const sessionStart = parseTime(sessionTime.from, date);
-
-                    // Calculate first and last slot index of the break
-                    // slotIndex = (Time - SessionStart) / duration
-                    const breakStartDiff = differenceInMinutes(breakStart, sessionStart);
-                    const startSlotIndex = Math.floor(breakStartDiff / averageConsultingTime);
-
-                    const breakEndDiff = differenceInMinutes(breakEnd, sessionStart);
-                    // endSlotIndex is exclusive of the end time, so -1
-                    // e.g. 12:00-12:30 (30 mins). Slots 0, 1, 2, 3, 4, 5.
-                    // 30 / 5 = 6. Last slot is 5.
-                    const endSlotIndex = Math.ceil(breakEndDiff / averageConsultingTime) - 1;
-
-                    // Map of existing appointments by slotIndex to check for availability
-                    const existingSlots = new Set<number>();
-                    snapshot.docs.forEach(doc => {
-                        const d = doc.data();
-                        if (typeof d.slotIndex === 'number' && d.status !== 'Cancelled') {
-                            existingSlots.add(d.slotIndex);
-                        }
-                    });
-
-                    for (let i = startSlotIndex; i <= endSlotIndex; i++) {
-                        if (existingSlots.has(i)) {
-                            continue; // Already handled (marked completed)
-                        }
-
-                        // Create Dummy Appointment
-                        // slot time
-                        const slotTime = addMinutes(sessionStart, i * averageConsultingTime);
-                        const dummyId = doc(collection(db, 'appointments')).id;
-                        const dummyRef = doc(db, 'appointments', dummyId);
-
-                        const cutOffTime = addMinutes(slotTime, -15); // Standard 15 min buffer
-                        const noShowTime = addMinutes(slotTime, 15);
-
-                        const dummyAppt = {
-                            id: dummyId,
-                            clinicId,
-                            doctor: doctorName,
-                            doctorId: doctorDoc.id, // We have reading doctor doc now
-                            department: doctorData.department || 'General', // Get from doctor
-                            patientName: 'kloqo dummy', // As requested by user
-                            patientId: 'dummy-break-patient',
-                            age: 0,
-                            sex: 'Other',
-                            place: 'Kloqo Clinic',
-                            phone: '0000000000',
-                            communicationPhone: '0000000000',
-                            date: dateStr,
-                            time: format(slotTime, 'hh:mm a'),
-                            arriveByTime: format(slotTime, 'hh:mm a'),
-                            cutOffTime: Timestamp.fromDate(cutOffTime),
-                            noShowTime: Timestamp.fromDate(noShowTime),
-                            slotIndex: i,
-                            status: 'Completed',
-                            cancelledByBreak: true,
-                            sessionIndex,
-                            createdAt: Timestamp.now(),
-                            bookedVia: 'BreakBlock', // Internal
-                            tokenNumber: 'Break', // Or leave empty? 'Break' might confuse sorting? Using 'Break' or '0'
-                            numericToken: 0,
-                            previousAppointmentId: ''
-                        };
-
-                        batch.set(dummyRef, dummyAppt);
-                    }
+            // Re-scan strictly for blocking slots (cancelledByBreak items)
+            // Active items are moving, so they don't block.
+            const existingSlots = new Set<number>();
+            snapshot.docs.forEach(doc => {
+                const d = doc.data();
+                if (typeof d.slotIndex === 'number' && d.cancelledByBreak) {
+                    existingSlots.add(d.slotIndex);
                 }
+            });
+
+            for (let i = startSlotIndex; i <= endSlotIndex; i++) {
+                if (existingSlots.has(i) || newlyBlockedSlots.has(i)) {
+                    continue; // Already handled (marked completed or ghost exists)
+                }
+
+                // Create Dummy Appointment
+                // Need sessionStart if not present? We fetched it in Analysis phase.
+                // We declared 'sessionStart' in the upper scope?
+                // Wait, 'sessionStart' was declared inside the 'if (!doctorSnap.empty)' block in Phase 1.
+                // We need it here.
+                // I will assume for now we can recalculate it or access it if I lift the variable.
+                // To be safe, let's assume 'sessionStart' needs to be available. 
+                // The previous code block (Phase 1) declared `let sessionStart: Date | null = null;` at top level.
+                // So it should be available here if Phase 1 set it.
+
+                if (!sessionStart) {
+                    // Fallback if Analysis didn't find it (unlikely)
+                    // Estimate from breakStart? 
+                    // breakStart = sessionStart + startSlotIndex*15.
+                    // sessionStart = breakStart - startSlotIndex*15
+                    sessionStart = addMinutes(breakStart, -1 * startSlotIndex * averageConsultingTime);
+                }
+
+                const slotTime = addMinutes(sessionStart, i * averageConsultingTime);
+                const dummyId = doc(collection(db, 'appointments')).id;
+                const dummyRef = doc(db, 'appointments', dummyId);
+
+                const cutOffTime = addMinutes(slotTime, -15);
+                const noShowTime = addMinutes(slotTime, 15);
+
+                const dummyAppt = {
+                    id: dummyId,
+                    clinicId,
+                    doctor: doctorName,
+                    doctorId: doctorData?.id || '', // Use cached doctorData
+                    department: doctorData?.department || 'General',
+                    patientName: 'kloqo dummy',
+                    patientId: 'dummy-break-patient',
+                    age: 0,
+                    sex: 'Other',
+                    place: 'Kloqo Clinic',
+                    phone: '0000000000',
+                    communicationPhone: '0000000000',
+                    date: dateStr,
+                    time: format(slotTime, 'hh:mm a'),
+                    arriveByTime: format(slotTime, 'hh:mm a'),
+                    cutOffTime: Timestamp.fromDate(cutOffTime),
+                    noShowTime: Timestamp.fromDate(noShowTime),
+                    slotIndex: i,
+                    status: 'Completed',
+                    cancelledByBreak: true,
+                    sessionIndex,
+                    createdAt: Timestamp.now(),
+                    bookedVia: 'BreakBlock',
+                    tokenNumber: 'Break',
+                    numericToken: 0,
+                    previousAppointmentId: ''
+                };
+
+                batch.set(dummyRef, dummyAppt);
             }
         } catch (err) {
             console.error('[BREAK SERVICE] Error creating dummy appointments:', err);
-            // Don't fail the whole shift operation if this fails, just log it.
         }
 
         if (updates.length > 0 || true) { // Always commit if we have dummy updates too? Yes.

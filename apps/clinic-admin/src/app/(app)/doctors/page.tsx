@@ -721,10 +721,10 @@ export default function DoctorsPage() {
         await updateDoc(doctorRef, {
           availabilitySlots: newAvailabilitySlots,
           schedule: scheduleString,
-          leaveSlots: cleanedLeaveSlots,
+
         });
 
-        const updatedDoctor = { ...selectedDoctor, availabilitySlots: newAvailabilitySlots, schedule: scheduleString, leaveSlots: cleanedLeaveSlots };
+        const updatedDoctor = { ...selectedDoctor, availabilitySlots: newAvailabilitySlots, schedule: scheduleString, breakPeriods: selectedDoctor.breakPeriods };
 
         setSelectedDoctor(updatedDoctor);
         setDoctors(prev => prev.map(d => d.id === selectedDoctor.id ? updatedDoctor : d));
@@ -755,43 +755,14 @@ export default function DoctorsPage() {
       return slot;
     }).filter(slot => slot.timeSlots.length > 0);
 
-    // deprecated: leaveSlots
-    const existingLeaveSlots: any[] = [];
-    const cleanedLeaveSlots: (LeaveSlot | string)[] = [];
-
-    for (const leave of existingLeaveSlots) {
-      if (typeof leave === 'string') {
-        cleanedLeaveSlots.push(leave);
-        continue;
-      }
-      if (!leave.date || !Array.isArray(leave.slots)) continue;
-
-      const leaveDate = parse(leave.date, 'yyyy-MM-dd', new Date());
-      if (isNaN(leaveDate.getTime())) continue;
-
-      const dayName = format(leaveDate, 'EEEE');
-      if (dayName !== day) {
-        cleanedLeaveSlots.push(leave);
-        continue;
-      }
-
-      const validLeaveSubSlots = leave.slots.filter((leaveSubSlot: TimeSlot) => {
-        return !(leaveSubSlot.from === timeSlot.from && leaveSubSlot.to === timeSlot.to);
-      });
-
-      if (validLeaveSubSlots.length > 0) {
-        cleanedLeaveSlots.push({ ...leave, slots: validLeaveSubSlots });
-      }
-    }
-
     startTransition(async () => {
       const doctorRef = doc(db, "doctors", selectedDoctor.id);
       try {
         await updateDoc(doctorRef, {
           availabilitySlots: updatedAvailabilitySlots,
-          leaveSlots: cleanedLeaveSlots
+          // leaveSlots: cleanedLeaveSlots  <-- Removed
         });
-        const updatedDoctor = { ...selectedDoctor, availabilitySlots: updatedAvailabilitySlots, leaveSlots: cleanedLeaveSlots };
+        const updatedDoctor = { ...selectedDoctor, availabilitySlots: updatedAvailabilitySlots, breakPeriods: selectedDoctor.breakPeriods };
         setSelectedDoctor(updatedDoctor);
         setDoctors(prev => prev.map(d => d.id === selectedDoctor.id ? updatedDoctor : d));
         toast({
@@ -1412,7 +1383,7 @@ export default function DoctorsPage() {
         ...selectedDoctor,
         breakPeriods,
         availabilityExtensions,
-        leaveSlots: updatedLeaveSlots
+
       };
       setSelectedDoctor(updatedDoctor);
       setDoctors(prev => prev.map(d => d.id === updatedDoctor.id ? updatedDoctor : d));
@@ -1533,7 +1504,11 @@ export default function DoctorsPage() {
 
           if (apptTime >= breakStart && apptTime < breakEnd) {
             // Change status from 'Completed' to 'Cancelled' to make bookable
-            batch.update(d.ref, { status: 'Cancelled' });
+            // CRITICAL: Also remove cancelledByBreak flag so slot becomes available
+            batch.update(d.ref, {
+              status: 'Cancelled',
+              cancelledByBreak: false  // Remove the flag to make slot available
+            });
             updateCount++;
 
             // Delete the slot-reservation document
@@ -1629,7 +1604,7 @@ export default function DoctorsPage() {
       const updatedDoctor = {
         ...selectedDoctor,
         breakPeriods,
-        leaveSlots: updatedLeaveSlots
+
       };
       setSelectedDoctor(updatedDoctor);
       setDoctors(prev => prev.map(d => d.id === updatedDoctor.id ? updatedDoctor : d));

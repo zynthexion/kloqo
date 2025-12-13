@@ -283,16 +283,11 @@ function WalkInRegistrationContent() {
     const todaysAvailability = doctor.availabilitySlots.find(s => s.day === todayDay);
     if (!todaysAvailability) return false;
 
-    const isWithinNormalHours = todaysAvailability.timeSlots.some(slot => {
+    return todaysAvailability.timeSlots.some(slot => {
       const startTime = parseTime(slot.from, currentTime);
       const endTime = parseTime(slot.to, currentTime);
       return isWithinInterval(currentTime, { start: startTime, end: endTime });
     });
-    
-    // ✅ FORCE BOOKING: Also allow if within 15 minutes of closing (even if past normal hours)
-    const isInForceBookWindow = isWithin15MinutesOfClosing(doctor, currentTime);
-    
-    return isWithinNormalHours || isInForceBookWindow;
   }, [doctor, currentTime]);
 
   useEffect(() => {

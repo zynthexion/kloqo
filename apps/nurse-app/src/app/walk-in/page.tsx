@@ -352,66 +352,22 @@ function WalkInRegistrationContent() {
 
   // Session-aware walk-in availability check
   const isDoctorConsultingNow = useMemo(() => {
-    console.log('=== [NURSE WALK-IN DEBUG] Checking doctor availability ===');
-    console.log('[NURSE WALK-IN DEBUG] Current time:', format(currentTime, 'yyyy-MM-dd hh:mm a'));
-    console.log('[NURSE WALK-IN DEBUG] Doctor:', doctor?.name);
-    console.log('[NURSE WALK-IN DEBUG] Has availability slots:', !!doctor?.availabilitySlots);
-    
-    if (!doctor?.availabilitySlots) {
-      console.log('[NURSE WALK-IN DEBUG] ❌ No availability slots - returning false');
-      return false;
-    }
+    if (!doctor?.availabilitySlots) return false;
 
     const today = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
 
     // Get current active session (session-aware walk-in)
     const activeSession = getCurrentActiveSession(doctor, currentTime, today);
-    
-    console.log('[NURSE WALK-IN DEBUG] Active session:', activeSession ? {
-      sessionIndex: activeSession.sessionIndex,
-      sessionStart: format(activeSession.sessionStart, 'hh:mm a'),
-      sessionEnd: format(activeSession.sessionEnd, 'hh:mm a'),
-      effectiveEnd: format(activeSession.effectiveEnd, 'hh:mm a'),
-    } : 'None');
 
-    if (!activeSession) {
-      console.log('[NURSE WALK-IN DEBUG] ❌ No active session found');
-      
-      // Even without active session, check force booking window
-      const isInForceBookWindow = isWithin15MinutesOfClosing(doctor, currentTime);
-      console.log('[NURSE WALK-IN DEBUG] Force book window check (no session):', isInForceBookWindow);
-      
-      if (isInForceBookWindow) {
-        console.log('[NURSE WALK-IN DEBUG] ✅ ALLOWING via force book window (no active session but within 15 min)');
-        return true;
-      }
-      
-      return false;
-    }
+    if (!activeSession) return false;
 
     // Walk-in window: 30 minutes before session start to 15 minutes before effective end
     // Effective end already includes break duration in getCurrentActiveSession
     const walkInOpenTime = subMinutes(activeSession.sessionStart, 30);
     const walkInCloseTime = subMinutes(activeSession.effectiveEnd, 15);
 
-    console.log('[NURSE WALK-IN DEBUG] Walk-in window:', {
-      openTime: format(walkInOpenTime, 'hh:mm a'),
-      closeTime: format(walkInCloseTime, 'hh:mm a'),
-    });
-
     // Check if current time is within walk-in window for this session
-    const isWithinNormalHours = currentTime >= walkInOpenTime && currentTime <= walkInCloseTime;
-    console.log('[NURSE WALK-IN DEBUG] Within normal hours:', isWithinNormalHours);
-    
-    // ✅ FORCE BOOKING: Also allow if within 15 minutes of closing (even if past normal close time)
-    const isInForceBookWindow = isWithin15MinutesOfClosing(doctor, currentTime);
-    console.log('[NURSE WALK-IN DEBUG] Within force book window:', isInForceBookWindow);
-    
-    const finalResult = isWithinNormalHours || isInForceBookWindow;
-    console.log('[NURSE WALK-IN DEBUG] Final result:', finalResult ? '✅ ALLOW' : '❌ BLOCK');
-    console.log('=== [NURSE WALK-IN DEBUG] End availability check ===\n');
-    
-    return finalResult;
+    return currentTime >= walkInOpenTime && currentTime <= walkInCloseTime;
   }, [doctor, currentTime]);
 
   useEffect(() => {
@@ -1272,12 +1228,7 @@ function WalkInRegistrationContent() {
   };
 
 
-  console.log('[NURSE WALK-IN RENDER] Loading:', loading);
-  console.log('[NURSE WALK-IN RENDER] isDoctorConsultingNow:', isDoctorConsultingNow);
-  console.log('[NURSE WALK-IN RENDER] Doctor loaded:', !!doctor);
-
   if (loading) {
-    console.log('[NURSE WALK-IN RENDER] Showing loading spinner');
     return (
       <AppFrameLayout>
         <div className="flex flex-col h-full items-center justify-center">
@@ -1288,7 +1239,6 @@ function WalkInRegistrationContent() {
   }
 
   if (!isDoctorConsultingNow && !loading) {
-    console.log('[NURSE WALK-IN RENDER] ❌ Blocking access - showing "Doctor Not Available"');
     return (
       <AppFrameLayout>
         <div className="flex flex-col h-full">
@@ -1310,8 +1260,6 @@ function WalkInRegistrationContent() {
       </AppFrameLayout>
     )
   }
-  
-  console.log('[NURSE WALK-IN RENDER] ✅ Allowing access - showing registration form');
 
   return (
     <AppFrameLayout>

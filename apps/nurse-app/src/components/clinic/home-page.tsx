@@ -28,7 +28,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import ClinicHeader from './header';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
-import { notifySessionPatientsOfConsultationStart, isWithin15MinutesOfClosing } from '@kloqo/shared-core';
+import { notifySessionPatientsOfConsultationStart } from '@kloqo/shared-core';
 
 
 export default function HomePage() {
@@ -40,7 +40,6 @@ export default function HomePage() {
   const { toast } = useToast();
   const [clinicId, setClinicId] = useState<string | null>(null);
   const [isWalkInAvailable, setIsWalkInAvailable] = useState(false);
-  const [isForceBookWindow, setIsForceBookWindow] = useState(false);
 
 
   useEffect(() => {
@@ -254,10 +253,6 @@ export default function HomePage() {
 
     const available = isWithinInterval(currentTime, { start: walkInStart, end: walkInEnd });
     setIsWalkInAvailable(available);
-    
-    // Check if we're in force booking window (within 15 min of closing but doctor still working)
-    const isInForceWindow = !available && currentDoctor && isWithin15MinutesOfClosing(currentDoctor, currentTime);
-    setIsForceBookWindow(isInForceWindow);
   }, [currentDoctor, currentTime]);
 
   const handleScheduleBreak = () => {
@@ -274,7 +269,6 @@ export default function HomePage() {
 
   const getWalkInSubtitle = () => {
     if (!selectedDoctor) return 'Select a doctor first';
-    if (isForceBookWindow) return 'Force Walk-in Booking';
     if (!isWalkInAvailable) return 'Registration is currently closed';
     return 'Register a new walk-in patient';
   }
@@ -294,10 +288,8 @@ export default function HomePage() {
       title: 'Walk-in',
       subtitle: getWalkInSubtitle(),
       action: () => selectedDoctor && router.push(`/walk-in?doctor=${selectedDoctor}`),
-      disabled: !selectedDoctor || (!isWalkInAvailable && !isForceBookWindow),
-      colors: isForceBookWindow 
-        ? "bg-gradient-to-br from-[#DC2626] to-[#EF4444] text-white" // Red for force booking
-        : "bg-gradient-to-br from-[#FFBA08] to-[#ffd46a] text-black", // Yellow for normal
+      disabled: !selectedDoctor || !isWalkInAvailable,
+      colors: "bg-gradient-to-br from-[#FFBA08] to-[#ffd46a] text-black",
       iconContainer: "bg-white/20"
     },
   ];

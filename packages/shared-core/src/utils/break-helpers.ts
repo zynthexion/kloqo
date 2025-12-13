@@ -5,7 +5,7 @@
  * calculating session extensions, and handling break-related appointment adjustments.
  */
 
-import { format, parse, addMinutes, subMinutes, subSeconds, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
+import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
 import type { Doctor, BreakPeriod, AvailabilitySlot } from '@kloqo/shared-types';
 
 // ============================================================================
@@ -42,14 +42,7 @@ export interface BreakValidationResult {
 // ============================================================================
 
 export function parseTime(timeStr: string, referenceDate: Date): Date {
-  if (!timeStr || typeof timeStr !== 'string' || timeStr.trim() === '') {
-    throw new Error(`Invalid time string: "${timeStr}"`);
-  }
-  try {
-    return parse(timeStr, 'hh:mm a', referenceDate);
-  } catch (error) {
-    throw new Error(`Failed to parse time "${timeStr}": ${error}`);
-  }
+  return parse(timeStr, 'hh:mm a', referenceDate);
 }
 
 // ============================================================================
@@ -470,18 +463,9 @@ export function createBreakPeriod(
   const sortedSlots = slots.map(s => parseISO(s)).sort((a, b) => a.getTime() - b.getTime());
   const start = sortedSlots[0];
   const lastSlot = sortedSlots[sortedSlots.length - 1];
+  const end = addMinutes(lastSlot, slotDuration);
 
-  // Calculate the actual end time (for duration calculation)
-  const actualEnd = addMinutes(lastSlot, slotDuration);
-
-  // Calculate duration based on actual end time (30 minutes)
-  const duration = differenceInMinutes(actualEnd, start);
-
-  // CRITICAL FIX: Subtract 1 second from end time to make it exclusive
-  // For 30-min break: 3:00 + 30 min - 1 sec = 3:29:59
-  // This prevents slot at exactly 3:30:00 from being cancelled
-  // But duration remains 30 minutes for correct shift calculation
-  const end = subSeconds(actualEnd, 1);
+  const duration = differenceInMinutes(end, start);
 
   return {
     id: `break-${start.getTime()}`,
@@ -570,26 +554,20 @@ export function isWithin15MinutesOfClosing(
   doctor: Doctor | null,
   date: Date
 ): boolean {
-  if (!doctor?.availabilitySlots?.length) {
-    return false;
-  }
+  if (!doctor?.availabilitySlots?.length) return false;
 
   const now = new Date();
   const dateStr = format(date, 'yyyy-MM-dd');
   const todayStr = format(now, 'yyyy-MM-dd');
 
   // Only check for today - future dates don't have closing time restrictions
-  if (dateStr !== todayStr) {
-    return false;
-  }
+  if (dateStr !== todayStr) return false;
 
   // Get day of week
   const dayOfWeek = format(date, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
-
-  if (!availabilityForDay?.timeSlots?.length) {
-    return false;
-  }
+  
+  if (!availabilityForDay?.timeSlots?.length) return false;
 
   // Get last session end time
   const lastSession = availabilityForDay.timeSlots[availabilityForDay.timeSlots.length - 1];
@@ -597,8 +575,8 @@ export function isWithin15MinutesOfClosing(
 
   // Check if we're within 15 minutes of closing
   const fifteenMinutesBeforeClosing = subMinutes(lastSessionEndTime, 15);
-
-  const result = isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
-
-  return result;
+  
+  return isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
 }
+
+

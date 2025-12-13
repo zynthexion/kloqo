@@ -7,9 +7,10 @@ import {
     writeBatch,
     Timestamp,
     getDoc,
+    limit,
     type Firestore
 } from 'firebase/firestore';
-import { format, addMinutes, parseISO } from 'date-fns';
+import { format, addMinutes, parseISO, differenceInMinutes } from 'date-fns';
 import type { Appointment, BreakPeriod } from '@kloqo/shared-types';
 import { parseTime } from '../utils/break-helpers';
 import { sendBreakUpdateNotification } from './notification-service';
@@ -136,25 +137,13 @@ export async function shiftAppointmentsForNewBreak(
             let newSlotIndex: number | null = null;
 
             if (typeof appt.slotIndex === 'number') {
-                // If this appointment falls within the break, it should go after the last cancelled slot
-                if (apptArriveBy.getTime() >= breakStart.getTime() &&
-                    apptArriveBy.getTime() < breakEnd.getTime()) {
-                    // This appointment is being cancelled and recreated after the break
-                    // Calculate its position relative to other cancelled appointments
-                    const cancelledSlotsArray = Array.from(cancelledSlotIndices).sort((a, b) => a - b);
-                    const positionInCancelled = cancelledSlotsArray.indexOf(appt.slotIndex);
+                // UNIFORM SHIFTING:
+                // Regardless of whether it's during or after the break,
+                // we shift everything by the break duration (tokens count).
+                // This ensures "Index 0" becomes "Index 6" (if break is 6 slots).
+                // It also aligns with the time calculation (Time + Duration).
 
-                    if (positionInCancelled >= 0 && lastCancelledSlot >= 0) {
-                        // Place it after the last cancelled slot, maintaining relative order
-                        newSlotIndex = lastCancelledSlot + 1 + positionInCancelled;
-                    } else {
-                        // Fallback: simple addition
-                        newSlotIndex = appt.slotIndex + slotsToShift;
-                    }
-                } else {
-                    // Appointment is after the break, shift by break duration
-                    newSlotIndex = appt.slotIndex + slotsToShift;
-                }
+                newSlotIndex = appt.slotIndex + slotsToShift;
             }
 
             // Prepare data for new appointment
@@ -214,11 +203,105 @@ export async function shiftAppointmentsForNewBreak(
             batch.set(update.newDocRef, update.newData);
         }
 
-        if (updates.length > 0) {
+        // --- NEW LOGIC: Create Dummy Appointments for Empty Slots in Break ---
+        try {
+            // we need the doctor to find session start time for accurate slot index calculation
+            const doctorsQuery = query(
+                collection(db, 'doctors'),
+                where('name', '==', doctorName),
+                where('clinicId', '==', clinicId),
+                limit(1)
+            );
+            const doctorSnapshot = await getDocs(doctorsQuery);
+
+            if (!doctorSnapshot.empty) {
+                const doctorDoc = doctorSnapshot.docs[0];
+                const doctorData = doctorDoc.data();
+
+                // Find session start time
+                const dayOfWeek = format(date, 'EEEE');
+                const availabilitySlot = doctorData.availabilitySlots?.find((s: any) => s.day === dayOfWeek);
+                if (availabilitySlot && availabilitySlot.timeSlots && availabilitySlot.timeSlots[sessionIndex]) {
+                    const sessionTime = availabilitySlot.timeSlots[sessionIndex];
+                    const sessionStart = parseTime(sessionTime.from, date);
+
+                    // Calculate first and last slot index of the break
+                    // slotIndex = (Time - SessionStart) / duration
+                    const breakStartDiff = differenceInMinutes(breakStart, sessionStart);
+                    const startSlotIndex = Math.floor(breakStartDiff / averageConsultingTime);
+
+                    const breakEndDiff = differenceInMinutes(breakEnd, sessionStart);
+                    // endSlotIndex is exclusive of the end time, so -1
+                    // e.g. 12:00-12:30 (30 mins). Slots 0, 1, 2, 3, 4, 5.
+                    // 30 / 5 = 6. Last slot is 5.
+                    const endSlotIndex = Math.ceil(breakEndDiff / averageConsultingTime) - 1;
+
+                    // Map of existing appointments by slotIndex to check for availability
+                    const existingSlots = new Set<number>();
+                    snapshot.docs.forEach(doc => {
+                        const d = doc.data();
+                        if (typeof d.slotIndex === 'number' && d.status !== 'Cancelled') {
+                            existingSlots.add(d.slotIndex);
+                        }
+                    });
+
+                    for (let i = startSlotIndex; i <= endSlotIndex; i++) {
+                        if (existingSlots.has(i)) {
+                            continue; // Already handled (marked completed)
+                        }
+
+                        // Create Dummy Appointment
+                        // slot time
+                        const slotTime = addMinutes(sessionStart, i * averageConsultingTime);
+                        const dummyId = doc(collection(db, 'appointments')).id;
+                        const dummyRef = doc(db, 'appointments', dummyId);
+
+                        const cutOffTime = addMinutes(slotTime, -15); // Standard 15 min buffer
+                        const noShowTime = addMinutes(slotTime, 15);
+
+                        const dummyAppt = {
+                            id: dummyId,
+                            clinicId,
+                            doctor: doctorName,
+                            doctorId: doctorDoc.id, // We have reading doctor doc now
+                            department: doctorData.department || 'General', // Get from doctor
+                            patientName: 'kloqo dummy', // As requested by user
+                            patientId: 'dummy-break-patient',
+                            age: 0,
+                            sex: 'Other',
+                            place: 'Kloqo Clinic',
+                            phone: '0000000000',
+                            communicationPhone: '0000000000',
+                            date: dateStr,
+                            time: format(slotTime, 'hh:mm a'),
+                            arriveByTime: format(slotTime, 'hh:mm a'),
+                            cutOffTime: Timestamp.fromDate(cutOffTime),
+                            noShowTime: Timestamp.fromDate(noShowTime),
+                            slotIndex: i,
+                            status: 'Completed',
+                            cancelledByBreak: true,
+                            sessionIndex,
+                            createdAt: Timestamp.now(),
+                            bookedVia: 'BreakBlock', // Internal
+                            tokenNumber: 'Break', // Or leave empty? 'Break' might confuse sorting? Using 'Break' or '0'
+                            numericToken: 0,
+                            previousAppointmentId: ''
+                        };
+
+                        batch.set(dummyRef, dummyAppt);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[BREAK SERVICE] Error creating dummy appointments:', err);
+            // Don't fail the whole shift operation if this fails, just log it.
+        }
+
+        if (updates.length > 0 || true) { // Always commit if we have dummy updates too? Yes.
             await batch.commit();
 
-            // 4. Resequence tokens for all pending appointments
-            // This ensures sequential token numbers after the shift
+            // 4. Resequence tokens for ALL appointments based on slotIndex
+            // User requirement: "All appointments will be based on the slotIndex. will be slotIndex + 1"
             try {
                 // Fetch ALL appointments (both completed and pending) to determine correct token numbers
                 const allAppointmentsQuery = query(
@@ -234,24 +317,17 @@ export async function shiftAppointmentsForNewBreak(
                     .filter(appt => appt.tokenNumber?.startsWith('A')) // Only A tokens
                     .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
 
-                // Find the highest token number among completed appointments
-                // This ensures shifted appointments get tokens after existing ones
-                const completedAppts = allAppts.filter(appt => appt.status === 'Completed');
-                const highestCompletedToken = completedAppts.length > 0
-                    ? Math.max(...completedAppts.map(appt => appt.numericToken || 0))
-                    : 0;
-
-                // Resequence A tokens for pending appointments only
-                // Start from the highest completed token + 1
                 const resequenceBatch = writeBatch(db);
                 let updatedCount = 0;
-                let nextTokenNumber = highestCompletedToken + 1;
 
-                // Get only pending appointments that need resequencing
-                const pendingAppts = allAppts.filter(appt => appt.status === 'Pending');
+                allAppts.forEach((appt) => {
+                    // Safety check: Needs a slotIndex
+                    if (typeof appt.slotIndex !== 'number') return;
 
-                pendingAppts.forEach((appt) => {
-                    const newNumericToken = nextTokenNumber;
+                    // Skip dummy break appointments (they use 'Break')
+                    if (appt.cancelledByBreak && appt.tokenNumber === 'Break') return;
+
+                    const newNumericToken = appt.slotIndex + 1;
                     const newTokenNumber = `A${String(newNumericToken).padStart(3, '0')}`;
 
                     // Only update if the token has changed
@@ -263,11 +339,12 @@ export async function shiftAppointmentsForNewBreak(
                         });
                         updatedCount++;
                     }
-                    nextTokenNumber++;
                 });
 
-                await resequenceBatch.commit();
-                console.log(`[BREAK SERVICE] ✅ Resequenced ${updatedCount} A tokens`);
+                if (updatedCount > 0) {
+                    await resequenceBatch.commit();
+                    console.log(`[BREAK SERVICE] ✅ Resequenced ${updatedCount} A tokens`);
+                }
             } catch (resequenceError) {
                 console.error('[BREAK SERVICE] ❌ Error resequencing tokens:', resequenceError);
                 // Don't throw - the main operation (schedule shift) succeeded

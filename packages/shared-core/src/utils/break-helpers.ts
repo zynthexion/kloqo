@@ -5,7 +5,7 @@
  * calculating session extensions, and handling break-related appointment adjustments.
  */
 
-import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
+import { format, parse, addMinutes, subMinutes, subSeconds, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
 import type { Doctor, BreakPeriod, AvailabilitySlot } from '@kloqo/shared-types';
 
 // ============================================================================
@@ -470,9 +470,18 @@ export function createBreakPeriod(
   const sortedSlots = slots.map(s => parseISO(s)).sort((a, b) => a.getTime() - b.getTime());
   const start = sortedSlots[0];
   const lastSlot = sortedSlots[sortedSlots.length - 1];
-  const end = addMinutes(lastSlot, slotDuration);
 
-  const duration = differenceInMinutes(end, start);
+  // Calculate the actual end time (for duration calculation)
+  const actualEnd = addMinutes(lastSlot, slotDuration);
+
+  // Calculate duration based on actual end time (30 minutes)
+  const duration = differenceInMinutes(actualEnd, start);
+
+  // CRITICAL FIX: Subtract 1 second from end time to make it exclusive
+  // For 30-min break: 3:00 + 30 min - 1 sec = 3:29:59
+  // This prevents slot at exactly 3:30:00 from being cancelled
+  // But duration remains 30 minutes for correct shift calculation
+  const end = subSeconds(actualEnd, 1);
 
   return {
     id: `break-${start.getTime()}`,

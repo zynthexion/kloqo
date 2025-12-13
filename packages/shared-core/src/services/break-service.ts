@@ -29,8 +29,24 @@ export async function shiftAppointmentsForNewBreak(
 ): Promise<void> {
     try {
         const dateStr = format(date, 'd MMMM yyyy');
-        const breakStart = parseISO(breakPeriod.startTime);
+
+        // Parse break start from formatted time
+        const breakStart = breakPeriod.startTimeFormatted
+            ? parseTime(breakPeriod.startTimeFormatted, date)
+            : parseISO(breakPeriod.startTime);
+
+        // Normalize to remove seconds/milliseconds
+        breakStart.setSeconds(0, 0);
+
         const breakDuration = breakPeriod.duration || 0;
+
+        // CRITICAL FIX: Calculate breakEnd using duration, NOT formatted time
+        // endTimeFormatted "03:29 PM" parses to 3:29:00, but we need 3:30:00
+        // So we must use: breakStart + duration = 3:00:00 + 30 min = 3:30:00
+        const breakEnd = addMinutes(breakStart, breakDuration);
+
+        // Normalize to remove seconds/milliseconds
+        breakEnd.setSeconds(0, 0);
 
         const appointmentsQuery = query(
             collection(db, 'appointments'),
@@ -41,6 +57,36 @@ export async function shiftAppointmentsForNewBreak(
         );
 
         const snapshot = await getDocs(appointmentsQuery);
+
+        // First pass: identify which slots will be cancelled by the break
+        // This helps us calculate where to shift appointments to
+        const cancelledSlotIndices = new Set<number>();
+
+        snapshot.docs.forEach(docSnap => {
+            const appt = docSnap.data() as Appointment;
+            if (appt.status === 'Cancelled') return;
+
+            const baseTimeStr = appt.arriveByTime || appt.time;
+            if (!baseTimeStr) return;
+
+            const apptArriveBy = parseTime(baseTimeStr, date);
+            // Normalize to remove seconds/milliseconds for accurate comparison
+            apptArriveBy.setSeconds(0, 0);
+
+            // Check if this appointment falls within the break period
+            // Appointment is cancelled if: breakStart <= apptTime < breakEnd
+            if (apptArriveBy.getTime() >= breakStart.getTime() &&
+                apptArriveBy.getTime() < breakEnd.getTime()) {
+                if (typeof appt.slotIndex === 'number') {
+                    cancelledSlotIndices.add(appt.slotIndex);
+                }
+            }
+        });
+
+        // Find the last slot that will be cancelled
+        const lastCancelledSlot = cancelledSlotIndices.size > 0
+            ? Math.max(...Array.from(cancelledSlotIndices))
+            : -1;
 
         const updates: {
             originalDocRef: any;
@@ -60,9 +106,9 @@ export async function shiftAppointmentsForNewBreak(
 
             const apptArriveBy = parseTime(baseTimeStr, date);
 
-            // Only adjust appointments that are on/after the break start
+            // Only shift appointments that are at or after the break start
             if (apptArriveBy.getTime() < breakStart.getTime()) {
-                return;
+                return; // Skip appointments before the break
             }
 
             const cutOffDate = appt.cutOffTime && typeof (appt.cutOffTime as any).toDate === 'function'
@@ -81,26 +127,38 @@ export async function shiftAppointmentsForNewBreak(
             const newCutOffTime = cutOffDate ? addMinutes(cutOffDate, breakDuration) : null;
             const newNoShowTime = noShowDate ? addMinutes(noShowDate, breakDuration) : null;
 
-            // Shift 'time' and 'slotIndex'
+            // Calculate new slot index
+            // For appointments during the break: shift to after the last cancelled slot
+            // For appointments after the break: shift by break duration
             const slotsToShift = Math.ceil(breakDuration / averageConsultingTime);
             const newTimeStr = format(newArriveBy, 'hh:mm a');
-            const newSlotIndex = typeof appt.slotIndex === 'number' ? appt.slotIndex + slotsToShift : null;
 
-            // Calculate new token numbers for A tokens only (W tokens stay the same)
-            let newNumericToken = appt.numericToken;
-            let newTokenNumber = appt.tokenNumber;
+            let newSlotIndex: number | null = null;
 
-            // Only update token numbers for Advance bookings (A tokens)
-            // Walk-ins (W tokens) keep their original token numbers
-            if (appt.tokenNumber && !appt.tokenNumber.startsWith('W') && newSlotIndex !== null) {
-                // For A tokens, recalculate based on new slot position
-                // numericToken is the sequential number (1, 2, 3, etc.)
-                // tokenNumber is the formatted string (e.g., "A001", "A002")
-                newNumericToken = newSlotIndex + 1; // Slot 0 = Token 1, Slot 1 = Token 2, etc.
-                newTokenNumber = `A${String(newNumericToken).padStart(3, '0')}`;
+            if (typeof appt.slotIndex === 'number') {
+                // If this appointment falls within the break, it should go after the last cancelled slot
+                if (apptArriveBy.getTime() >= breakStart.getTime() &&
+                    apptArriveBy.getTime() < breakEnd.getTime()) {
+                    // This appointment is being cancelled and recreated after the break
+                    // Calculate its position relative to other cancelled appointments
+                    const cancelledSlotsArray = Array.from(cancelledSlotIndices).sort((a, b) => a - b);
+                    const positionInCancelled = cancelledSlotsArray.indexOf(appt.slotIndex);
+
+                    if (positionInCancelled >= 0 && lastCancelledSlot >= 0) {
+                        // Place it after the last cancelled slot, maintaining relative order
+                        newSlotIndex = lastCancelledSlot + 1 + positionInCancelled;
+                    } else {
+                        // Fallback: simple addition
+                        newSlotIndex = appt.slotIndex + slotsToShift;
+                    }
+                } else {
+                    // Appointment is after the break, shift by break duration
+                    newSlotIndex = appt.slotIndex + slotsToShift;
+                }
             }
 
             // Prepare data for new appointment
+            // Note: Token numbers will be resequenced collectively after all shifts are complete
             const newDocRef = doc(collection(db, 'appointments'));
             const newData = {
                 ...appt,
@@ -110,8 +168,6 @@ export async function shiftAppointmentsForNewBreak(
                 ...(newSlotIndex !== null ? { slotIndex: newSlotIndex } : {}),
                 ...(newCutOffTime ? { cutOffTime: Timestamp.fromDate(newCutOffTime) } : {}),
                 ...(newNoShowTime ? { noShowTime: Timestamp.fromDate(newNoShowTime) } : {}),
-                ...(newNumericToken !== appt.numericToken ? { numericToken: newNumericToken } : {}),
-                ...(newTokenNumber !== appt.tokenNumber ? { tokenNumber: newTokenNumber } : {}),
                 previousAppointmentId: docSnap.id
             };
 
@@ -126,19 +182,32 @@ export async function shiftAppointmentsForNewBreak(
         const batch = writeBatch(db);
 
         for (const update of updates) {
-            // 1. Mark Original as Completed (blocked during break)
-            batch.update(update.originalDocRef, {
-                status: 'Completed',
-                cancelledByBreak: true
-            });
+            const originalTime = parseTime(update.originalData.arriveByTime || update.originalData.time, date);
+            originalTime.setSeconds(0, 0);
 
-            // 2. Delete the slot reservation for the original appointment
-            // This ensures the slot is properly blocked during the break
-            const slotIndex = update.originalData.slotIndex;
-            if (typeof slotIndex === 'number') {
-                const reservationId = `${clinicId}_${doctorName}_${dateStr}_slot_${slotIndex}`;
-                const reservationRef = doc(db, 'slot-reservations', reservationId);
-                batch.delete(reservationRef);
+            // CRITICAL FIX: Only mark as cancelled if appointment is DURING the break
+            // Appointments AFTER the break should be shifted but NOT cancelled
+            const isDuringBreak = originalTime.getTime() >= breakStart.getTime() &&
+                originalTime.getTime() < breakEnd.getTime();
+
+            if (isDuringBreak) {
+                // 1. Mark Original as Completed (blocked during break)
+                batch.update(update.originalDocRef, {
+                    status: 'Completed',
+                    cancelledByBreak: true
+                });
+
+                // 2. Delete the slot reservation for the original appointment
+                // This ensures the slot is properly blocked during the break
+                const slotIndex = update.originalData.slotIndex;
+                if (typeof slotIndex === 'number') {
+                    const reservationId = `${clinicId}_${doctorName}_${dateStr}_slot_${slotIndex}`;
+                    const reservationRef = doc(db, 'slot-reservations', reservationId);
+                    batch.delete(reservationRef);
+                }
+            } else {
+                // Appointment is AFTER the break, just delete the original
+                batch.delete(update.originalDocRef);
             }
 
             // 3. Create New shifted appointment
@@ -148,7 +217,63 @@ export async function shiftAppointmentsForNewBreak(
         if (updates.length > 0) {
             await batch.commit();
 
-            // 4. Send Notifications for Shifted Appointments
+            // 4. Resequence tokens for all pending appointments
+            // This ensures sequential token numbers after the shift
+            try {
+                // Fetch ALL appointments (both completed and pending) to determine correct token numbers
+                const allAppointmentsQuery = query(
+                    collection(db, 'appointments'),
+                    where('doctor', '==', doctorName),
+                    where('clinicId', '==', clinicId),
+                    where('date', '==', dateStr)
+                );
+
+                const allAppointmentsSnapshot = await getDocs(allAppointmentsQuery);
+                const allAppts = allAppointmentsSnapshot.docs
+                    .map(docSnap => ({ ...docSnap.data() as Appointment, id: docSnap.id }))
+                    .filter(appt => appt.tokenNumber?.startsWith('A')) // Only A tokens
+                    .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
+
+                // Find the highest token number among completed appointments
+                // This ensures shifted appointments get tokens after existing ones
+                const completedAppts = allAppts.filter(appt => appt.status === 'Completed');
+                const highestCompletedToken = completedAppts.length > 0
+                    ? Math.max(...completedAppts.map(appt => appt.numericToken || 0))
+                    : 0;
+
+                // Resequence A tokens for pending appointments only
+                // Start from the highest completed token + 1
+                const resequenceBatch = writeBatch(db);
+                let updatedCount = 0;
+                let nextTokenNumber = highestCompletedToken + 1;
+
+                // Get only pending appointments that need resequencing
+                const pendingAppts = allAppts.filter(appt => appt.status === 'Pending');
+
+                pendingAppts.forEach((appt) => {
+                    const newNumericToken = nextTokenNumber;
+                    const newTokenNumber = `A${String(newNumericToken).padStart(3, '0')}`;
+
+                    // Only update if the token has changed
+                    if (appt.numericToken !== newNumericToken || appt.tokenNumber !== newTokenNumber) {
+                        const apptRef = doc(db, 'appointments', appt.id);
+                        resequenceBatch.update(apptRef, {
+                            numericToken: newNumericToken,
+                            tokenNumber: newTokenNumber
+                        });
+                        updatedCount++;
+                    }
+                    nextTokenNumber++;
+                });
+
+                await resequenceBatch.commit();
+                console.log(`[BREAK SERVICE] ✅ Resequenced ${updatedCount} A tokens`);
+            } catch (resequenceError) {
+                console.error('[BREAK SERVICE] ❌ Error resequencing tokens:', resequenceError);
+                // Don't throw - the main operation (schedule shift) succeeded
+            }
+
+            // 5. Send Notifications for Shifted Appointments
             // We do this AFTER the batch commit to ensure data consistency
             // If notifications fail, the schedule change is still valid
             try {

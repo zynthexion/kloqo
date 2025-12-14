@@ -274,7 +274,8 @@ export default function DoctorsPage() {
     lastTokenBefore: string;
     lastTokenAfter: string;
     originalEnd: string;
-    breakDuration: number
+    breakDuration: number;
+    estimatedFinishTime: string;
   } | null>(null);
 
   useEffect(() => {
@@ -1173,6 +1174,8 @@ export default function DoctorsPage() {
 
     }
 
+    const estimatedFinishTime = hasOverrun || lastTokenAfter ? format(addMinutes(parseTimeUtil(lastTokenAfter, leaveCalDate), selectedDoctor.averageConsultingTime || 15), 'hh:mm a') : '';
+
     setExtensionOptions({
       hasOverrun,
       minimalExtension,
@@ -1180,7 +1183,8 @@ export default function DoctorsPage() {
       lastTokenBefore,
       lastTokenAfter,
       originalEnd,
-      breakDuration
+      breakDuration,
+      estimatedFinishTime
     });
 
     // Show dialog to ask about extending availability
@@ -2582,6 +2586,7 @@ export default function DoctorsPage() {
                       <ul className="list-disc list-inside space-y-1 text-sm">
                         <li><strong>Last booked token before break:</strong> {extensionOptions.lastTokenBefore}</li>
                         <li><strong>Last token after break:</strong> {extensionOptions.lastTokenAfter}</li>
+                        <li><strong>Estimated Finish Time:</strong> {extensionOptions.estimatedFinishTime}</li>
                         <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
                         <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
                       </ul>
@@ -2590,7 +2595,7 @@ export default function DoctorsPage() {
                   ) : (
                     // Safe scenario: all tokens within availability
                     <div className="space-y-2">
-                      <p>Last booked token for this day is at {extensionOptions.lastTokenBefore || 'N/A'}. After applying this break, it will still finish within the original availability (ending at {extensionOptions.originalEnd}).</p>
+                      <p>Last booked token for this day is at {extensionOptions.lastTokenBefore || 'N/A'}. After applying this break, it will still finish within the original availability (Estimated Finish: {extensionOptions.estimatedFinishTime}, Original End: {extensionOptions.originalEnd}).</p>
                       <p>Break duration is {extensionOptions.breakDuration} minutes. Do you want to extend the availability to fully compensate the break?</p>
                     </div>
                   )

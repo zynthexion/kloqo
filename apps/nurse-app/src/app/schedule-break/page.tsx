@@ -161,6 +161,7 @@ function ScheduleBreakContent() {
 
         if (session) {
             setCurrentSession(session);
+            const breaks = getSessionBreaks(doctor, selectedDate, session.sessionIndex);
             setExistingBreaks(breaks);
             // Pass appointments to check for blocked slots (Completed/Pending/Confirmed)
             const slots = getAvailableBreakSlots(doctor, now, selectedDate, session, appointments);

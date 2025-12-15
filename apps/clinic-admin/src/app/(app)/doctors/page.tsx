@@ -2147,7 +2147,7 @@ export default function DoctorsPage() {
                                             <Button
                                               key={slot.isoString}
                                               variant={isSelected ? 'default' : 'outline'}
-                                              className={cn("h-auto py-2 flex-col", {
+                                              className={cn("h-auto py-3 flex-col gap-0.5", {
                                                 'bg-destructive/80 hover:bg-destructive text-white': isSelected,
                                                 'bg-gray-200 text-gray-600 border-gray-300 cursor-not-allowed opacity-60': slot.isTaken,
                                                 'hover:bg-accent': !isSelected && !slot.isTaken,
@@ -2155,8 +2155,10 @@ export default function DoctorsPage() {
                                               onClick={() => handleSlotClick(slot)}
                                               disabled={slot.isTaken}
                                             >
-                                              <span className="font-semibold">{slot.timeFormatted}</span>
-                                              {slot.isTaken && <span className="text-xs">Taken</span>}
+                                              <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                              <span className="text-[10px] opacity-70">to</span>
+                                              <span className="font-semibold text-xs">{format(addMinutes(parseISO(slot.isoString), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}</span>
+                                              {slot.isTaken && <span className="text-xs mt-1">Taken</span>}
                                             </Button>
                                           );
                                         })}
@@ -2180,7 +2182,7 @@ export default function DoctorsPage() {
                                               <Button
                                                 key={slot.isoString}
                                                 variant={isSelected ? 'default' : 'outline'}
-                                                className={cn("h-auto py-2 flex-col", {
+                                                className={cn("h-auto py-3 flex-col gap-0.5", {
                                                   'bg-destructive/80 hover:bg-destructive text-white': isSelected,
                                                   'bg-gray-200 text-gray-600 border-gray-300 cursor-not-allowed opacity-60': slot.isTaken,
                                                   'hover:bg-accent': !isSelected && !slot.isTaken,
@@ -2188,8 +2190,10 @@ export default function DoctorsPage() {
                                                 onClick={() => handleSlotClick(slot)}
                                                 disabled={slot.isTaken}
                                               >
-                                                <span className="font-semibold">{slot.timeFormatted}</span>
-                                                {slot.isTaken && <span className="text-xs">Taken</span>}
+                                                <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                                <span className="text-[10px] opacity-70">to</span>
+                                                <span className="font-semibold text-xs">{format(addMinutes(parseISO(slot.isoString), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}</span>
+                                                {slot.isTaken && <span className="text-xs mt-1">Taken</span>}
                                               </Button>
                                             );
                                           })}
@@ -2208,9 +2212,6 @@ export default function DoctorsPage() {
                               <div className="text-center mt-4 mb-2 text-sm text-muted-foreground">
                                 {breakStartSlot && breakEndSlot ? (
                                   <div>
-                                    <p className="font-medium text-foreground">
-                                      Break selected
-                                    </p>
                                     {(() => {
                                       try {
                                         const start = parseISO(breakStartSlot.isoString);
@@ -2220,9 +2221,14 @@ export default function DoctorsPage() {
                                         const duration = differenceInMinutes(endTime, start);
 
                                         return (
-                                          <p className="text-xs">
-                                            {format(start, 'hh:mm a')} - {format(endTime, 'hh:mm a')} ({duration} min)
-                                          </p>
+                                          <>
+                                            <p className="font-medium text-foreground">
+                                              New break: {format(start, 'hh:mm a')} to {format(endTime, 'hh:mm a')}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">
+                                              {duration} min
+                                            </p>
+                                          </>
                                         );
                                       } catch {
                                         return null;

@@ -277,7 +277,7 @@ function BookAppointmentContent() {
                 const fetchedBookedSlots = appointments
                     .filter(data => {
                         if (data.tokenNumber?.startsWith('W')) return false;
-                        if (data.status !== 'Pending' && data.status !== 'Confirmed') return false;
+                        if (data.status !== 'Pending' && data.status !== 'Confirmed' && data.status !== 'Completed') return false;
                         return true;
                     })
                     .map(data => parseAppointmentDateTime(data.date, data.time).getTime());
@@ -664,8 +664,8 @@ function BookAppointmentContent() {
                     const adjustedStart = breakIntervals.length > 0
                         ? applyBreakOffsets(subsessionStart, breakIntervals)
                         : subsessionStart;
-                    const displayStart = subMinutes(adjustedStart, 15);
-                    const displayEnd = subMinutes(subsessionEnd, 15);
+                    const displayStart = adjustedStart;
+                    const displayEnd = subsessionEnd;
                     const subsessionTitle = subsessionDurationInHours >= 2
                         ? `${format(displayStart, 'hh:mm a')} - ${format(displayEnd, 'hh:mm a')}`
                         : `${format(displayStart, 'hh:mm a')} - ${format(displayEnd, 'hh:mm a')}`;
@@ -681,8 +681,8 @@ function BookAppointmentContent() {
             }
 
             // Subtract 15 minutes from session start and end times for display
-            const sessionDisplayStart = subMinutes(parseTime(session.from, selectedDate), 15);
-            const sessionDisplayEnd = subMinutes(parseTime(session.to, selectedDate), 15);
+            const sessionDisplayStart = parseTime(session.from, selectedDate);
+            const sessionDisplayEnd = parseTime(session.to, selectedDate);
 
             // Find breaks that overlap with this session
             const sessionStart = parseTime(session.from, selectedDate);

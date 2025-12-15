@@ -268,9 +268,10 @@ function BookAppointmentContent() {
                     .filter(data => {
                         // Exclude walk-in tokens (W)
                         if (data.tokenNumber?.startsWith('W')) return false;
-                        // Only consider Pending and Confirmed appointments as "booked"
-                        // No-show, Skipped, Completed, and Cancelled slots are available for reuse
-                        if (data.status !== 'Pending' && data.status !== 'Confirmed') return false;
+                        // Only consider Pending, Confirmed, and Completed appointments as "booked"
+                        // Completed appointments include break blocks which should block the slot
+                        // No-show, Skipped, and Cancelled slots are available for reuse
+                        if (data.status !== 'Pending' && data.status !== 'Confirmed' && data.status !== 'Completed') return false;
                         return true;
                     })
                     .map(data => {
@@ -1005,7 +1006,7 @@ function BookAppointmentContent() {
                                                                 {slot.status === 'booked' && slot.tokenNumber ? slot.tokenNumber : (() => {
                                                                     // Display slot time directly without offsets
                                                                     const displayTime = slot.time;
-                                                                    return format(subMinutes(displayTime, 15), 'hh:mm a');
+                                                                    return format(displayTime, 'hh:mm a');
                                                                 })()}
                                                             </Button>
                                                         )

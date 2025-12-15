@@ -6,7 +6,7 @@
  */
 
 import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
-import type { Doctor, BreakPeriod, AvailabilitySlot } from '@kloqo/shared-types';
+import type { Doctor, BreakPeriod, AvailabilitySlot, Appointment } from '@kloqo/shared-types';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -324,7 +324,8 @@ export function getAvailableBreakSlots(
   doctor: Doctor | null,
   now: Date,
   referenceDate: Date,
-  currentSessionOverride?: SessionInfo | null
+  currentSessionOverride?: SessionInfo | null,
+  appointments?: Appointment[]
 ): {
   currentSessionSlots: SlotInfo[];
   upcomingSessionSlots: Map<number, SlotInfo[]>;
@@ -355,7 +356,17 @@ export function getAvailableBreakSlots(
 
   while (currentTime < currentEndTime) {
     const isoString = currentTime.toISOString();
-    const isTaken = takenSlots.has(isoString);
+    let isTaken = takenSlots.has(isoString);
+
+    if (!isTaken && appointments) {
+      const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
+      const appointmentAtSlot = appointments.find(apt =>
+        (apt.status === 'Completed') &&
+        (apt.date === referenceDateStr) &&
+        apt.time === format(currentTime, 'hh:mm a')
+      );
+      if (appointmentAtSlot) isTaken = true;
+    }
 
     result.currentSessionSlots.push({
       time: new Date(currentTime),
@@ -382,7 +393,18 @@ export function getAvailableBreakSlots(
 
     while (slotTime < sessionEnd) {
       const isoString = slotTime.toISOString();
-      const isTaken = takenSlotsForSession.has(isoString);
+      let isTaken = takenSlotsForSession.has(isoString);
+
+      // Also check against appointments if provided
+      if (!isTaken && appointments) {
+        const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
+        const appointmentAtSlot = appointments.find(apt =>
+          (apt.status === 'Completed') &&
+          (apt.date === referenceDateStr) &&
+          apt.time === format(slotTime, 'hh:mm a')
+        );
+        if (appointmentAtSlot) isTaken = true;
+      }
 
       sessionSlots.push({
         time: new Date(slotTime),
@@ -566,7 +588,7 @@ export function isWithin15MinutesOfClosing(
   // Get day of week
   const dayOfWeek = format(date, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
-  
+
   if (!availabilityForDay?.timeSlots?.length) return false;
 
   // Get last session end time
@@ -575,7 +597,7 @@ export function isWithin15MinutesOfClosing(
 
   // Check if we're within 15 minutes of closing
   const fifteenMinutesBeforeClosing = subMinutes(lastSessionEndTime, 15);
-  
+
   return isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
 }
 

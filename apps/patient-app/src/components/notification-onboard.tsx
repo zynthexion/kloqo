@@ -9,16 +9,10 @@ export function NotificationOnboard() {
 
   useEffect(() => {
     if (!user) return;
-    
+
     const checkAndRequestPermission = async () => {
       // Check if already enabled
       if (isNotificationEnabled()) {
-        return;
-      }
-
-      // Check if dismissed
-      const dismissed = localStorage.getItem('notificationPromptDismissed');
-      if (dismissed) {
         return;
       }
 
@@ -29,7 +23,6 @@ export function NotificationOnboard() {
 
       // If permission is already denied, don't request again
       if (Notification.permission === 'denied') {
-        localStorage.setItem('notificationPromptDismissed', 'true');
         return;
       }
 
@@ -62,7 +55,7 @@ export function NotificationOnboard() {
       // This will show the default mobile browser notification permission prompt
       try {
         const permissionGranted = await requestNotificationPermission();
-        
+
         if (permissionGranted) {
           const token = await getFCMToken();
           if (token && user?.uid) {
@@ -85,12 +78,8 @@ export function NotificationOnboard() {
             }
           }
         }
-        
-        // Mark as dismissed regardless of outcome
-        localStorage.setItem('notificationPromptDismissed', 'true');
       } catch (error) {
         console.error('Error requesting notification permission:', error);
-        localStorage.setItem('notificationPromptDismissed', 'true');
       }
     };
 

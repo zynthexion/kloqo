@@ -659,15 +659,13 @@ function BookAppointmentContent() {
 
                 if (subsessionSlots.length > 0) {
                     const subsessionDurationInHours = differenceInHours(subsessionEnd, subsessionStart);
-                    // Add break offsets to start and end times, then subtract 15 minutes for display
+                    // Add break offsets to start time only, not end time
+                    // End time represents the session boundary, which doesn't shift with breaks
                     const adjustedStart = breakIntervals.length > 0
                         ? applyBreakOffsets(subsessionStart, breakIntervals)
                         : subsessionStart;
-                    const adjustedEnd = breakIntervals.length > 0
-                        ? applyBreakOffsets(subsessionEnd, breakIntervals)
-                        : subsessionEnd;
                     const displayStart = subMinutes(adjustedStart, 15);
-                    const displayEnd = subMinutes(adjustedEnd, 15);
+                    const displayEnd = subMinutes(subsessionEnd, 15);
                     const subsessionTitle = subsessionDurationInHours >= 2
                         ? `${format(displayStart, 'hh:mm a')} - ${format(displayEnd, 'hh:mm a')}`
                         : `${format(displayStart, 'hh:mm a')} - ${format(displayEnd, 'hh:mm a')}`;

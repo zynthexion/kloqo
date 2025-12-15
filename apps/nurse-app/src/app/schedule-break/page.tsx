@@ -571,7 +571,8 @@ function ScheduleBreakContent() {
         const appointmentsOnDate = appointments.filter(
             (apt) => apt.doctor === doctor.name &&
                 apt.date === dateStr &&
-                apt.sessionIndex === breakSessionIndex
+                apt.sessionIndex === breakSessionIndex &&
+                !(apt.cancelledByBreak === true && apt.status === 'Cancelled') // Exclude cancelled break blocks
         );
 
         if (appointmentsOnDate.length > 0) {

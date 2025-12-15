@@ -159,7 +159,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
             setIsLoading(false);
             return;
         }
-        
+
         // Try to load from cache first for instant display
         const cachedData = getPatientListFromCache(user.phoneNumber);
         if (cachedData) {
@@ -195,7 +195,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
             }
             // Continue in background to fetch fresh data
         }
-        
+
         // Fetch fresh data in background (don't block UI)
         setIsLoading(true);
         try {
@@ -363,10 +363,10 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
             // console.log(`[WALK-IN DEBUG] ${bookingRequestId}: Pre-confirmation recalculation starting...`);
 
             try {
-            const freshDetails = await calculateWalkInDetails(
-                firestore,
-                selectedDoctor
-            );
+                const freshDetails = await calculateWalkInDetails(
+                    firestore,
+                    selectedDoctor
+                );
 
                 // Compare with original estimate
                 const originalEstimate = walkInData.estimatedDetails;
@@ -1009,7 +1009,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                         });
 
                         const primaryPatientRef = doc(firestore, 'patients', primaryPatient.id);
-                        
+
                         console.log('[DEBUG] Created primaryPatientRef', {
                             refPath: primaryPatientRef.path,
                             refFirestore: primaryPatientRef.firestore,
@@ -1017,14 +1017,14 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                             batchFirestore: (batch as any)._firestore,
                             batchFirestoreConstructor: (batch as any)._firestore?.constructor?.name
                         });
-                        
+
                         // Always add to primary's relatedPatientIds, regardless of whether relative has a phone
                         // Even if relative has a unique phone and becomes isPrimary: true, they are still a relative of the primary patient
                         batch.update(primaryPatientRef, {
                             relatedPatientIds: arrayUnion(newRelatedPatientRef.id),
                             updatedAt: serverTimestamp()
                         });
-                        
+
                         console.log('[DEBUG] batch.update called successfully');
 
                         patientForAppointmentId = newRelatedPatientRef.id;
@@ -1067,7 +1067,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                         params.set('slot', selectedSlot.toISOString());
                         params.set('patientId', patientForAppointmentId);
                         router.push(`/book-appointment/summary?${params.toString()}`);
-                        
+
                         // Commit update in background (patient already exists, so safe)
                         batch.commit().catch((error) => {
                             console.error("Error committing patient update:", error);
@@ -1255,14 +1255,13 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                                 <FormItem>
                                     <FormLabel>{t.common.phone}</FormLabel>
                                     <FormControl>
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">+91</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-medium text-foreground">+91</span>
                                             <Input
                                                 type="tel"
                                                 {...field}
                                                 disabled={isEditingPrimary || (addNewPatient && !primaryPatient)}
                                                 value={field.value || ''}
-                                                className="pl-12"
                                                 placeholder={t.patientForm.phonePlaceholder}
                                             />
                                         </div>

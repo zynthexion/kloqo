@@ -62,62 +62,7 @@ type BreakInterval = {
 };
 
 function buildBreakIntervals(doctor: Doctor | null, referenceDate: Date | null): BreakInterval[] {
-  if (!doctor?.leaveSlots || !referenceDate) {
-    return [];
-  }
-
-  const consultationTime = doctor.averageConsultingTime || 15;
-
-  const slotsForDay = (doctor.leaveSlots || [])
-    .map((leave) => {
-      if (typeof leave === 'string') {
-        try {
-          return parseISO(leave);
-        } catch {
-          return null;
-        }
-      }
-      if (leave && typeof (leave as any).toDate === 'function') {
-        try {
-          return (leave as any).toDate();
-        } catch {
-          return null;
-        }
-      }
-      if (leave instanceof Date) {
-        return leave;
-      }
-      return null;
-    })
-    .filter((date): date is Date => !!date && !isNaN(date.getTime()) && format(date, 'yyyy-MM-dd') === format(referenceDate, 'yyyy-MM-dd'))
-    .sort((a, b) => a.getTime() - b.getTime());
-
-  if (slotsForDay.length === 0) {
-    return [];
-  }
-
-  const intervals: BreakInterval[] = [];
-  let currentInterval: BreakInterval | null = null;
-
-  for (const slot of slotsForDay) {
-    if (!currentInterval) {
-      currentInterval = { start: slot, end: addMinutes(slot, consultationTime) };
-      continue;
-    }
-
-    if (slot.getTime() === currentInterval.end.getTime()) {
-      currentInterval.end = addMinutes(slot, consultationTime);
-    } else {
-      intervals.push(currentInterval);
-      currentInterval = { start: slot, end: addMinutes(slot, consultationTime) };
-    }
-  }
-
-  if (currentInterval) {
-    intervals.push(currentInterval);
-  }
-
-  return intervals;
+  return [];
 }
 
 function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
@@ -360,10 +305,10 @@ function WalkInRegistrationContent() {
         const errorMessage = err.message || "";
         const isSlotUnavailable = errorMessage.includes("Unable to allocate walk-in slot") ||
           errorMessage.includes("No walk-in slots are available");
-        
+
         // Check if within 15 minutes of closing
         const isNearClosing = isWithin15MinutesOfClosing(doctor, new Date());
-        
+
         // If slots unavailable OR near closing, offer force booking
         if (isSlotUnavailable || isNearClosing) {
           console.log('[FORCE BOOK] Triggering force book dialog:', { isSlotUnavailable, isNearClosing });
@@ -372,7 +317,7 @@ function WalkInRegistrationContent() {
           setIsSubmitting(false);
           return;
         }
-        
+
         toast({
           variant: "destructive",
           title: "Walk-in Unavailable",
@@ -520,7 +465,7 @@ function WalkInRegistrationContent() {
         numericToken = details.numericToken;
         slotIndex = details.slotIndex;
         isForceBooked = details.isForceBooked || false;
-        
+
         console.log('[FORCE BOOK] Successfully created overflow slot:', {
           slotIndex,
           time: format(estimatedTime, 'hh:mm a'),
@@ -566,11 +511,11 @@ function WalkInRegistrationContent() {
       const breakIntervals = getSessionBreakIntervals(doctor, appointmentDate, details.sessionIndex);
       const adjustedEstimatedTime = breakIntervals.length > 0
         ? breakIntervals.reduce((acc, interval) => {
-            if (acc.getTime() >= interval.start.getTime()) {
-              return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
-            }
-            return acc;
-          }, new Date(estimatedTime))
+          if (acc.getTime() >= interval.start.getTime()) {
+            return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
+          }
+          return acc;
+        }, new Date(estimatedTime))
         : estimatedTime;
 
       const adjustedEstimatedTimeStr = format(adjustedEstimatedTime, "hh:mm a");
@@ -636,11 +581,11 @@ function WalkInRegistrationContent() {
       const walkInTokenAllotment = clinicData?.walkInTokenAllotment || 5;
       let recalculatedDetails;
       const isAlreadyForceBooked = appointmentToSave?.isForceBooked || false;
-      
+
       try {
         recalculatedDetails = await calculateWalkInDetails(
           db,
-          doctor, 
+          doctor,
           walkInTokenAllotment,
           0,
           isAlreadyForceBooked // Use same force book status as initial calculation
@@ -1028,12 +973,12 @@ function WalkInRegistrationContent() {
               </AlertDialogTitle>
               <AlertDialogDescription className="space-y-2">
                 <p>
-                  {isWithin15MinutesOfClosing(doctor, new Date()) 
-                    ? "Walk-in booking is closing soon (within 15 minutes)." 
+                  {isWithin15MinutesOfClosing(doctor, new Date())
+                    ? "Walk-in booking is closing soon (within 15 minutes)."
                     : "All available slots are fully booked."}
                 </p>
                 <p className="font-semibold text-foreground">
-                  This booking will go outside the doctor's normal availability time. 
+                  This booking will go outside the doctor's normal availability time.
                   Do you want to accommodate this patient?
                 </p>
                 <p className="text-sm text-muted-foreground">

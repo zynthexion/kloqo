@@ -45,57 +45,9 @@ function buildSessionBreakIntervalsFromPeriods(
         .sort((a, b) => a.start.getTime() - b.start.getTime());
 }
 
-// Legacy leaveSlots-based intervals (kept as fallback)
+// function removed
 function buildBreakIntervals(doctor: Doctor | null, referenceDate: Date | null): BreakInterval[] {
-    if (!doctor?.leaveSlots || !referenceDate) return [];
-
-    const consultationTime = doctor.averageConsultingTime || 15;
-
-    const slotsForDay = (doctor.leaveSlots || [])
-        .map((leave) => {
-            if (typeof leave === 'string') {
-                try {
-                    return parseISO(leave);
-                } catch {
-                    return null;
-                }
-            }
-            if (leave && typeof (leave as any).toDate === 'function') {
-                try {
-                    return (leave as any).toDate();
-                } catch {
-                    return null;
-                }
-            }
-            if (leave instanceof Date) {
-                return leave;
-            }
-            return null;
-        })
-        .filter((date): date is Date => !!date && !isNaN(date.getTime()) && isSameDay(date, referenceDate))
-        .sort((a, b) => a.getTime() - b.getTime());
-
-    if (slotsForDay.length === 0) return [];
-
-    const intervals: BreakInterval[] = [];
-    let currentInterval: BreakInterval | null = null;
-
-    for (const slot of slotsForDay) {
-        if (!currentInterval) {
-            currentInterval = { start: slot, end: addMinutes(slot, consultationTime) };
-            continue;
-        }
-
-        if (slot.getTime() === currentInterval.end.getTime()) {
-            currentInterval.end = addMinutes(slot, consultationTime);
-        } else {
-            intervals.push(currentInterval);
-            currentInterval = { start: slot, end: addMinutes(slot, consultationTime) };
-        }
-    }
-
-    if (currentInterval) intervals.push(currentInterval);
-    return intervals;
+    return [];
 }
 
 function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {

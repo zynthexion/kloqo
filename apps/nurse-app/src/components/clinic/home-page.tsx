@@ -197,54 +197,19 @@ export default function HomePage() {
     // plus any break duration that falls within the last session window
     let breakMinutesInLastSession = 0;
     const consultationTime = currentDoctor.averageConsultingTime || 15;
-    if (currentDoctor.leaveSlots && currentDoctor.leaveSlots.length > 0) {
-      const slotsForToday = currentDoctor.leaveSlots
-        .map((leave) => {
-          if (typeof leave === 'string') {
-            try {
-              return parseISO(leave);
-            } catch {
-              return null;
-            }
-          }
-          if (leave && typeof (leave as any).toDate === 'function') {
-            try {
-              return (leave as any).toDate();
-            } catch {
-              return null;
-            }
-          }
-          if (leave instanceof Date) {
-            return leave;
-          }
-          return null;
-        })
-        .filter((date): date is Date => !!date && isSameDay(date, currentTime))
-        .sort((a, b) => a.getTime() - b.getTime());
+    if (currentDoctor.breakPeriods) {
+      const dateKey = format(currentTime, 'd MMMM yyyy');
+      const todaysBreaks = currentDoctor.breakPeriods[dateKey] || [];
 
-      if (slotsForToday.length > 0) {
-        // Build contiguous intervals
-        let currentStart = new Date(slotsForToday[0]);
-        let currentEnd = addMinutes(currentStart, consultationTime);
-        const intervals: { start: Date; end: Date }[] = [];
-        for (let i = 1; i < slotsForToday.length; i++) {
-          const slot = slotsForToday[i];
-          if (slot.getTime() === currentEnd.getTime()) {
-            currentEnd = addMinutes(currentEnd, consultationTime);
-          } else {
-            intervals.push({ start: currentStart, end: currentEnd });
-            currentStart = new Date(slot);
-            currentEnd = addMinutes(currentStart, consultationTime);
-          }
-        }
-        intervals.push({ start: currentStart, end: currentEnd });
+      for (const bp of todaysBreaks) {
+        const bpStart = parseISO(bp.startTime);
+        const bpEnd = parseISO(bp.endTime);
 
-        for (const interval of intervals) {
-          const overlapStart = interval.start > lastSessionStart ? interval.start : lastSessionStart;
-          const overlapEnd = interval.end < lastSessionEnd ? interval.end : lastSessionEnd;
-          if (overlapEnd > overlapStart) {
-            breakMinutesInLastSession += differenceInMinutes(overlapEnd, overlapStart);
-          }
+        const overlapStart = bpStart > lastSessionStart ? bpStart : lastSessionStart;
+        const overlapEnd = bpEnd < lastSessionEnd ? bpEnd : lastSessionEnd;
+
+        if (overlapEnd > overlapStart) {
+          breakMinutesInLastSession += differenceInMinutes(overlapEnd, overlapStart);
         }
       }
     }

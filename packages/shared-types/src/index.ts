@@ -8,10 +8,7 @@ export type AvailabilitySlot = {
     timeSlots: TimeSlot[];
 };
 
-export type LeaveSlot = {
-    date: string; // "yyyy-MM-dd"
-    slots: TimeSlot[];
-}
+// LeaveSlot removed
 
 export type BreakPeriod = {
     id: string;  // unique identifier, e.g., "break-1733289600000"
@@ -54,7 +51,7 @@ export type Doctor = {
     bio?: string;
     averageConsultingTime?: number;
     availabilitySlots?: AvailabilitySlot[];
-    leaveSlots?: any[]; // Allow for legacy and new leave slot formats
+    // leaveSlots removed
     degrees?: string[];
     experience?: number;
     rating?: number;

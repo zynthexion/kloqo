@@ -679,141 +679,67 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const isDoctorIn = doctor?.consultationStatus === 'In';
 
-    // Determine if leave slots indicate "late" (at start of availability) or "break" (in between)
     const doctorStatusInfo = useMemo(() => {
-        if (!yourAppointment || !doctor?.leaveSlots || !doctor?.availabilitySlots) {
+        if (!yourAppointment || !doctor?.availabilitySlots) {
             return { isLate: false, isBreak: false, isAffected: false };
         }
 
         try {
             const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
-            const appointmentDateStr = format(appointmentDateTime, 'yyyy-MM-dd');
+            const dateKey = format(appointmentDateTime, 'd MMMM yyyy');
+            const breaks = doctor.breakPeriods?.[dateKey] || [];
+
+            if (breaks.length === 0) return { isLate: false, isBreak: false, isAffected: false };
+
             const dayOfWeek = format(appointmentDateTime, 'EEEE');
-
-            // Get availability slots for the appointment day
             const dayAvailability = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
-            if (!dayAvailability) return { isLate: false, isBreak: false, isAffected: false };
+            if (!dayAvailability || !dayAvailability.timeSlots.length) return { isLate: false, isBreak: false, isAffected: false };
 
-            // Generate all time slots for this day based on availability
-            const consultationTime = doctor.averageConsultingTime || 15;
-            const allAvailabilitySlots: Date[] = [];
+            const firstSession = dayAvailability.timeSlots[0];
+            const firstSlotTime = parseTime(firstSession.from, appointmentDateTime);
 
-            dayAvailability.timeSlots.forEach(timeSlot => {
-                let currentTime = parseTime(timeSlot.from, appointmentDateTime);
-                const endTime = parseTime(timeSlot.to, appointmentDateTime);
-
-                while (currentTime < endTime) {
-                    allAvailabilitySlots.push(new Date(currentTime));
-                    currentTime = addMinutes(currentTime, consultationTime);
-                }
+            const affectingBreak = breaks.find((bp: any) => {
+                const start = parseISO(bp.startTime);
+                const end = parseISO(bp.endTime);
+                return isWithinInterval(appointmentDateTime, { start, end });
             });
 
-            if (allAvailabilitySlots.length === 0) return { isLate: false, isBreak: false, isAffected: false };
+            const isAffected = !!affectingBreak;
+            let isLate = false;
+            let isBreak = false;
 
-            // Parse leave slots for the appointment date
-            const leaveSlotsForDate = (doctor.leaveSlots || [])
-                .map(leave => {
-                    if (typeof leave === 'string') {
-                        return parseISO(leave);
-                    }
-                    if (leave && typeof (leave as any).toDate === 'function') {
-                        return (leave as any).toDate();
-                    }
-                    if (leave instanceof Date) {
-                        return leave;
-                    }
-                    return null;
-                })
-                .filter((date): date is Date => date !== null && !isNaN(date.getTime()))
-                .filter(date => format(date, 'yyyy-MM-dd') === appointmentDateStr)
-                .sort((a, b) => a.getTime() - b.getTime());
-
-            if (leaveSlotsForDate.length === 0) return { isLate: false, isBreak: false, isAffected: false };
-
-            // Check if leave slots are at the start (first slot or first few consecutive slots)
-            // Consider it "late" if leave slots are within the first 30 minutes (first 2 slots typically)
-            const firstSlotTime = allAvailabilitySlots[0]?.getTime();
-            const lateThreshold = 30 * 60 * 1000; // 30 minutes
-            const isLate = leaveSlotsForDate.some(leaveSlot => {
-                if (!firstSlotTime) return false;
-                const timeDiff = leaveSlot.getTime() - firstSlotTime;
-                return timeDiff >= 0 && timeDiff <= lateThreshold;
-            });
-
-            // Check if any leave slot is in the middle of availability (not at start)
-            // Group consecutive leave slots
-            const avgTime = consultationTime;
-            const leaveRanges: { start: Date; end: Date }[] = [];
-
-            if (leaveSlotsForDate.length > 0) {
-                let rangeStart = leaveSlotsForDate[0];
-                let rangeEnd = new Date(rangeStart.getTime() + avgTime * 60 * 1000);
-
-                for (let i = 1; i < leaveSlotsForDate.length; i++) {
-                    const currentSlot = leaveSlotsForDate[i];
-                    const expectedNextSlot = new Date(rangeEnd.getTime());
-
-                    if (Math.abs(currentSlot.getTime() - expectedNextSlot.getTime()) <= avgTime * 60 * 1000 * 2) {
-                        rangeEnd = new Date(currentSlot.getTime() + avgTime * 60 * 1000);
-                    } else {
-                        leaveRanges.push({ start: rangeStart, end: rangeEnd });
-                        rangeStart = currentSlot;
-                        rangeEnd = new Date(rangeStart.getTime() + avgTime * 60 * 1000);
-                    }
+            if (isAffected && affectingBreak) {
+                const bpStart = parseISO(affectingBreak.startTime);
+                if (differenceInMinutes(bpStart, firstSlotTime) <= 30) {
+                    isLate = true;
+                } else {
+                    isBreak = true;
                 }
-                leaveRanges.push({ start: rangeStart, end: rangeEnd });
             }
 
-            // Check if appointment is affected by any leave range
-            const isAffected = leaveRanges.some(range =>
-                isWithinInterval(appointmentDateTime, { start: range.start, end: range.end })
-            );
-
-            // Determine if it's a break (not at start) or late (at start)
-            // If leave is at start, it's late; if in middle, it's a break
-            const firstRangeStart = leaveRanges[0]?.start.getTime();
-            const isBreak = !isLate && isAffected; // Break if not late but affected
-
-            return {
-                isLate: isLate && isAffected,
-                isBreak: isBreak,
-                isAffected
-            };
+            return { isLate, isBreak, isAffected };
         } catch {
             return { isLate: false, isBreak: false, isAffected: false };
         }
     }, [yourAppointment, doctor]);
 
     const breakMinutes = useMemo(() => {
-        if (!yourAppointment || !doctor?.leaveSlots) return 0;
+        if (!yourAppointment || !doctor?.breakPeriods) return 0;
         try {
             const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
-            const appointmentDateStr = format(appointmentDateTime, 'yyyy-MM-dd');
-            const leaveSlotsForDate = (doctor.leaveSlots || [])
-                .map(leave => {
-                    if (typeof leave === 'string') return parseISO(leave);
-                    if (leave && typeof (leave as any).toDate === 'function') return (leave as any).toDate();
-                    if (leave instanceof Date) return leave;
-                    return null;
-                })
-                .filter((date): date is Date => date !== null && !isNaN(date.getTime()))
-                .filter(date => format(date, 'yyyy-MM-dd') === appointmentDateStr)
-                .sort((a, b) => a.getTime() - b.getTime());
+            const dateKey = format(appointmentDateTime, 'd MMMM yyyy');
+            const breaks = doctor.breakPeriods[dateKey] || [];
 
-            if (leaveSlotsForDate.length === 0) return 0;
+            if (breaks.length === 0) return 0;
 
-            // Calculate remaining break time from current time
             const now = new Date();
-            const avgTime = doctor.averageConsultingTime || 15;
 
-            // Find the last break slot
-            const lastBreakSlot = leaveSlotsForDate[leaveSlotsForDate.length - 1];
-            const breakEndTime = addMinutes(lastBreakSlot, avgTime);
-
-            // If break hasn't ended yet, calculate remaining minutes
-            if (isAfter(breakEndTime, now)) {
-                const remainingMinutes = differenceInMinutes(breakEndTime, now);
-                return Math.max(0, remainingMinutes);
+            for (const bp of breaks) {
+                const end = parseISO(bp.endTime);
+                const start = parseISO(bp.startTime);
+                if (isAfter(end, now) && isBefore(start, now)) {
+                    return Math.max(0, differenceInMinutes(end, now));
+                }
             }
 
             return 0;

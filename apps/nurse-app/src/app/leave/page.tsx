@@ -100,12 +100,10 @@ function MarkLeaveContent() {
     }, [doctor, selectedDate, clinicId, toast]);
 
 
-    const dailyLeaveSlots = useMemo(() => {
-        if (!doctor?.leaveSlots) return [];
-        return doctor.leaveSlots
-            .map(isoString => parseISO(isoString))
-            .filter(date => format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd'))
-            .map(date => date.getTime());
+    const dailyBreaks = useMemo(() => {
+        if (!doctor?.breakPeriods) return [];
+        const dateKey = format(selectedDate, 'd MMMM yyyy');
+        return doctor.breakPeriods[dateKey] || [];
     }, [doctor, selectedDate]);
 
     const workSessionsForDay = useMemo((): TimeSession[] => {
@@ -125,14 +123,20 @@ function MarkLeaveContent() {
     };
 
     const isSessionOnLeave = useCallback((session: TimeSession) => {
-        if (!doctor || dailyLeaveSlots.length === 0) return false;
+        if (!doctor || !doctor.breakPeriods) return false;
 
-        const start = parseTime(session.from, selectedDate);
-        const end = parseTime(session.to, selectedDate);
-        const intervalSlots = eachMinuteOfInterval({ start, end }, { step: doctor.averageConsultingTime || 15 });
+        const sessionStart = parseTime(session.from, selectedDate);
+        const sessionEnd = parseTime(session.to, selectedDate);
+        const dateKey = format(selectedDate, 'd MMMM yyyy');
+        const breaks = doctor.breakPeriods[dateKey] || [];
 
-        return intervalSlots.every(slot => dailyLeaveSlots.includes(slot.getTime()));
-    }, [dailyLeaveSlots, doctor, selectedDate]);
+        return breaks.some((bp: any) => {
+            const bpStart = parseISO(bp.startTime);
+            const bpEnd = parseISO(bp.endTime);
+            // Check if break covers the session approximately
+            return (bpStart <= sessionStart && bpEnd >= sessionEnd);
+        });
+    }, [doctor, selectedDate]);
 
 
     const handleSessionClick = (session: TimeSession) => {
@@ -166,21 +170,63 @@ function MarkLeaveContent() {
         try {
             const batch = writeBatch(db);
             const doctorRef = doc(db, 'doctors', doctor.id);
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
 
             const sessionsToMark = selectedSessions.filter(s => !isSessionOnLeave(s));
-            const slotsToMark = getSlotsFromSessions(sessionsToMark);
+
+            // Prepare new breaks
+            const newBreaks: any[] = [];
+            const consultationTime = doctor.averageConsultingTime || 15;
 
             sessionsToMark.forEach(session => {
+                const dayOfWeek = format(selectedDate, 'EEEE');
+                const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
+                const sessionIndex = availabilityForDay?.timeSlots.findIndex(s => s.from === session.from && s.to === session.to) ?? -1;
+
+                if (sessionIndex !== -1) {
+                    const start = parseTime(session.from, selectedDate);
+                    const end = parseTime(session.to, selectedDate);
+                    const duration = differenceInMinutes(end, start);
+
+                    const intervalSlots = eachMinuteOfInterval({ start, end }, { step: consultationTime });
+                    const slotStrings = intervalSlots.map(s => s.toISOString());
+
+                    const breakId = crypto.randomUUID();
+                    const breakPeriod = {
+                        id: breakId,
+                        startTime: start.toISOString(),
+                        endTime: end.toISOString(),
+                        duration: duration,
+                        slots: slotStrings,
+                        sessionIndex: sessionIndex,
+                        type: 'LEAVE',
+                        createdAt: new Date().toISOString()
+                    };
+                    newBreaks.push(breakPeriod);
+                }
+
+                // Cancel appointments
                 const appointmentsToCancel = getAppointmentsInSession(session);
                 appointmentsToCancel.forEach(appt => {
                     const apptRef = doc(db, 'appointments', appt.id);
                     batch.update(apptRef, { status: 'Cancelled', cancellationReason: 'DOCTOR_LEAVE' });
+
+                    if (typeof appt.slotIndex === 'number') {
+                        const reservationId = `${clinicId}_${doctor.name}_${dateKey}_slot_${appt.slotIndex}`
+                            .replace(/\s+/g, '_')
+                            .replace(/[^a-zA-Z0-9_]/g, '');
+                        const resRef = doc(db, 'slot-reservations', reservationId);
+                        batch.delete(resRef);
+                    }
                 });
             });
 
-            if (slotsToMark.length > 0) {
+            if (newBreaks.length > 0) {
+                const currentBreaks = doctor.breakPeriods?.[dateKey] || [];
+                const updatedBreaks = [...currentBreaks, ...newBreaks];
+
                 batch.update(doctorRef, {
-                    leaveSlots: arrayUnion(...slotsToMark)
+                    [`breakPeriods.${dateKey}`]: updatedBreaks
                 });
             }
 
@@ -188,10 +234,20 @@ function MarkLeaveContent() {
 
             toast({
                 title: 'Leave Marked Successfully',
-                description: `${sessionsToMark.length} session(s) have been marked as leave and appointments cancelled.`,
+                description: `${sessionsToMark.length} session(s) have been marked as leave.`,
             });
 
-            setDoctor(prev => prev ? ({ ...prev, leaveSlots: [...(prev.leaveSlots || []), ...slotsToMark] }) : null);
+            // Optimistic update
+            const currentBreaks = doctor.breakPeriods?.[dateKey] || [];
+            const updatedBreaks = [...currentBreaks, ...newBreaks];
+            setDoctor(prev => prev ? ({
+                ...prev,
+                breakPeriods: {
+                    ...(prev.breakPeriods || {}),
+                    [dateKey]: updatedBreaks
+                }
+            }) : null);
+
             setSelectedSessions([]);
 
         } catch (error) {
@@ -212,32 +268,60 @@ function MarkLeaveContent() {
         try {
             const batch = writeBatch(db);
             const doctorRef = doc(db, 'doctors', doctor.id);
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
 
             const sessionsToCancel = selectedSessions.filter(s => isSessionOnLeave(s));
-            const slotsToCancel = getSlotsFromSessions(sessionsToCancel);
+            const currentBreaks = doctor.breakPeriods?.[dateKey] || [];
 
-            const allCancelledAppointmentsQuery = query(collection(db, "appointments"),
+            let breaksToRemove: any[] = [];
+            const breaksToKeep: any[] = []; // Not strict arrayRemove, calculate diff
+
+            currentBreaks.forEach((bp: any) => {
+                const bpStart = parseISO(bp.startTime);
+                const bpEnd = parseISO(bp.endTime);
+
+                const matched = sessionsToCancel.some(session => {
+                    const sStart = parseTime(session.from, selectedDate);
+                    const sEnd = parseTime(session.to, selectedDate);
+                    return Math.abs(differenceInMinutes(bpStart, sStart)) < 2 && Math.abs(differenceInMinutes(bpEnd, sEnd)) < 2;
+                });
+
+                if (matched) {
+                    breaksToRemove.push(bp);
+                } else {
+                    breaksToKeep.push(bp);
+                }
+            });
+
+            // Restore appointments
+            const cancelledAppointmentsQuery = query(collection(db, "appointments"),
                 where('doctor', '==', doctor.name),
                 where('clinicId', '==', clinicId),
-                where('date', '==', format(selectedDate, 'd MMMM yyyy')),
+                where('date', '==', dateKey),
                 where('status', '==', 'Cancelled'),
                 where('cancellationReason', '==', 'DOCTOR_LEAVE')
             );
 
-            const cancelledSnapshot = await getDocs(allCancelledAppointmentsQuery);
+            const cancelledSnapshot = await getDocs(cancelledAppointmentsQuery);
             const appointmentsToRestore = cancelledSnapshot.docs.filter(docSnap => {
                 const appt = docSnap.data();
-                const apptTime = parseAppointmentDateTime(appt.date, appt.time).getTime();
-                return slotsToCancel.some(slotISO => parseISO(slotISO).getTime() === apptTime);
+                const apptTime = parseAppointmentDateTime(appt.date, appt.time).getTime(); // Reusing util
+                // Check if apptTime is within any of the sessionsToCancel
+                return sessionsToCancel.some(session => {
+                    const start = parseTime(session.from, selectedDate);
+                    const end = parseTime(session.to, selectedDate);
+                    return isWithinInterval(new Date(apptTime), { start, end });
+                });
             });
 
             appointmentsToRestore.forEach(docSnap => {
                 batch.update(docSnap.ref, { status: 'Pending', cancellationReason: null });
             });
 
-            if (slotsToCancel.length > 0) {
+
+            if (breaksToRemove.length > 0) {
                 batch.update(doctorRef, {
-                    leaveSlots: arrayRemove(...slotsToCancel)
+                    [`breakPeriods.${dateKey}`]: breaksToKeep
                 });
             }
 
@@ -248,8 +332,14 @@ function MarkLeaveContent() {
                 description: `${sessionsToCancel.length} leave session(s) have been canceled and appointments restored.`,
             });
 
-            const newLeaveSlots = (doctor.leaveSlots || []).filter(iso => !slotsToCancel.includes(iso));
-            setDoctor(prev => prev ? ({ ...prev, leaveSlots: newLeaveSlots }) : null);
+            setDoctor(prev => prev ? ({
+                ...prev,
+                breakPeriods: {
+                    ...(prev.breakPeriods || {}),
+                    [dateKey]: breaksToKeep
+                }
+            }) : null);
+
             setSelectedSessions([]);
         } catch (error) {
             console.error("Error canceling leave:", error);

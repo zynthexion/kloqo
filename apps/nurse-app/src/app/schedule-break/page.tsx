@@ -80,39 +80,23 @@ function ScheduleBreakContent() {
         setClinicId(id);
     }, [router]);
 
-    // Legacy leave slots for cancel button visibility; derived from breakPeriods when present
+    // Derived from breakPeriods for UI compatibility
     const dailyLeaveSlots = useMemo(() => {
         if (doctor?.breakPeriods) {
             const dateKey = format(selectedDate, 'd MMMM yyyy');
             const breaks = doctor.breakPeriods[dateKey] || [];
-            const slots = breaks.flatMap(bp => bp.slots || []);
+            const slots = breaks.flatMap((bp: any) => bp.slots || []);
             return slots
-                .map(slot => {
+                .map((slot: string) => {
                     try {
                         return parseISO(slot).getTime();
                     } catch {
                         return NaN;
                     }
                 })
-                .filter(ts => !isNaN(ts));
+                .filter((ts: number) => !isNaN(ts));
         }
-
-        if (!doctor?.leaveSlots) return [];
-        return doctor.leaveSlots
-            .map(leave => {
-                if (typeof leave === 'string') {
-                    return parseISO(leave);
-                }
-                if (leave && typeof (leave as any).toDate === 'function') {
-                    return (leave as any).toDate();
-                }
-                if (leave instanceof Date) {
-                    return leave;
-                }
-                return new Date(NaN); // Return invalid date for unknown types
-            })
-            .filter(date => !isNaN(date.getTime()) && format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd'))
-            .map(date => date.getTime());
+        return [];
     }, [doctor, selectedDate]);
 
     // Compute current session, breaks, and available slots
@@ -747,20 +731,9 @@ function ScheduleBreakContent() {
                 }
             }
 
-            const allBreakSlots = mergedBreaks.flatMap((b: BreakPeriod) => b.slots);
-            const updatedLeaveSlots = [...(doctor.leaveSlots || []).filter(slot => {
-                try {
-                    const d = typeof slot === 'string' ? parseISO(slot) : (slot as any).toDate ? (slot as any).toDate() : slot;
-                    return !isSameDay(d, selectedDate);
-                } catch {
-                    return true;
-                }
-            }), ...allBreakSlots];
-
             await updateDoc(doctorRef, {
                 breakPeriods,
-                availabilityExtensions,
-                leaveSlots: updatedLeaveSlots
+                availabilityExtensions
             });
 
             try {

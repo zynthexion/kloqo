@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { doc, updateDoc, collection, getDocs, setDoc, getDoc, query, where, writeBatch, arrayRemove, Timestamp, serverTimestamp } from "firebase/firestore";
 import { db, storage } from "@/lib/firebase";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import type { Doctor, Appointment, LeaveSlot, Department, TimeSlot, BreakPeriod } from "@kloqo/shared-types";
+import type { Doctor, Appointment, Department, TimeSlot, BreakPeriod } from "@kloqo/shared-types";
 import {
   getCurrentActiveSession,
   getAvailableBreakSlots,
@@ -659,70 +659,9 @@ export default function DoctorsPage() {
     startTransition(async () => {
       const doctorRef = doc(db, "doctors", selectedDoctor.id);
       try {
-        // deprecated: leaveSlots
-        const existingLeaveSlots: any[] = [];
-        const cleanedLeaveSlots: (LeaveSlot | string)[] = [];
-
-        for (const leave of existingLeaveSlots) {
-          let leaveDate: Date;
-          let isStringFormat = false;
-
-          if (typeof leave === 'string') {
-            leaveDate = parseISO(leave);
-            isStringFormat = true;
-          } else if (leave && leave.date && Array.isArray(leave.slots)) {
-            leaveDate = parse(leave.date, 'yyyy-MM-dd', new Date());
-          } else {
-            continue;
-          }
-
-          if (isNaN(leaveDate.getTime())) continue;
-
-          const dayName = format(leaveDate, 'EEEE');
-          const availabilityForDay = newAvailabilitySlots.find(s => s.day === dayName);
-
-          if (!availabilityForDay) {
-            continue;
-          }
-
-          if (isStringFormat) {
-            const leaveTime = leaveDate;
-            const isContained = availabilityForDay.timeSlots.some(availableSlot => {
-              const availableStart = parse(availableSlot.from, "hh:mm a", new Date());
-              const availableEnd = parse(availableSlot.to, "hh:mm a", new Date());
-              return isWithinInterval(leaveTime, { start: availableStart, end: availableEnd });
-            });
-            if (isContained) {
-              cleanedLeaveSlots.push(leave);
-            }
-          } else {
-            const validLeaveSubSlots: TimeSlot[] = [];
-            for (const leaveSubSlot of (leave as LeaveSlot).slots) {
-              const leaveStart = parse(leaveSubSlot.from, "hh:mm a", new Date());
-              const leaveEnd = parse(leaveSubSlot.to, "hh:mm a", new Date());
-              if (isNaN(leaveStart.getTime()) || isNaN(leaveEnd.getTime())) continue;
-
-              const isContained = availabilityForDay.timeSlots.some(availableSlot => {
-                const availableStart = parse(availableSlot.from, "hh:mm a", new Date());
-                const availableEnd = parse(availableSlot.to, "hh:mm a", new Date());
-                return isWithinInterval(leaveStart, { start: availableStart, end: availableEnd }) &&
-                  isWithinInterval(leaveEnd, { start: availableStart, end: availableEnd });
-              });
-
-              if (isContained) {
-                validLeaveSubSlots.push(leaveSubSlot);
-              }
-            }
-            if (validLeaveSubSlots.length > 0) {
-              cleanedLeaveSlots.push({ ...(leave as LeaveSlot), slots: validLeaveSubSlots });
-            }
-          }
-        }
-
         await updateDoc(doctorRef, {
           availabilitySlots: newAvailabilitySlots,
           schedule: scheduleString,
-
         });
 
         const updatedDoctor = { ...selectedDoctor, availabilitySlots: newAvailabilitySlots, schedule: scheduleString, breakPeriods: selectedDoctor.breakPeriods };
@@ -956,11 +895,7 @@ export default function DoctorsPage() {
     setBreakEndSlot(null);
   }, [selectedDoctor, leaveCalDate]);
 
-  // LEGACY: Keep dailyLeaveSlots for backward compatibility with old UI code
-  const dailyLeaveSlots = useMemo(() => {
-    // deprecated: leaveSlots - return empty array since we use breakPeriods now
-    return [];
-  }, [leaveCalDate]);
+  const dailyLeaveSlots: any[] = [];
 
   const canCancelBreak = useMemo(() => {
     return true;

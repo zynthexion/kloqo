@@ -42,50 +42,7 @@ type BreakInterval = {
 };
 
 function buildBreakIntervals(doctor: Doctor | null, targetDate: Date | null): BreakInterval[] {
-    if (!doctor || !targetDate || !doctor.leaveSlots?.length) {
-        return [];
-    }
-
-    const slotDuration = doctor.averageConsultingTime || 15;
-    const normalizedSlots = doctor.leaveSlots
-        .map((leave) => {
-            if (typeof leave === 'string') {
-                const parsed = parseISO(leave);
-                return isNaN(parsed.getTime()) ? null : parsed;
-            }
-            if (leave && typeof (leave as any).toDate === 'function') {
-                const parsed = (leave as any).toDate();
-                return isNaN(parsed.getTime()) ? null : parsed;
-            }
-            if (leave instanceof Date) {
-                return isNaN(leave.getTime()) ? null : leave;
-            }
-            return null;
-        })
-        .filter((date): date is Date => !!date && isSameDay(date, targetDate))
-        .sort((a, b) => a.getTime() - b.getTime());
-
-    if (normalizedSlots.length === 0) {
-        return [];
-    }
-
-    const intervals: BreakInterval[] = [];
-    let currentStart = new Date(normalizedSlots[0]);
-    let currentEnd = addMinutes(currentStart, slotDuration);
-
-    for (let i = 1; i < normalizedSlots.length; i++) {
-        const slot = normalizedSlots[i];
-        if (slot.getTime() === currentEnd.getTime()) {
-            currentEnd = addMinutes(currentEnd, slotDuration);
-        } else {
-            intervals.push({ start: currentStart, end: currentEnd });
-            currentStart = new Date(slot);
-            currentEnd = addMinutes(currentStart, slotDuration);
-        }
-    }
-
-    intervals.push({ start: currentStart, end: currentEnd });
-    return intervals;
+    return [];
 }
 
 function applyBreakOffsets(baseTime: Date, intervals: BreakInterval[]): Date {

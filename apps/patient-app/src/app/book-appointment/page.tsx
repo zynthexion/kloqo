@@ -939,6 +939,13 @@ function BookAppointmentContent() {
                     return;
                 }
 
+                // Skip slots blocked by breaks (same as sessionSlots)
+                const isBlocked = isSlotBlockedByLeave(doctor, slot);
+                if (isBlocked) {
+                    currentGlobalIndex++;
+                    return;
+                }
+
                 // Check same-day booking cutoff
                 // Never show any slots (regular or cancelled) inside the 1-hour window
                 if (isSameDay(selectedDate, now)) {

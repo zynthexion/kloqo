@@ -890,6 +890,10 @@ function BookAppointmentContent() {
                 // Skip reserved slots (same as sessionSlots)
                 if (sessionReservedSlots.has(globalSlotIndexForThisSlot)) return;
 
+                // Skip slots blocked by breaks (same as sessionSlots line 635-638)
+                const isBlocked = isSlotBlockedByLeave(doctor, slot);
+                if (isBlocked) return;
+
                 // Filter out slots where slot time + break duration would be outside availability
                 const adjustedTime = slot;
 

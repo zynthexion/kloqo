@@ -1304,7 +1304,7 @@ function BookingSummaryPage() {
                                     <div className="flex items-center gap-2">
                                         <Clock className="w-4 h-4 text-muted-foreground" />
                                         <div className="text-center">
-                                            <span className="text-xs text-muted-foreground block">Session Time</span>
+                                            <span className="text-xs text-muted-foreground block">Arrive by</span>
                                             <p className="text-sm font-medium">
                                                 {(() => {
                                                     try {
@@ -1318,14 +1318,31 @@ function BookingSummaryPage() {
                                                             ? applyBreakOffsets(baseTime, breakIntervals)
                                                             : baseTime;
                                                         const adjusted = subMinutes(adjustedBaseTime, 15);
-                                                        const sessionEnd = findSessionEndTime(effectiveDoctor, baseTime);
-                                                        return sessionEnd ? `${format(adjusted, "hh:mm a")} - ${sessionEnd}` : format(adjusted, "hh:mm a");
+                                                        return format(adjusted, "hh:mm a");
                                                     } catch {
                                                         return appointmentArriveByTime || appointmentTime;
                                                     }
                                                 })()}
                                             </p>
                                         </div>
+                                    </div>
+                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
+                                        <p className="text-xs font-bold text-red-600 text-center">
+                                            ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
+                                                try {
+                                                    if (noShowTime) {
+                                                        return format(noShowTime, 'hh:mm a');
+                                                    }
+                                                    // Fallback to calculated time if noShowTime not available
+                                                    const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
+                                                    const aptTime = parse(appointmentTime, "hh:mm a", aptDate);
+                                                    const noShowFallback = addMinutes(aptTime, 30);
+                                                    return format(noShowFallback, 'hh:mm a');
+                                                } catch {
+                                                    return '30 minutes';
+                                                }
+                                            })())}
+                                        </p>
                                     </div>
 
                                 </div>

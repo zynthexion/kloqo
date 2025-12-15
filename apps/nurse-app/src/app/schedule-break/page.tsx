@@ -161,9 +161,9 @@ function ScheduleBreakContent() {
 
         if (session) {
             setCurrentSession(session);
-            const breaks = getSessionBreaks(doctor, selectedDate, session.sessionIndex);
             setExistingBreaks(breaks);
-            const slots = getAvailableBreakSlots(doctor, now, selectedDate, session);
+            // Pass appointments to check for blocked slots (Completed/Pending/Confirmed)
+            const slots = getAvailableBreakSlots(doctor, now, selectedDate, session, appointments);
             setAvailableSlots(slots);
         } else {
             setCurrentSession(null);
@@ -173,7 +173,7 @@ function ScheduleBreakContent() {
 
         setBreakStartSlot(null);
         setBreakEndSlot(null);
-    }, [doctor, selectedDate]);
+    }, [doctor, selectedDate, appointments]);
 
     const canCancelBreak = useMemo(() => {
         return true;
@@ -1018,7 +1018,7 @@ function ScheduleBreakContent() {
                                                     key={slot.isoString}
                                                     variant={isSelected ? 'default' : 'outline'}
                                                     className={cn(
-                                                        "h-auto py-2 flex-col",
+                                                        "h-auto py-3 flex-col gap-0.5",
                                                         isSelected && 'bg-destructive/80 hover:bg-destructive text-white',
                                                         slot.isTaken && 'bg-red-200 text-red-800 border-red-300 cursor-not-allowed',
                                                         !isSelected && !slot.isTaken && 'hover:bg-accent'
@@ -1026,8 +1026,10 @@ function ScheduleBreakContent() {
                                                     onClick={() => handleSlotClick(slot)}
                                                     disabled={slot.isTaken}
                                                 >
-                                                    <span className="font-semibold">{slot.timeFormatted}</span>
-                                                    {slot.isTaken && <span className="text-xs">Break</span>}
+                                                    <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                                    <span className="text-[10px] opacity-70">to</span>
+                                                    <span className="font-semibold text-xs">{format(addMinutes(slot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}</span>
+                                                    {slot.isTaken && <span className="text-xs mt-1">Break</span>}
                                                 </Button>
                                             );
                                         })}
@@ -1046,7 +1048,7 @@ function ScheduleBreakContent() {
                         ) : breakStartSlot && !breakEndSlot ? (
                             "Select an end time for the break."
                         ) : breakStartSlot && breakEndSlot ? (
-                            `New break: ${breakStartSlot.timeFormatted} to ${breakEndSlot.timeFormatted}`
+                            `New break: ${format(breakStartSlot.time, 'hh:mm a')} to ${format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}`
                         ) : (
                             "Select a start and end time for the break."
                         )}

@@ -2705,7 +2705,7 @@ export default function AppointmentsPage() {
       .filter(apt =>
         apt.doctor === selectedDoctor.name &&
         apt.date === formattedDate &&
-        (apt.status === 'Pending' || apt.status === 'Confirmed')
+        (apt.status === 'Pending' || apt.status === 'Confirmed' || apt.status === 'Completed')
       )
       .reduce((acc, apt) => {
         acc[apt.time] = apt.tokenNumber || apt.time; // Map time to token number
@@ -2724,7 +2724,7 @@ export default function AppointmentsPage() {
         .filter(apt =>
           apt.doctor === selectedDoctor.name &&
           apt.date === formattedDate &&
-          (apt.status === 'Pending' || apt.status === 'Confirmed') &&
+          (apt.status === 'Pending' || apt.status === 'Confirmed' || apt.status === 'Completed') &&
           typeof apt.slotIndex === 'number'
         )
         .map(apt => apt.slotIndex as number)
@@ -3991,7 +3991,7 @@ export default function AppointmentsPage() {
                                                           const slotTime = parseDateFns(slot.time, "hh:mm a", selectedDate || new Date());
                                                           // Display slot time directly
                                                           const displayTime = slotTime;
-                                                          return format(subMinutes(displayTime, 15), 'hh:mm a');
+                                                          return format(displayTime, 'hh:mm a');
                                                         } catch {
                                                           return slot.time;
                                                         }

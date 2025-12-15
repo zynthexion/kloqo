@@ -174,11 +174,6 @@ export async function shiftAppointmentsForNewBreak(
             }
         }
 
-        if (dynamicShiftAmount === 0 && displacedAppointments.length === 0) {
-            console.log('[BREAK SERVICE] Redundant break. No changes.');
-            return;
-        }
-
         // 2. REACTIVATE CANCELLED BREAK-BLOCKS PHASE
         // Before creating new dummy appointments, reactivate any cancelled break-blocks
         // that fall within the new break period
@@ -257,6 +252,13 @@ export async function shiftAppointmentsForNewBreak(
             await reactivateBatch.commit();
             console.log(`[BREAK SERVICE] ✅ Reactivated ${reactivatedCount} cancelled break-blocks`);
         }
+
+        // Check if we need to proceed with shifting
+        if (dynamicShiftAmount === 0 && displacedAppointments.length === 0 && reactivatedCount === 0) {
+            console.log('[BREAK SERVICE] Redundant break. No changes.');
+            return;
+        }
+
 
         // 3. SHIFT PHASE
         snapshot.docs.forEach(docSnap => {

@@ -182,32 +182,78 @@ export async function shiftAppointmentsForNewBreak(
         // 2. REACTIVATE CANCELLED BREAK-BLOCKS PHASE
         // Before creating new dummy appointments, reactivate any cancelled break-blocks
         // that fall within the new break period
+        console.log('[BREAK SERVICE] 🔍 Starting reactivation phase');
+        console.log('[BREAK SERVICE] Break period:', {
+            start: format(breakStart, 'hh:mm a'),
+            end: format(breakEnd, 'hh:mm a'),
+            duration: breakDuration
+        });
+        console.log('[BREAK SERVICE] Total appointments found:', snapshot.docs.length);
+
         const reactivateBatch = writeBatch(db);
         let reactivatedCount = 0;
+        let cancelledBreakBlocksFound = 0;
 
         snapshot.docs.forEach(docSnap => {
             const appt = docSnap.data() as Appointment;
+
+            // Debug: Log all appointments
+            console.log('[BREAK SERVICE] Checking appointment:', {
+                id: docSnap.id,
+                time: appt.time,
+                status: appt.status,
+                cancelledByBreak: appt.cancelledByBreak,
+                slotIndex: appt.slotIndex
+            });
+
             // Only process cancelled break-blocks
-            if (!(appt.cancelledByBreak === true && appt.status === 'Cancelled')) return;
+            if (!(appt.cancelledByBreak === true && appt.status === 'Cancelled')) {
+                console.log('[BREAK SERVICE] ❌ Skipping - not a cancelled break-block');
+                return;
+            }
+
+            cancelledBreakBlocksFound++;
+            console.log('[BREAK SERVICE] ✓ Found cancelled break-block');
 
             const baseTimeStr = appt.arriveByTime || appt.time;
-            if (!baseTimeStr) return;
+            if (!baseTimeStr) {
+                console.log('[BREAK SERVICE] ❌ Skipping - no time string');
+                return;
+            }
 
             const apptArriveBy = parseTime(baseTimeStr, date);
             apptArriveBy.setSeconds(0, 0);
 
+            console.log('[BREAK SERVICE] Time comparison:', {
+                apptTime: format(apptArriveBy, 'hh:mm a'),
+                apptTimestamp: apptArriveBy.getTime(),
+                breakStartTimestamp: breakStart.getTime(),
+                breakEndTimestamp: breakEnd.getTime(),
+                isWithinBreak: apptArriveBy.getTime() >= breakStart.getTime() && apptArriveBy.getTime() < breakEnd.getTime()
+            });
+
             // Check if this cancelled break-block falls within the new break period
             if (apptArriveBy.getTime() >= breakStart.getTime() &&
                 apptArriveBy.getTime() < breakEnd.getTime()) {
+                console.log('[BREAK SERVICE] ✅ Reactivating appointment:', docSnap.id);
                 // Reactivate this break-block by changing status back to Completed
                 reactivateBatch.update(docSnap.ref, {
                     status: 'Completed'
                 });
                 reactivatedCount++;
+            } else {
+                console.log('[BREAK SERVICE] ❌ Outside break period, not reactivating');
             }
         });
 
+        console.log('[BREAK SERVICE] Summary:', {
+            totalAppointments: snapshot.docs.length,
+            cancelledBreakBlocksFound,
+            reactivatedCount
+        });
+
         if (reactivatedCount > 0) {
+            console.log('[BREAK SERVICE] 💾 Committing reactivation batch...');
             await reactivateBatch.commit();
             console.log(`[BREAK SERVICE] ✅ Reactivated ${reactivatedCount} cancelled break-blocks`);
         }

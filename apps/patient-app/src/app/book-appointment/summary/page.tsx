@@ -955,14 +955,14 @@ function BookingSummaryPage() {
                 console.error('Error calculating inherited delay:', error);
             }
 
-            const cutOffTime = subMinutes(adjustedAppointmentDateTime, 15);
-            const noShowTime = addMinutes(adjustedAppointmentDateTime, 15 + inheritedDelay);
+            const cutOffTime = subMinutes(resolvedAppointmentDateTime, 15);
+            const noShowTime = addMinutes(resolvedAppointmentDateTime, 15 + inheritedDelay);
 
             const finalAppointmentData: Appointment = {
                 ...baseAppointmentData,
                 // Keep original slot time in `time`, adjusted time only for arriveBy/cutoff/noshow
                 time: resolvedTimeString,
-                arriveByTime: adjustedTimeString,
+                arriveByTime: resolvedTimeString,
                 slotIndex: actualSlotIndex,
                 sessionIndex: resolvedSessionIndex,
                 tokenNumber,

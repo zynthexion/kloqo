@@ -65,7 +65,8 @@ export async function shiftAppointmentsForNewBreak(
 
         snapshot.docs.forEach(docSnap => {
             const appt = docSnap.data() as Appointment;
-            if (appt.status === 'Cancelled') return;
+            // Skip cancelled appointments UNLESS they are cancelled break-blocks (we'll reuse those)
+            if (appt.status === 'Cancelled' && !appt.cancelledByBreak) return;
 
             const baseTimeStr = appt.arriveByTime || appt.time;
             if (!baseTimeStr) return;
@@ -178,10 +179,43 @@ export async function shiftAppointmentsForNewBreak(
             return;
         }
 
-        // 2. SHIFT PHASE
+        // 2. REACTIVATE CANCELLED BREAK-BLOCKS PHASE
+        // Before creating new dummy appointments, reactivate any cancelled break-blocks
+        // that fall within the new break period
+        const reactivateBatch = writeBatch(db);
+        let reactivatedCount = 0;
+
         snapshot.docs.forEach(docSnap => {
             const appt = docSnap.data() as Appointment;
-            // SAFETY CHECK: Never shift an appointment that was already cancelled by a break (History)
+            // Only process cancelled break-blocks
+            if (!(appt.cancelledByBreak === true && appt.status === 'Cancelled')) return;
+
+            const baseTimeStr = appt.arriveByTime || appt.time;
+            if (!baseTimeStr) return;
+
+            const apptArriveBy = parseTime(baseTimeStr, date);
+            apptArriveBy.setSeconds(0, 0);
+
+            // Check if this cancelled break-block falls within the new break period
+            if (apptArriveBy.getTime() >= breakStart.getTime() &&
+                apptArriveBy.getTime() < breakEnd.getTime()) {
+                // Reactivate this break-block by changing status back to Completed
+                reactivateBatch.update(docSnap.ref, {
+                    status: 'Completed'
+                });
+                reactivatedCount++;
+            }
+        });
+
+        if (reactivatedCount > 0) {
+            await reactivateBatch.commit();
+            console.log(`[BREAK SERVICE] ✅ Reactivated ${reactivatedCount} cancelled break-blocks`);
+        }
+
+        // 3. SHIFT PHASE
+        snapshot.docs.forEach(docSnap => {
+            const appt = docSnap.data() as Appointment;
+            // SAFETY CHECK: Never shift an appointment that was cancelled by a break
             if (appt.cancelledByBreak) return;
             // Skip if already cancelled (standard check)
             if (appt.status === 'Cancelled') return;
@@ -289,12 +323,16 @@ export async function shiftAppointmentsForNewBreak(
 
         // --- NEW LOGIC: Create Dummy Appointments for Empty Slots in Break ---
         try {
-            // Re-scan strictly for blocking slots (cancelledByBreak items)
+            // Re-fetch appointments to get updated status after reactivation
+            const updatedSnapshot = await getDocs(appointmentsQuery);
+
+            // Re-scan strictly for blocking slots (cancelledByBreak items with status Completed)
             // Active items are moving, so they don't block.
             const existingSlots = new Set<number>();
-            snapshot.docs.forEach(doc => {
+            updatedSnapshot.docs.forEach(doc => {
                 const d = doc.data();
-                if (typeof d.slotIndex === 'number' && d.cancelledByBreak) {
+                // Include both newly blocked slots and reactivated break-blocks
+                if (typeof d.slotIndex === 'number' && d.cancelledByBreak && d.status === 'Completed') {
                     existingSlots.add(d.slotIndex);
                 }
             });

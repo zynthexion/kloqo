@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import { AuthGuard } from '@/components/auth-guard';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { format, subMinutes } from 'date-fns';
+import { format, subMinutes, parse, isSameDay } from 'date-fns';
 import { ArrowLeft, Calendar, Clock, Loader2 } from 'lucide-react';
 
 import { useFirestore } from '@/firebase';
@@ -27,6 +27,34 @@ import { getDoctorFromCache, saveDoctorToCache } from '@/lib/doctor-cache';
 
 // Prevent static generation - this page requires Firebase context
 export const dynamic = 'force-dynamic';
+
+// Helper function to find session end time for a given slot (returns arrive-by time)
+function findSessionEndTime(doctor: Doctor | null, selectedSlot: Date | null): string | null {
+    if (!doctor || !selectedSlot) return null;
+
+    const dayOfWeek = format(selectedSlot, 'EEEE');
+    const availabilitySlot = doctor.availabilitySlots?.find((slot: any) => slot.day === dayOfWeek);
+
+    if (!availabilitySlot?.timeSlots) return null;
+
+    // Find which session the slot belongs to
+    for (const session of availabilitySlot.timeSlots) {
+        try {
+            const sessionStart = parse(session.from, 'hh:mm a', selectedSlot);
+            const sessionEnd = parse(session.to, 'hh:mm a', selectedSlot);
+
+            // Check if selected slot falls within this session
+            if (selectedSlot >= sessionStart && selectedSlot <= sessionEnd) {
+                // Return session end minus 15 minutes (arrive-by time)
+                return format(subMinutes(sessionEnd, 15), 'hh:mm a');
+            }
+        } catch (e) {
+            continue;
+        }
+    }
+
+    return null;
+}
 
 function AppointmentDetailsContent() {
     const router = useRouter();
@@ -172,8 +200,13 @@ function AppointmentDetailsContent() {
                                         <div className="flex items-center gap-3">
                                             <Clock className="w-5 h-5 text-primary" />
                                             <div>
-                                                <span className="text-xs text-muted-foreground block">Arrive by</span>
-                                                <span className="font-semibold">{format(subMinutes(selectedSlot, 15), 'hh:mm a')}</span>
+                                                <span className="text-xs text-muted-foreground block">Session Time</span>
+                                                <span className="font-semibold">
+                                                    {format(subMinutes(selectedSlot, 15), 'hh:mm a')}
+                                                    {findSessionEndTime(doctor || cachedDoctor, selectedSlot) && (
+                                                        <> - {findSessionEndTime(doctor || cachedDoctor, selectedSlot)}</>
+                                                    )}
+                                                </span>
                                             </div>
                                         </div>
                                     </>

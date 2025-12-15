@@ -30,6 +30,7 @@ import { LottieAnimation } from '@/components/lottie-animation';
 import successAnimation from '@/lib/animations/success.json';
 import { getDoctorFromCache, saveDoctorToCache } from '@/lib/doctor-cache';
 import { getPatientFromCache, savePatientToCache } from '@/lib/patient-cache';
+import { AuthGuard } from '@/components/auth-guard';
 
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -57,7 +58,33 @@ function applyBreakOffsets(baseTime: Date, intervals: BreakInterval[]): Date {
 // Prevent static generation - this page requires Firebase context
 export const dynamic = 'force-dynamic';
 
-import { AuthGuard } from '@/components/auth-guard';
+// Helper function to find session end time for a given slot (returns arrive-by time)
+function findSessionEndTime(doctor: Doctor | null, selectedSlot: Date | null): string | null {
+    if (!doctor || !selectedSlot) return null;
+
+    const dayOfWeek = format(selectedSlot, 'EEEE');
+    const availabilitySlot = doctor.availabilitySlots?.find((slot: any) => slot.day === dayOfWeek);
+
+    if (!availabilitySlot?.timeSlots) return null;
+
+    // Find which session the slot belongs to
+    for (const session of availabilitySlot.timeSlots) {
+        try {
+            const sessionStart = parse(session.from, 'hh:mm a', selectedSlot);
+            const sessionEnd = parse(session.to, 'hh:mm a', selectedSlot);
+
+            // Check if selected slot falls within this session
+            if (selectedSlot >= sessionStart && selectedSlot <= sessionEnd) {
+                // Return session end minus 15 minutes (arrive-by time)
+                return format(subMinutes(sessionEnd, 15), 'hh:mm a');
+            }
+        } catch (e) {
+            continue;
+        }
+    }
+
+    return null;
+}
 
 function BookingSummaryPage() {
 
@@ -1277,7 +1304,7 @@ function BookingSummaryPage() {
                                     <div className="flex items-center gap-2">
                                         <Clock className="w-4 h-4 text-muted-foreground" />
                                         <div className="text-center">
-                                            <span className="text-xs text-muted-foreground block">Arrive by</span>
+                                            <span className="text-xs text-muted-foreground block">Session Time</span>
                                             <p className="text-sm font-medium">
                                                 {(() => {
                                                     try {
@@ -1291,7 +1318,8 @@ function BookingSummaryPage() {
                                                             ? applyBreakOffsets(baseTime, breakIntervals)
                                                             : baseTime;
                                                         const adjusted = subMinutes(adjustedBaseTime, 15);
-                                                        return format(adjusted, "hh:mm a");
+                                                        const sessionEnd = findSessionEndTime(effectiveDoctor, baseTime);
+                                                        return sessionEnd ? `${format(adjusted, "hh:mm a")} - ${sessionEnd}` : format(adjusted, "hh:mm a");
                                                     } catch {
                                                         return appointmentArriveByTime || appointmentTime;
                                                     }
@@ -1299,23 +1327,7 @@ function BookingSummaryPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
-                                        <p className="text-xs font-bold text-red-600 text-center">
-                                            ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
-                                                try {
-                                                    if (noShowTime) {
-                                                        return format(noShowTime, 'hh:mm a');
-                                                    }
-                                                    // Fallback to calculated time if noShowTime not available
-                                                    const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
-                                                    const aptTime = parseTime(appointmentTime, aptDate);
-                                                    return format(addMinutes(aptTime, 15), 'hh:mm a');
-                                                } catch {
-                                                    return appointmentTime;
-                                                }
-                                            })())}
-                                        </p>
-                                    </div>
+
                                 </div>
                             )}
                         </CardContent>
@@ -1402,7 +1414,7 @@ function BookingSummaryPage() {
                                             <div className="flex items-center gap-3">
                                                 <Clock className="w-5 h-5 text-primary" />
                                                 <div>
-                                                    <span className="text-xs text-muted-foreground block">Arrive by</span>
+                                                    <span className="text-xs text-muted-foreground block">Session Time</span>
                                                     <span className="font-semibold">{(() => {
                                                         try {
                                                             // Add break offsets if doctor info is available
@@ -1411,17 +1423,14 @@ function BookingSummaryPage() {
                                                             const adjustedSlot = breakIntervals.length > 0
                                                                 ? applyBreakOffsets(selectedSlot, breakIntervals)
                                                                 : selectedSlot;
-                                                            return format(subMinutes(adjustedSlot, 15), 'hh:mm a');
+                                                            const arriveBy = format(subMinutes(adjustedSlot, 15), 'hh:mm a');
+                                                            const sessionEnd = findSessionEndTime(effectiveDoctor, selectedSlot);
+                                                            return sessionEnd ? `${arriveBy} - ${sessionEnd}` : arriveBy;
                                                         } catch {
                                                             return format(subMinutes(selectedSlot, 15), 'hh:mm a');
                                                         }
                                                     })()}</span>
                                                 </div>
-                                            </div>
-                                            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                                                <p className="text-sm font-bold text-red-600">
-                                                    ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', format(addMinutes(selectedSlot, 15), 'hh:mm a'))}
-                                                </p>
                                             </div>
                                             {(doctor || cachedDoctor)!.consultationFee && (
                                                 <div className="flex items-center gap-3">

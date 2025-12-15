@@ -8,32 +8,32 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatTime12Hour(timeString24: string): string {
-    if (!timeString24) return '';
-    try {
-        const [hours, minutes] = timeString24.split(':');
-        const date = set(new Date(), { hours: parseInt(hours), minutes: parseInt(minutes) });
-        return format(date, 'hh:mm a');
-    } catch (e) {
-        if (typeof timeString24 === 'string' && (timeString24.includes('AM') || timeString24.includes('PM'))) {
-            return timeString24;
-        }
-        return '';
-    }
+  if (!timeString24) return '';
+  if (timeString24.includes('AM') || timeString24.includes('PM')) {
+    return timeString24;
+  }
+  try {
+    const [hours, minutes] = timeString24.split(':');
+    const date = set(new Date(), { hours: parseInt(hours), minutes: parseInt(minutes) });
+    return format(date, 'hh:mm a');
+  } catch (e) {
+    return '';
+  }
 }
 
 
 export function parseAppointmentDateTime(dateStr?: string, timeStr?: string): Date {
   if (!dateStr || !timeStr) return new Date(NaN);
-  
+
   try {
     const combinedStr = `${dateStr} ${timeStr}`;
     const parsedDate = parse(combinedStr, "d MMMM yyyy hh:mm a", new Date());
     if (!isNaN(parsedDate.getTime())) {
-        return parsedDate;
+      return parsedDate;
     }
   } catch (e) {
-      console.error(`Failed to parse date-time: ${dateStr} ${timeStr}`, e);
-      return new Date(NaN);
+    console.error(`Failed to parse date-time: ${dateStr} ${timeStr}`, e);
+    return new Date(NaN);
   }
 
   return new Date(NaN);
@@ -61,8 +61,8 @@ export function parseTime(timeStr: string, baseDate: Date): Date {
       hours = parseInt(twentyFourHourMatch[1], 10);
       minutes = parseInt(twentyFourHourMatch[2], 10);
     } else {
-        console.warn(`Invalid time format provided to parseTime: "${timeStr}". Using midnight.`);
-        return set(baseDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
+      console.warn(`Invalid time format provided to parseTime: "${timeStr}". Using midnight.`);
+      return set(baseDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
     }
   }
 
@@ -70,7 +70,7 @@ export function parseTime(timeStr: string, baseDate: Date): Date {
 }
 
 export function isTimeBefore(date1: Date, date2: Date): boolean {
-    return isBefore(date1, date2);
+  return isBefore(date1, date2);
 }
 
 /**
@@ -86,4 +86,4 @@ export function getArriveByTime(timeStr: string, date: Date): string {
     return timeStr; // Fallback to original time
   }
 }
-    
+

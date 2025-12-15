@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { format, parse } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -49,8 +50,21 @@ export default function EditAvailabilityDialog({
             return;
         }
 
-        const formattedFromTime = fromTime.includes(' AM') || fromTime.includes(' PM') ? fromTime : fromTime;
-        const formattedToTime = toTime.includes(' AM') || toTime.includes(' PM') ? toTime : toTime;
+        let formattedFromTime = fromTime;
+        let formattedToTime = toTime;
+
+        try {
+            // Input type="time" returns HH:mm (24h)
+            // We parse it as a reference date to format it as 12h
+            const fromDate = parse(fromTime, 'HH:mm', new Date());
+            const toDate = parse(toTime, 'HH:mm', new Date());
+
+            formattedFromTime = format(fromDate, 'hh:mm a');
+            formattedToTime = format(toDate, 'hh:mm a');
+        } catch (e) {
+            console.error("Error formatting time for display:", e);
+            // Fallback to raw value if parsing fails
+        }
 
         onSave(days, { from: formattedFromTime, to: formattedToTime });
     };
@@ -61,7 +75,7 @@ export default function EditAvailabilityDialog({
                 <DialogHeader>
                     <DialogTitle>Add Time Slot</DialogTitle>
                     <DialogDescription>
-                        Add a new time slot for {days.map(d => d.slice(0,3)).join(', ')}. Use 24-hour format (e.g., 14:00 for 2 PM).
+                        Add a new time slot for {days.map(d => d.slice(0, 3)).join(', ')}. Use 24-hour format (e.g., 14:00 for 2 PM).
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4 grid grid-cols-2 gap-4">
@@ -93,4 +107,4 @@ export default function EditAvailabilityDialog({
     );
 }
 
-    
+

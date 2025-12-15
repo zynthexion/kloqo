@@ -41,6 +41,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 
 function ScheduleBreakContent() {
     const router = useRouter();
@@ -70,6 +72,8 @@ function ScheduleBreakContent() {
     const [currentSession, setCurrentSession] = useState<SessionInfo | null>(null);
     const [existingBreaks, setExistingBreaks] = useState<BreakPeriod[]>([]);
     const [availableSlots, setAvailableSlots] = useState<{ currentSessionSlots: SlotInfo[]; upcomingSessionSlots: Map<number, SlotInfo[]> } | null>(null);
+    const [selectedBlockedSlots, setSelectedBlockedSlots] = useState<string[]>([]);
+    const [isOpeningSlots, setIsOpeningSlots] = useState(false);
 
     useEffect(() => {
         const id = localStorage.getItem('clinicId');
@@ -824,6 +828,63 @@ function ScheduleBreakContent() {
             setIsSubmitting(false);
         }
     };
+    const handleOpenBlockedSlots = async () => {
+        if (!doctor || !clinicId || selectedBlockedSlots.length === 0) return;
+
+        setIsOpeningSlots(true);
+        try {
+            const batch = writeBatch(db);
+            const dateStr = format(selectedDate, 'd MMMM yyyy');
+
+            selectedBlockedSlots.forEach(apptId => {
+                const appt = appointments.find(a => a.id === apptId);
+                if (appt) {
+                    // Update appointment status to Cancelled
+                    const apptRef = doc(db, 'appointments', apptId);
+                    batch.update(apptRef, { status: 'Cancelled' });
+
+                    // Delete slot reservation
+                    if (typeof appt.slotIndex === 'number') {
+                        const reservationId = `${clinicId}_${doctor.name}_${dateStr}_slot_${appt.slotIndex}`;
+                        const reservationRef = doc(db, 'slot-reservations', reservationId);
+                        batch.delete(reservationRef);
+                    }
+                }
+            });
+
+            await batch.commit();
+            setSelectedBlockedSlots([]);
+            toast({
+                title: 'Slots Opened',
+                description: `Successfully opened ${selectedBlockedSlots.length} slots.`,
+            });
+
+            // Refresh data
+            const doctorId = doctor.id;
+            const docRef = doc(db, "doctors", doctorId);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists() && docSnap.data().clinicId === clinicId) {
+                const currentDoctor = { id: docSnap.id, ...docSnap.data() } as Doctor;
+                setDoctor(currentDoctor);
+
+                const appointmentsQuery = query(collection(db, "appointments"),
+                    where("doctor", "==", currentDoctor.name),
+                    where("clinicId", "==", clinicId),
+                    where("date", "==", dateStr)
+                );
+                const snapshot = await getDocs(appointmentsQuery);
+                const fetchedAppointments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Appointment));
+                setAppointments(fetchedAppointments);
+            }
+
+        } catch (error) {
+            console.error("Error opening slots:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Failed to open slots.' });
+        } finally {
+            setIsOpeningSlots(false);
+        }
+    };
 
     const handleDateSelect = (date: Date | undefined) => {
         if (date) {
@@ -932,145 +993,262 @@ function ScheduleBreakContent() {
                             </PopoverContent>
                         </Popover>
                     </section>
-                    <section>
-                        <h2 className="text-lg font-semibold mb-4">Select Break Range for {format(selectedDate, 'MMMM d')}</h2>
 
-                        {/* Display existing breaks for current session */}
-                        {currentSession && existingBreaks.length > 0 && (
-                            <div className="mb-4 p-4 border rounded-md bg-muted/50">
-                                <h4 className="font-semibold mb-2 flex items-center gap-2">
-                                    <Clock className="w-4 h-4" />
-                                    Current Breaks in Session {currentSession.sessionIndex + 1}
-                                    ({format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')})
-                                </h4>
+                    <Tabs defaultValue="schedule" className="w-full">
+                        <TabsList className="grid w-full grid-cols-2 mb-4">
+                            <TabsTrigger value="schedule">Schedule Break</TabsTrigger>
+                            <TabsTrigger value="blocked">Open Blocked Slots</TabsTrigger>
+                        </TabsList>
 
-                                <div className="space-y-2">
-                                    {existingBreaks.map((breakPeriod, index) => (
-                                        <div
-                                            key={breakPeriod.id}
-                                            className="flex items-center justify-between p-2 bg-background border rounded"
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-medium">Break {index + 1}:</span>
-                                                <span className="text-sm">
-                                                    {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
-                                                </span>
-                                                <span className="text-xs text-muted-foreground">
-                                                    ({breakPeriod.duration} min)
-                                                </span>
-                                            </div>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => handleCancelBreak(breakPeriod.id)}
-                                                disabled={isSubmitting}
-                                            >
-                                                <X className="w-4 h-4 mr-1" />
-                                                Cancel
-                                            </Button>
+                        <TabsContent value="schedule">
+                            <section>
+                                <h2 className="text-lg font-semibold mb-4">Select Break Range for {format(selectedDate, 'MMMM d')}</h2>
+
+                                {/* Display existing breaks for current session */}
+                                {currentSession && existingBreaks.length > 0 && (
+                                    <div className="mb-4 p-4 border rounded-md bg-muted/50">
+                                        <h4 className="font-semibold mb-2 flex items-center gap-2">
+                                            <Clock className="w-4 h-4" />
+                                            Current Breaks in Session {currentSession.sessionIndex + 1}
+                                            ({format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')})
+                                        </h4>
+
+                                        <div className="space-y-2">
+                                            {existingBreaks.map((breakPeriod, index) => (
+                                                <div
+                                                    key={breakPeriod.id}
+                                                    className="flex items-center justify-between p-2 bg-background border rounded"
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium">Break {index + 1}:</span>
+                                                        <span className="text-sm">
+                                                            {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
+                                                        </span>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            ({breakPeriod.duration} min)
+                                                        </span>
+                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleCancelBreak(breakPeriod.id)}
+                                                        disabled={isSubmitting}
+                                                    >
+                                                        <X className="w-4 h-4 mr-1" />
+                                                        Cancel
+                                                    </Button>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
 
-                                {/* Extension summary */}
-                                <div className="mt-3 pt-3 border-t text-sm">
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Total break time:</span>
-                                        <span className="font-medium">{currentSession.totalBreakMinutes} minutes</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">
-                                            {currentSession.effectiveEnd.getTime() === currentSession.originalEnd.getTime()
-                                                ? 'Session ends at:'
-                                                : 'Session extended to:'}
-                                        </span>
-                                        <span className="font-medium">{format(currentSession.effectiveEnd, 'hh:mm a')}</span>
-                                    </div>
-                                </div>
+                                        <div className="mt-3 pt-3 border-t text-sm">
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Total break time:</span>
+                                                <span className="font-medium">{currentSession.totalBreakMinutes} minutes</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">
+                                                    {currentSession.effectiveEnd.getTime() === currentSession.originalEnd.getTime()
+                                                        ? 'Session ends at:'
+                                                        : 'Session extended to:'}
+                                                </span>
+                                                <span className="font-medium">{format(currentSession.effectiveEnd, 'hh:mm a')}</span>
+                                            </div>
+                                        </div>
 
-                                {existingBreaks.length >= 3 && (
-                                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                                        Maximum 3 breaks per session reached. Cancel a break to add a new one.
+                                        {existingBreaks.length >= 3 && (
+                                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                                                Maximum 3 breaks per session reached. Cancel a break to add a new one.
+                                            </div>
+                                        )}
                                     </div>
                                 )}
-                            </div>
-                        )}
 
-                        {availableSlots ? (
-                            Array.from([
-                                { label: 'Current Session', slots: availableSlots.currentSessionSlots },
-                                ...Array.from(availableSlots.upcomingSessionSlots.entries()).map(([idx, slots]) => ({
-                                    label: `Session ${idx + 1}`,
-                                    slots,
-                                })),
-                            ]).map((group, groupIdx) => (
-                                <div key={`${group.label}-${groupIdx}`} className="mb-4">
-                                    <p className="text-sm font-semibold mb-2">{group.label}</p>
-                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                                        {group.slots.map((slot) => {
-                                            const isSelected =
-                                                (breakStartSlot && breakEndSlot &&
-                                                    parseISO(slot.isoString) >= parseISO(breakStartSlot.isoString) &&
-                                                    parseISO(slot.isoString) <= parseISO(breakEndSlot.isoString)) ||
-                                                (breakStartSlot?.isoString === slot.isoString && !breakEndSlot);
+                                {availableSlots ? (
+                                    Array.from([
+                                        { label: 'Current Session', slots: availableSlots.currentSessionSlots },
+                                        ...Array.from(availableSlots.upcomingSessionSlots.entries()).map(([idx, slots]) => ({
+                                            label: `Session ${idx + 1}`,
+                                            slots,
+                                        })),
+                                    ]).map((group, groupIdx) => (
+                                        <div key={`${group.label}-${groupIdx}`} className="mb-4">
+                                            <p className="text-sm font-semibold mb-2">{group.label}</p>
+                                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                                {group.slots.map((slot) => {
+                                                    const isSelected =
+                                                        (breakStartSlot && breakEndSlot &&
+                                                            parseISO(slot.isoString) >= parseISO(breakStartSlot.isoString) &&
+                                                            parseISO(slot.isoString) <= parseISO(breakEndSlot.isoString)) ||
+                                                        (breakStartSlot?.isoString === slot.isoString && !breakEndSlot);
+
+                                                    return (
+                                                        <Button
+                                                            key={slot.isoString}
+                                                            variant={isSelected ? 'default' : 'outline'}
+                                                            className={cn(
+                                                                "h-auto py-3 flex-col gap-0.5",
+                                                                isSelected && 'bg-destructive/80 hover:bg-destructive text-white',
+                                                                slot.isTaken && 'bg-red-200 text-red-800 border-red-300 cursor-not-allowed',
+                                                                !isSelected && !slot.isTaken && 'hover:bg-accent'
+                                                            )}
+                                                            onClick={() => handleSlotClick(slot)}
+                                                            disabled={slot.isTaken}
+                                                        >
+                                                            <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                                            <span className="text-[10px] opacity-70">to</span>
+                                                            <span className="font-semibold text-xs">{format(addMinutes(slot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}</span>
+                                                            {slot.isTaken && <span className="text-xs mt-1">Break</span>}
+                                                        </Button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-center text-muted-foreground mt-4">No available sessions for this date.</p>
+                                )}
+                            </section>
+
+                            <div className="text-center mb-2 text-sm text-muted-foreground">
+                                {dailyLeaveSlots.length > 0 && breakStart && breakEnd ? (
+                                    `Break from ${format(breakStart, 'hh:mm a')} to ${format(addMinutes(breakEnd, (doctor.averageConsultingTime || 15) - 1), 'hh:mm a')}`
+                                ) : breakStartSlot && !(breakEndSlot) ? (
+                                    "Select an end time for the break."
+                                ) : (breakStartSlot && breakEndSlot) ? (
+                                    `New break: ${format(breakStartSlot.time, 'hh:mm a')} to ${format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}`
+                                ) : (
+                                    "Select a start and end time for the break."
+                                )}
+                            </div>
+
+                            {existingBreaks.length >= 3 ? (
+                                <Button className="w-full" variant="outline" disabled>
+                                    Maximum 3 breaks per session
+                                </Button>
+                            ) : (
+                                <Button
+                                    className="w-full"
+                                    variant="destructive"
+                                    disabled={!breakStartSlot || !breakEndSlot || isSubmitting}
+                                    onClick={handleProceed}
+                                >
+                                    {isSubmitting ? <Loader2 className="animate-spin" /> : existingBreaks.length > 0 ? 'Add Another Break' : 'Add Break'}
+                                </Button>
+                            )}
+                        </TabsContent>
+
+                        <TabsContent value="blocked">
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="font-semibold">Blocked Slots (Completed Status)</h3>
+                                    <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={handleOpenBlockedSlots}
+                                        disabled={selectedBlockedSlots.length === 0 || isOpeningSlots}
+                                    >
+                                        {isOpeningSlots ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                        Open {selectedBlockedSlots.length} Slots
+                                    </Button>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    Select a start and end slot to define a range of blocked slots to open.
+                                </p>
+
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                    {(() => {
+                                        // New logic: Filter out completed appointments that are covered by an active break
+                                        const filteredAppointments = appointments
+                                            .filter(a => a.status === 'Completed')
+                                            .filter(a => {
+                                                const apptTime = parseTime(a.time, selectedDate);
+                                                // Check if this appointment falls within any existing break
+                                                const coveredByBreak = existingBreaks.some(breakPeriod => {
+                                                    const start = parseISO(breakPeriod.startTime);
+                                                    const end = parseISO(breakPeriod.endTime);
+                                                    return apptTime >= start && apptTime < end;
+                                                });
+                                                // We only want appointments NOT covered by an active break
+                                                return !coveredByBreak;
+                                            })
+                                            .sort((a, b) => {
+                                                const timeA = parseTime(a.time, selectedDate).getTime();
+                                                const timeB = parseTime(b.time, selectedDate).getTime();
+                                                return timeA - timeB;
+                                            });
+
+                                        if (filteredAppointments.length === 0) {
+                                            return (
+                                                <div className="col-span-full text-center py-8 text-muted-foreground">
+                                                    No blocked slots found for this date (active break slots are hidden).
+                                                </div>
+                                            );
+                                        }
+
+                                        return filteredAppointments.map(appt => {
+                                            const apptTime = parseTime(appt.time, selectedDate);
+                                            const isSelected = selectedBlockedSlots.includes(appt.id);
+
+                                            // Determine if this slot is the start or end of the selection range
+                                            const isStart = selectedBlockedSlots.length > 0 && selectedBlockedSlots[0] === appt.id;
+                                            const isEnd = selectedBlockedSlots.length > 1 && selectedBlockedSlots[selectedBlockedSlots.length - 1] === appt.id;
 
                                             return (
                                                 <Button
-                                                    key={slot.isoString}
+                                                    key={appt.id}
                                                     variant={isSelected ? 'default' : 'outline'}
                                                     className={cn(
                                                         "h-auto py-3 flex-col gap-0.5",
                                                         isSelected && 'bg-destructive/80 hover:bg-destructive text-white',
-                                                        slot.isTaken && 'bg-red-200 text-red-800 border-red-300 cursor-not-allowed',
-                                                        !isSelected && !slot.isTaken && 'hover:bg-accent'
+                                                        !isSelected && 'hover:bg-accent',
+                                                        // Add specific styling for start/end if needed, or rely on isSelected
                                                     )}
-                                                    onClick={() => handleSlotClick(slot)}
-                                                    disabled={slot.isTaken}
+                                                    onClick={() => {
+                                                        // Use the filtered list for range selection logic too!
+                                                        const sortedBlocked = filteredAppointments;
+
+                                                        let newSelection: string[] = [];
+
+                                                        if (selectedBlockedSlots.length === 0 || (selectedBlockedSlots.length > 1 && !selectedBlockedSlots.includes(appt.id))) {
+                                                            // Start new selection
+                                                            newSelection = [appt.id];
+                                                        } else if (selectedBlockedSlots.length === 1) {
+                                                            const startId = selectedBlockedSlots[0];
+                                                            if (startId === appt.id) {
+                                                                // Deselect if clicking same
+                                                                newSelection = [];
+                                                            } else {
+                                                                // Range selection
+                                                                const startIndex = sortedBlocked.findIndex(a => a.id === startId);
+                                                                const endIndex = sortedBlocked.findIndex(a => a.id === appt.id);
+                                                                const rangeStart = Math.min(startIndex, endIndex);
+                                                                const rangeEnd = Math.max(startIndex, endIndex);
+                                                                newSelection = sortedBlocked.slice(rangeStart, rangeEnd + 1).map(a => a.id);
+                                                            }
+                                                        } else {
+                                                            // Reset and start new if clicking inside existing range or outside
+                                                            newSelection = [appt.id];
+                                                        }
+                                                        setSelectedBlockedSlots(newSelection);
+                                                    }}
                                                 >
-                                                    <span className="font-semibold text-xs">{slot.timeFormatted}</span>
-                                                    <span className="text-[10px] opacity-70">to</span>
-                                                    <span className="font-semibold text-xs">{format(addMinutes(slot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}</span>
-                                                    {slot.isTaken && <span className="text-xs mt-1">Break</span>}
+                                                    <span className="font-semibold text-xs">{appt.time}</span>
+                                                    {appt.cancelledByBreak && (
+                                                        <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded mt-1">Break Block</span>
+                                                    )}
+                                                    {!appt.cancelledByBreak && (
+                                                        <span className="text-[10px] opacity-70 mt-1">Blocked</span>
+                                                    )}
                                                 </Button>
                                             );
-                                        })}
-                                    </div>
+                                        });
+                                    })()}
                                 </div>
-                            ))
-                        ) : (
-                            <p className="text-center text-muted-foreground mt-4">No available sessions for this date.</p>
-                        )}
-                    </section>
+                            </div>
+                        </TabsContent>
+                    </Tabs>
                 </div>
-                <footer className="p-4 border-t mt-auto bg-card sticky bottom-0">
-                    <div className="text-center mb-2 text-sm text-muted-foreground">
-                        {dailyLeaveSlots.length > 0 && breakStart && breakEnd ? (
-                            `Break from ${format(breakStart, 'hh:mm a')} to ${format(addMinutes(breakEnd, (doctor.averageConsultingTime || 15) - 1), 'hh:mm a')}`
-                        ) : breakStartSlot && !breakEndSlot ? (
-                            "Select an end time for the break."
-                        ) : breakStartSlot && breakEndSlot ? (
-                            `New break: ${format(breakStartSlot.time, 'hh:mm a')} to ${format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}`
-                        ) : (
-                            "Select a start and end time for the break."
-                        )}
-                    </div>
-
-                    {existingBreaks.length >= 3 ? (
-                        <Button className="w-full" variant="outline" disabled>
-                            Maximum 3 breaks per session
-                        </Button>
-                    ) : (
-                        <Button
-                            className="w-full"
-                            variant="destructive"
-                            disabled={!breakStartSlot || !breakEndSlot || isSubmitting}
-                            onClick={handleProceed}
-                        >
-                            {isSubmitting ? <Loader2 className="animate-spin" /> : existingBreaks.length > 0 ? 'Add Another Break' : 'Add Break'}
-                        </Button>
-                    )}
-
-                </footer>
 
                 <AlertDialog open={!!cancelPrompt} onOpenChange={(open) => !open && setCancelPrompt(null)}>
                     <AlertDialogContent>
@@ -1194,8 +1372,8 @@ function ScheduleBreakContent() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
-            </div>
-        </AppFrameLayout>
+            </div >
+        </AppFrameLayout >
     );
 }
 

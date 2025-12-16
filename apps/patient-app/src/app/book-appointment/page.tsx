@@ -666,9 +666,20 @@ function BookAppointmentContent() {
                         : subsessionStart;
                     const displayStart = adjustedStart;
                     const displayEnd = subsessionEnd;
+
+                    // Match Summary Page logic: Display "Arrive By" times (Time - 15 minutes)
+                    // CRITICAL: User requested to "exclude booked slots" and show start time based on availability.
+                    // If there are available slots, start the range from the first available slot.
+                    // Otherwise (all booked/leave), use the subsession start.
+                    const firstAvailableSlot = subsessionSlots.find(s => s.status === 'available');
+                    const startBasis = firstAvailableSlot ? firstAvailableSlot.time : displayStart;
+
+                    const arriveByStart = subMinutes(startBasis, 15);
+                    const arriveByEnd = subMinutes(displayEnd, 15);
+
                     const subsessionTitle = subsessionDurationInHours >= 2
-                        ? `${format(displayStart, 'hh:mm a')} - ${format(displayEnd, 'hh:mm a')}`
-                        : `${format(displayStart, 'hh:mm a')} - ${format(displayEnd, 'hh:mm a')}`;
+                        ? `${format(arriveByStart, 'hh:mm a')} - ${format(arriveByEnd, 'hh:mm a')}`
+                        : `${format(arriveByStart, 'hh:mm a')} - ${format(arriveByEnd, 'hh:mm a')}`;
 
                     subsessions.push({
                         title: subsessionTitle,

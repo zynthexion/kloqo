@@ -209,6 +209,7 @@
     "addNewPatient": "Add New Patient",
     "patientDetails": "Patient Details",
     "bookingSummary": "Booking Summary",
+    "tryAgain": "Try Again",
     "confirmBooking": "Confirm Booking",
     "bookingSuccessful": "Booking Successful!",
     "bookingFailed": "Booking Failed",

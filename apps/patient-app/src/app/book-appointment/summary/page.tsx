@@ -119,6 +119,8 @@ function BookingSummaryPage() {
     const [appointmentArriveByTime, setAppointmentArriveByTime] = useState<string>('');
     const [noShowTime, setNoShowTime] = useState<Date | null>(null);
 
+    const [hasBookingFailed, setHasBookingFailed] = useState(false);
+
 
     const selectedSlot = slotISO ? new Date(slotISO) : null;
 
@@ -213,6 +215,7 @@ function BookingSummaryPage() {
 
 
     const handleConfirmBooking = async () => {
+        setHasBookingFailed(false);
         const effectiveDoctor = doctor || cachedDoctor;
         const effectivePatient = patient || cachedPatient;
         if (!effectiveDoctor || !effectivePatient || !selectedSlot || !user || !firestore) {
@@ -302,8 +305,8 @@ function BookingSummaryPage() {
 
                     for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
                         const session = availabilityForDay.timeSlots[i];
-                        let currentTime = parseTime(session.from, selectedSlot);
-                        const endTime = parseTime(session.to, selectedSlot);
+                        let currentTime = parseTime(session.from, 'hh:mm a', appointmentDate);
+                        const endTime = parseTime(session.to, 'hh:mm a', appointmentDate);
 
                         while (isBefore(currentTime, endTime)) {
                             // CRITICAL RULE 1: Skip ALL past slots (not just for today)
@@ -794,7 +797,7 @@ function BookingSummaryPage() {
                     return;
                 }
 
-                if (error.code === 'SLOT_OCCUPIED' || error.message === 'SLOT_ALREADY_BOOKED' || error.code === 'SLOT_ALREADY_BOOKED') {
+                if (error.code === 'SLOT_OCCUPIED' || error.message === 'SLOT_ALREADY_BOOKED' || error.code === 'SLOT_ALREADY_BOOKED' || error.message === 'No available slots match the booking rules.') {
                     console.warn(`[BOOKING FLOW DEBUG] ${bookingRequestId}: Requested slot taken.`);
 
                     // Show specific toast for conflict
@@ -818,6 +821,7 @@ function BookingSummaryPage() {
 
                     // Stop submission loading state so user can click "Confirm Booking" again
                     setIsSubmitting(false);
+                    setHasBookingFailed(true);
                     return;
                 } else if (error.code === 'A_CAPACITY_REACHED') {
                     toast({
@@ -1514,7 +1518,7 @@ function BookingSummaryPage() {
                             onClick={handleConfirmBooking}
                             disabled={isSubmitting || loading || (!doctor && !cachedDoctor) || (!patient && !cachedPatient) || !selectedSlot}
                         >
-                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : t.bookAppointment.confirmBooking}
+                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (hasBookingFailed ? t.bookAppointment.tryAgain : t.bookAppointment.confirmBooking)}
                         </Button>
                     </footer>
                 </div >

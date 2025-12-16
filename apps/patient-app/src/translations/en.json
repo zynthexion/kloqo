@@ -231,6 +231,7 @@
     "slotsAvailable": "slots available",
     "proceedToBook": "Proceed to Book",
     "noSessionsAvailable": "No sessions available on this day.",
+    "advanceCapacityReached": "Advance booking capacity has been reached for this doctor today. Please choose another day.",
     "autoCancelWarning": "Your appointment will be automatically canceled if you don't check in within 30 minutes (by {time})."
   },
   "consultToday": {

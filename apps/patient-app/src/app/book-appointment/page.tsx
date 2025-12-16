@@ -727,7 +727,7 @@ function BookAppointmentContent() {
             toast({
                 variant: "destructive",
                 title: "No Slots Available",
-                description: "Advance booking capacity has been reached for this doctor today. Please choose another day.",
+                description: t.bookAppointment.advanceCapacityReached,
             });
             return;
         }

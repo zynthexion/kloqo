@@ -174,7 +174,28 @@ export default function ClinicDashboard() {
       } as Appointment);
     });
 
-    setAppointments(fetchedAppointments.sort((a, b) => (a.numericToken || 0) - (b.numericToken || 0)));
+
+    fetchedAppointments.sort((a, b) => {
+      try {
+        const dateA = parse(a.date, 'd MMMM yyyy', new Date());
+        const dateB = parse(b.date, 'd MMMM yyyy', new Date());
+
+        // Compare dates first
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateA.getTime() - dateB.getTime();
+        }
+
+        // Compare times
+        const timeA = parseTime(a.time, dateA);
+        const timeB = parseTime(b.time, dateB);
+        return timeA.getTime() - timeB.getTime();
+      } catch (e) {
+        // Fallback to existing logic or safe default
+        return (a.numericToken || 0) - (b.numericToken || 0);
+      }
+    });
+
+    setAppointments(fetchedAppointments);
   }, []);
 
   useEffect(() => {

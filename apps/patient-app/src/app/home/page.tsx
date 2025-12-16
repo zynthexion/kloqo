@@ -17,10 +17,9 @@ const getGeolocationErrorMessage = (error: unknown) => {
         (error as GeolocationPositionError)?.message ??
         (error as { message?: string })?.message ??
         (error as Error)?.message ??
-        `Geolocation error code: ${
-            (error as GeolocationPositionError)?.code ??
-            (error as { code?: number })?.code ??
-            'unknown'
+        `Geolocation error code: ${(error as GeolocationPositionError)?.code ??
+        (error as { code?: number })?.code ??
+        'unknown'
         }`
     );
 };
@@ -143,13 +142,15 @@ const fetchJson = async (url: string) => {
     return res.json();
 };
 
+import { NotificationHistory } from '@/components/notification-history';
+
 // Prevent static generation - this page requires Firebase context
 export const dynamic = 'force-dynamic';
 
 
 const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, departments, language }: { appointment: Appointment, allClinicAppointments: Appointment[], userDoctors: Doctor[], t: any, departments: any[], language: 'en' | 'ml' }) => {
     const doctor = userDoctors.find(d => d.name === appointment.doctor);
-    
+
     const doctorAppointmentsToday = useMemo(() => {
         return allClinicAppointments.filter(apt => apt.doctor === appointment.doctor && apt.status !== 'Cancelled' && apt.status !== 'Completed');
     }, [allClinicAppointments, appointment.doctor]);
@@ -163,7 +164,7 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
 
     const patientsAhead = useMemo(() => {
         if (!currentTokenAppointment || (appointment.slotIndex === undefined)) return 0;
-        
+
         const pendingAppointmentsInQueue = doctorAppointmentsToday
             .filter(a => ['Pending', 'Confirmed'].includes(a.status))
             .sort((a, b) => (a.slotIndex ?? Infinity) - (b.slotIndex ?? Infinity));
@@ -171,7 +172,7 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
         const yourQueueIndex = pendingAppointmentsInQueue.findIndex(a => a.id === appointment.id);
         const currentQueueIndex = pendingAppointmentsInQueue.findIndex(a => a.id === currentTokenAppointment.id);
 
-        if(yourQueueIndex === -1 || currentQueueIndex === -1) return 0;
+        if (yourQueueIndex === -1 || currentQueueIndex === -1) return 0;
 
         return Math.max(0, yourQueueIndex - currentQueueIndex);
 
@@ -182,7 +183,7 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
         const avgTime = doctor.averageConsultingTime || 5;
         return patientsAhead * avgTime;
     }, [patientsAhead, doctor]);
-    
+
 
     return (
         <Card className="bg-primary-foreground/10 border-primary-foreground/20 shadow-lg text-primary-foreground">
@@ -190,19 +191,19 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="bg-primary-foreground/20 p-3 rounded-lg">
-                           <Ticket className="h-8 w-8" />
+                            <Ticket className="h-8 w-8" />
                         </div>
                         <div>
                             <p className="font-bold text-lg">{t.home.yourWalkInToken}</p>
                             <p className="text-3xl font-bold">{appointment.tokenNumber}</p>
                         </div>
                     </div>
-                     <Button asChild variant="secondary" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">
+                    <Button asChild variant="secondary" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">
                         <Link href="/live-token">{t.home.viewLiveQueue}</Link>
                     </Button>
                 </div>
-                 <div className="mt-4 border-t border-primary-foreground/20 pt-4 grid grid-cols-3 gap-2 text-center">
-                     <div>
+                <div className="mt-4 border-t border-primary-foreground/20 pt-4 grid grid-cols-3 gap-2 text-center">
+                    <div>
                         <p className="text-xs opacity-80">{t.home.currentToken}</p>
                         <p className="font-bold text-lg">{currentTokenAppointment?.tokenNumber || 'N/A'}</p>
                     </div>
@@ -218,7 +219,7 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
                 <div className="mt-4 border-t border-primary-foreground/20 pt-4">
                     <p className="font-bold text-lg">{appointment.doctor}</p>
                     <p className="text-sm opacity-80">{getLocalizedDepartmentName(appointment.department, language, departments)}</p>
-                     <p className="text-sm text-muted-foreground mt-1">Patient: <span className="font-semibold">{appointment.patientName}</span></p>
+                    <p className="text-sm text-muted-foreground mt-1">Patient: <span className="font-semibold">{appointment.patientName}</span></p>
                 </div>
             </CardContent>
         </Card>
@@ -226,14 +227,14 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
 }
 
 const AppointmentCard = ({ appointment, departments, language, doctors }: { appointment: Appointment, departments: any[], language: 'en' | 'ml', doctors: Doctor[] }) => {
-    
+
     let day, month, dayOfMonth;
     try {
         const dateObj = parse(appointment.date, "d MMMM yyyy", new Date());
         day = formatDayOfWeek(dateObj, language);
         month = formatDate(dateObj, 'MMM', language);
         dayOfMonth = format(dateObj, 'dd');
-    } catch(e) {
+    } catch (e) {
         // fallback for different date formats
         try {
             const dateObj = new Date(appointment.date);
@@ -251,23 +252,23 @@ const AppointmentCard = ({ appointment, departments, language, doctors }: { appo
     return (
         <Link href="/appointments">
             <Card className="bg-primary-foreground/10 border-primary-foreground/20 shadow-none text-primary-foreground cursor-pointer hover:bg-primary-foreground/20 transition-colors">
-            <CardContent className="p-4 flex gap-4 items-center">
-                <div className="text-center w-14 shrink-0 bg-primary-foreground/20 rounded-lg p-2">
-                    <p className="text-sm font-medium">{month}</p>
-                    <p className="text-2xl font-bold">{dayOfMonth}</p>
-                    <p className="text-sm font-medium">{day}</p>
-                </div>
-                <div className="border-l border-primary-foreground/20 pl-4">
-                    <p className="text-xs opacity-80">Arrive by: {(() => {
-                        const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
-                        return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
-                    })()}</p>
-                    <p className="font-bold text-md mt-1">{appointment.doctor}</p>
-                    <p className="text-sm opacity-80">{getLocalizedDepartmentName(appointment.department, language, departments)}</p>
-                    <p className="text-sm opacity-80">{appointment.patientName}</p>
-                </div>
-            </CardContent>
-        </Card>
+                <CardContent className="p-4 flex gap-4 items-center">
+                    <div className="text-center w-14 shrink-0 bg-primary-foreground/20 rounded-lg p-2">
+                        <p className="text-sm font-medium">{month}</p>
+                        <p className="text-2xl font-bold">{dayOfMonth}</p>
+                        <p className="text-sm font-medium">{day}</p>
+                    </div>
+                    <div className="border-l border-primary-foreground/20 pl-4">
+                        <p className="text-xs opacity-80">Arrive by: {(() => {
+                            const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
+                            return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
+                        })()}</p>
+                        <p className="font-bold text-md mt-1">{appointment.doctor}</p>
+                        <p className="text-sm opacity-80">{getLocalizedDepartmentName(appointment.department, language, departments)}</p>
+                        <p className="text-sm opacity-80">{appointment.patientName}</p>
+                    </div>
+                </CardContent>
+            </Card>
         </Link>
     );
 };
@@ -276,12 +277,12 @@ const AppointmentCarousel = ({ appointments, departments, language, doctors }: {
     if (appointments.length === 0) {
         return null;
     }
-    
+
     // Ensure doctors is always an array (defensive)
     const doctorsArray = Array.isArray(doctors) ? doctors : [];
-    
+
     return (
-         <Carousel
+        <Carousel
             opts={{
                 align: "start",
                 dragFree: true,
@@ -303,7 +304,7 @@ const AppointmentCarousel = ({ appointments, departments, language, doctors }: {
 const DoctorCard = ({ doctor, departments, language }: { doctor: Doctor, departments: any[], language: 'en' | 'ml' }) => {
     const status = doctor.consultationStatus || 'Out';
     const isAvailable = status === 'In';
-    
+
     return (
         <Card className="hover:shadow-md transition-shadow">
             <Link href={`/book-appointment?doctorId=${doctor.id}`} className="block">
@@ -334,13 +335,13 @@ const getLocationName = async (lat: number, lng: number): Promise<string> => {
         const response = await fetch(
             `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`
         );
-        
+
         if (!response.ok) {
             throw new Error('Failed to fetch location');
         }
-        
+
         const data = await response.json();
-        
+
         if (data && data.address) {
             const addr = data.address;
             // Try to get a meaningful location name
@@ -375,9 +376,9 @@ const DoctorSkeleton = () => {
     )
 }
 
-type SearchResult = 
-  | ({ type: 'doctor' } & Doctor)
-  | ({ type: 'clinic'; id: string; name: string; location?: string; avatar?: string });
+type SearchResult =
+    | ({ type: 'doctor' } & Doctor)
+    | ({ type: 'clinic'; id: string; name: string; location?: string; avatar?: string });
 
 function HomePageContent() {
     const pathname = usePathname();
@@ -400,12 +401,12 @@ function HomePageContent() {
     const [splashAnimationDone, setSplashAnimationDone] = useState(false);
     const [dataReady, setDataReady] = useState(false);
     const [hasShownSplashInSession, setHasShownSplashInSession] = useState(false);
-    
+
     const { user } = useUser();
     const firestore = useFirestore();
     // Get clinicIds from patient document to ensure we have the latest data
     const [patientClinicIds, setPatientClinicIds] = useState<string[]>([]);
-    
+
     useEffect(() => {
         if (!firestore || !user?.patientId) {
             setPatientClinicIds([]);
@@ -439,7 +440,7 @@ function HomePageContent() {
     const clinicIds = useMemo(() => {
         return patientClinicIds.length > 0 ? patientClinicIds : (user?.clinicIds || []);
     }, [patientClinicIds, user?.clinicIds]);
-    
+
     const { doctors: userDoctors, loading: doctorsLoading } = useDoctors(clinicIds);
     const { appointments: familyAppointments, loading: appointmentsLoading } = useAppointments(user?.patientId);
     const { data: clinicsResponse } = useSWR(
@@ -455,19 +456,19 @@ function HomePageContent() {
         const idSet = new Set(clinicIds);
         return allClinicsData.filter((clinic) => idSet.has(clinic.id));
     }, [allClinicsData, clinicIds]);
-    
+
     // Calculate distance between two lat/lng points in kilometers
     const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
         const R = 6371; // Earth radius in kilometers
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLon = (lon2 - lon1) * Math.PI / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
     };
-    
+
     const nearbyClinicIds = useMemo(() => {
         if (!userLocation) return [];
         return allClinicsData
@@ -490,32 +491,32 @@ function HomePageContent() {
         { revalidateOnFocus: false, dedupingInterval: 60 * 1000 }
     );
     const allDoctors: Doctor[] = nearbyDoctorsResponse?.doctors ?? [];
-    
+
     // Improved loading state logic for "all" tab that considers location, clinics, and doctors
     const loadingAllDoctors = useMemo(() => {
         if (activeTab !== 'all') return false;
-        
+
         // Show loading if location is being fetched (no cache or expired)
         if (!userLocation && isLocationLoading) {
             return true;
         }
-        
+
         // Show loading if clinics haven't loaded yet
         if (clinicsResponse === undefined && allClinicsData.length === 0) {
             return true;
         }
-        
+
         // Show loading if we have location and clinics but are waiting for nearby clinic IDs calculation
         if (userLocation && allClinicsData.length > 0 && nearbyClinicIds.length === 0 && nearbyClinicIdsParam === null) {
             // If we have clinics but no nearby ones found yet, don't show loading (might be calculating)
             return false;
         }
-        
+
         // Show loading if we have nearby clinic IDs but are waiting for doctors
         if (nearbyClinicIdsParam && nearbyDoctorsLoading && !nearbyDoctorsResponse) {
             return true;
         }
-        
+
         return false;
     }, [activeTab, userLocation, isLocationLoading, clinicsResponse, allClinicsData, nearbyClinicIds, nearbyClinicIdsParam, nearbyDoctorsLoading, nearbyDoctorsResponse]);
     const cachedAppointments = useCachedData<Appointment[]>(
@@ -534,7 +535,7 @@ function HomePageContent() {
         }
         return cachedAppointments ?? [];
     }, [familyAppointments, cachedAppointments]);
-    
+
     // Debug logging for appointments (remove after debugging)
     useEffect(() => {
         if (process.env.NODE_ENV === 'development') {
@@ -555,7 +556,7 @@ function HomePageContent() {
         return cachedDoctors ?? [];
     }, [userDoctors, cachedDoctors]);
     const showAppointmentsSkeleton = appointmentsLoading && effectiveAppointments.length === 0;
-    
+
     // Mark initial load as complete once we have user data
     useEffect(() => {
         if (user && !appointmentsLoading && (!doctorsLoading || effectiveUserDoctors.length > 0 || cachedDoctors)) {
@@ -578,20 +579,20 @@ function HomePageContent() {
             setDataReady(true);
         }
     }, [appointmentsLoading, doctorsLoading]);
-    
+
     // Track location loading state for "all" tab
     useEffect(() => {
         if (activeTab === 'all' && !userLocation) {
             // Check if we have cached location
             const cachedLocation = localStorage.getItem('kloqo_user_location');
             const cachedLocationTimestamp = localStorage.getItem('kloqo_user_location_timestamp');
-            
+
             if (cachedLocation && cachedLocationTimestamp) {
                 try {
                     const cachedTime = parseInt(cachedLocationTimestamp, 10);
                     const now = Date.now();
                     const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
-                    
+
                     if (now - cachedTime < CACHE_DURATION) {
                         setIsLocationLoading(false); // Has valid cache
                     } else {
@@ -607,23 +608,23 @@ function HomePageContent() {
             setIsLocationLoading(false);
         }
     }, [activeTab, userLocation]);
-    
+
     // State for all doctors (for search functionality)
     // Use userDoctors from useDoctors hook instead of fetching all doctors
     // This is already filtered by clinicIds and more efficient
     const allDoctorsForSearch = useMemo(() => effectiveUserDoctors, [effectiveUserDoctors]);
-    
-    
+
+
     const [allClinicAppointments, setAllClinicAppointments] = useState<Appointment[]>([]);
 
 
     const isAnyDoctorAvailableToday = useMemo(() => {
         const todayStr = format(new Date(), 'EEEE');
-        return effectiveUserDoctors.some(doctor => 
+        return effectiveUserDoctors.some(doctor =>
             doctor.availabilitySlots?.some(slot => slot.day === todayStr)
         );
     }, [effectiveUserDoctors]);
-    
+
     useEffect(() => {
         if (!firestore || !clinicIds || clinicIds.length === 0) return;
 
@@ -639,21 +640,21 @@ function HomePageContent() {
         );
 
         // Use onSnapshot for real-time updates but with limits
-        const unsubscribe = onSnapshot(appointmentsQuery, 
-          (snapshot: QuerySnapshot<DocumentData>) => {
-            const appointmentsData: Appointment[] = snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            } as Appointment));
-            setAllClinicAppointments(appointmentsData);
-          }, 
-          (error: any) => {
-            console.error("Error with optimized appointments query: ", error);
-            // If orderBy fails (missing index or field), the query will fail
-            // Create Firestore indexes as documented in PERFORMANCE_OPTIMIZATIONS.md
-            // For now, set empty array - user will see no appointments until index is created
-            setAllClinicAppointments([]);
-          }
+        const unsubscribe = onSnapshot(appointmentsQuery,
+            (snapshot: QuerySnapshot<DocumentData>) => {
+                const appointmentsData: Appointment[] = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                } as Appointment));
+                setAllClinicAppointments(appointmentsData);
+            },
+            (error: any) => {
+                console.error("Error with optimized appointments query: ", error);
+                // If orderBy fails (missing index or field), the query will fail
+                // Create Firestore indexes as documented in PERFORMANCE_OPTIMIZATIONS.md
+                // For now, set empty array - user will see no appointments until index is created
+                setAllClinicAppointments([]);
+            }
         );
 
         return () => unsubscribe();
@@ -664,7 +665,7 @@ function HomePageContent() {
     const refreshLocation = useCallback(async () => {
         setIsRefreshingLocation(true);
         setLocation(t.consultToday.detectingLocation);
-        
+
         if (!navigator.geolocation) {
             setLocation(t.consultToday.geolocationNotSupported);
             setIsRefreshingLocation(false);
@@ -677,7 +678,7 @@ function HomePageContent() {
                     const lat = position.coords.latitude;
                     const lng = position.coords.longitude;
                     setUserLocation({ lat, lng });
-                    
+
                     // Cache location coordinates
                     try {
                         localStorage.setItem('kloqo_user_location', JSON.stringify({ lat, lng }));
@@ -685,12 +686,12 @@ function HomePageContent() {
                     } catch (error) {
                         console.warn("Failed to cache location:", error);
                     }
-                    
+
                     // Fetch location name
                     try {
                         const locationName = await getLocationName(lat, lng);
                         setLocation(locationName || t.consultToday.currentLocation);
-                        
+
                         // Cache location name
                         try {
                             localStorage.setItem('kloqo_user_location_name', locationName);
@@ -724,7 +725,7 @@ function HomePageContent() {
     useEffect(() => {
         // Set initial location immediately (non-blocking)
         setLocation(t.consultToday.detectingLocation);
-        
+
         // Check if geolocation is available
         if (!navigator.geolocation) {
             setLocation(t.consultToday.geolocationNotSupported);
@@ -736,26 +737,26 @@ function HomePageContent() {
         const cachedLocationName = localStorage.getItem('kloqo_user_location_name');
         const cachedLocationTimestamp = localStorage.getItem('kloqo_user_location_timestamp');
         let hasValidCache = false;
-        
+
         // Use cached location if less than 30 minutes old
         if (cachedLocation && cachedLocationTimestamp) {
             try {
                 const cachedTime = parseInt(cachedLocationTimestamp, 10);
                 const now = Date.now();
                 const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
-                
+
                 if (now - cachedTime < CACHE_DURATION) {
                     const { lat, lng } = JSON.parse(cachedLocation);
                     setUserLocation({ lat, lng });
                     setIsLocationLoading(false); // Clear loading state since we have cached location
-                    
+
                     // Set cached location name if available
                     if (cachedLocationName) {
                         setLocation(cachedLocationName);
                     }
-                    
+
                     hasValidCache = true;
-                    
+
                     // Refresh location in background (non-blocking, silent)
                     // Use a longer delay to not interfere with initial render
                     setTimeout(() => {
@@ -778,14 +779,14 @@ function HomePageContent() {
                 // Use Permissions API if available to check status
                 if (navigator.permissions) {
                     const permission = await navigator.permissions.query({ name: 'geolocation' });
-                    
+
                     // If already denied, don't request
                     if (permission.state === 'denied') {
                         setLocation(t.consultToday.locationNotAvailable);
                         setIsLocationLoading(false); // Clear loading state if permission denied
                         return;
                     }
-                    
+
                     // If granted or prompt, request location
                     if (permission.state === 'granted' || permission.state === 'prompt') {
                         navigator.geolocation.getCurrentPosition(
@@ -794,7 +795,7 @@ function HomePageContent() {
                                 const lng = position.coords.longitude;
                                 setUserLocation({ lat, lng });
                                 setIsLocationLoading(false); // Clear loading state when location is fetched
-                                
+
                                 // Cache location coordinates
                                 try {
                                     localStorage.setItem('kloqo_user_location', JSON.stringify({ lat, lng }));
@@ -802,13 +803,13 @@ function HomePageContent() {
                                 } catch (error) {
                                     console.warn("Failed to cache location:", error);
                                 }
-                                
+
                                 // Fetch location name (deferred to not block UI)
                                 setTimeout(async () => {
                                     try {
                                         const locationName = await getLocationName(lat, lng);
                                         setLocation(locationName || t.consultToday.currentLocation);
-                                        
+
                                         // Cache location name
                                         try {
                                             localStorage.setItem('kloqo_user_location_name', locationName);
@@ -841,7 +842,7 @@ function HomePageContent() {
                             const lng = position.coords.longitude;
                             setUserLocation({ lat, lng });
                             setIsLocationLoading(false); // Clear loading state when location is fetched
-                            
+
                             // Cache location coordinates
                             try {
                                 localStorage.setItem('kloqo_user_location', JSON.stringify({ lat, lng }));
@@ -849,13 +850,13 @@ function HomePageContent() {
                             } catch (error) {
                                 console.warn("Failed to cache location:", error);
                             }
-                            
+
                             // Fetch location name (deferred to not block UI)
                             setTimeout(async () => {
                                 try {
                                     const locationName = await getLocationName(lat, lng);
                                     setLocation(locationName || t.consultToday.currentLocation);
-                                    
+
                                     // Cache location name
                                     try {
                                         localStorage.setItem('kloqo_user_location_name', locationName);
@@ -897,11 +898,11 @@ function HomePageContent() {
                                 const lat = position.coords.latitude;
                                 const lng = position.coords.longitude;
                                 setUserLocation({ lat, lng });
-                                
+
                                 try {
                                     localStorage.setItem('kloqo_user_location', JSON.stringify({ lat, lng }));
                                     localStorage.setItem('kloqo_user_location_timestamp', Date.now().toString());
-                                    
+
                                     const locationName = await getLocationName(lat, lng);
                                     if (locationName) {
                                         setLocation(locationName);
@@ -948,7 +949,7 @@ function HomePageContent() {
     useEffect(() => {
         if (debouncedSearchQuery) {
             const queryLower = debouncedSearchQuery.toLowerCase();
-            
+
             // Filter doctors from ALL doctors (not just user's clinics)
             const filteredDoctors = allDoctorsForSearch
                 .filter(doctor => {
@@ -959,22 +960,22 @@ function HomePageContent() {
                         localizedDept.toLowerCase().includes(queryLower)
                 })
                 .map(doctor => ({ type: 'doctor' as const, ...doctor }));
-            
+
             // Filter clinics
             const filteredClinics = clinics
-                .filter(clinic => 
+                .filter(clinic =>
                     clinic.name?.toLowerCase().includes(queryLower) ||
                     clinic.address?.toLowerCase().includes(queryLower) ||
                     clinic.type?.toLowerCase().includes(queryLower)
                 )
-                .map(clinic => ({ 
-                    type: 'clinic' as const, 
-                    id: clinic.id, 
-                    name: clinic.name, 
+                .map(clinic => ({
+                    type: 'clinic' as const,
+                    id: clinic.id,
+                    name: clinic.name,
                     location: clinic.address,
                     avatar: clinic.logoUrl || clinic.logo
                 }));
-            
+
             // Combine results
             const combined = [...filteredClinics, ...filteredDoctors];
             setSearchResults(prev => {
@@ -1007,20 +1008,20 @@ function HomePageContent() {
                 console.log('🔍 Scan already in progress, ignoring duplicate scan');
                 return;
             }
-            
+
             // Mark as processing immediately
             isProcessingScanRef.current = true;
-            
+
             // Close scanner immediately to prevent more scans
             setShowQRScanner(false);
-            
+
             console.log('🔍 QR Scan Result - Raw decoded text:', decodedText);
-            
+
             try {
                 let clinicId: string | null = null;
                 let textToParse = (decodedText || '').trim();
                 console.log('🔍 QR Scan Result - Trimmed text:', textToParse);
-                
+
                 // Helper function to extract clinic ID from a URL string
                 const extractClinicIdFromText = (text: string): string | null => {
                     try {
@@ -1032,10 +1033,10 @@ function HomePageContent() {
                         } else {
                             return null;
                         }
-                        
+
                         // Try to get clinic ID from query parameters
                         let id = url.searchParams.get('clinic') || url.searchParams.get('clinicId');
-                        
+
                         if (id) {
                             try {
                                 return decodeURIComponent(id).trim();
@@ -1043,10 +1044,10 @@ function HomePageContent() {
                                 return id.trim();
                             }
                         }
-                        
+
                         // Try regex fallback on the URL string
-                        const match = text.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) || 
-                                     text.match(/(?:[?&]clinic=)([^&?#\s]+)/i);
+                        const match = text.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) ||
+                            text.match(/(?:[?&]clinic=)([^&?#\s]+)/i);
                         if (match && match[1]) {
                             try {
                                 return decodeURIComponent(match[1]).trim();
@@ -1059,11 +1060,11 @@ function HomePageContent() {
                     }
                     return null;
                 };
-                
+
                 // First, try to extract from the scanned text directly
                 clinicId = extractClinicIdFromText(textToParse);
                 console.log('🔍 Initial extraction result:', clinicId);
-                
+
                 // If not found and it's a URL, resolve via API (for short URLs)
                 if (!clinicId && (textToParse.startsWith('http://') || textToParse.startsWith('https://'))) {
                     console.log('🔍 No clinic ID found in short URL, resolving via API:', textToParse);
@@ -1073,14 +1074,14 @@ function HomePageContent() {
                         console.log('🔍 Calling API:', apiUrl);
                         const apiResponse = await fetch(apiUrl);
                         console.log('🔍 API response status:', apiResponse.status);
-                        
+
                         if (apiResponse.ok) {
                             const data = await apiResponse.json();
                             console.log('🔍 API response data:', data);
-                            
+
                             if (data.finalUrl && data.finalUrl !== textToParse) {
                                 console.log('🔍 Resolved final URL:', data.finalUrl);
-                                
+
                                 // Decode the URL first (in case it's URL-encoded)
                                 let decodedFinalUrl = data.finalUrl;
                                 try {
@@ -1101,23 +1102,23 @@ function HomePageContent() {
                                         console.log('🔍 URL decode failed, using original');
                                     }
                                 }
-                                
+
                                 // Extract clinic ID from resolved final URL (try both encoded and decoded)
                                 clinicId = extractClinicIdFromText(decodedFinalUrl) || extractClinicIdFromText(data.finalUrl);
                                 console.log('🔍 Extracted from API-resolved URL:', clinicId);
-                                
+
                                 // If still not found, try regex on both encoded and decoded URLs
                                 if (!clinicId) {
                                     // Try decoded URL first
-                                    let match = decodedFinalUrl.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) || 
-                                               decodedFinalUrl.match(/(?:[?&]clinic=)([^&?#\s]+)/i);
-                                    
+                                    let match = decodedFinalUrl.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) ||
+                                        decodedFinalUrl.match(/(?:[?&]clinic=)([^&?#\s]+)/i);
+
                                     // If not found, try original encoded URL
                                     if (!match) {
-                                        match = data.finalUrl.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) || 
-                                               data.finalUrl.match(/(?:[?&]clinic=)([^&?#\s]+)/i);
+                                        match = data.finalUrl.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) ||
+                                            data.finalUrl.match(/(?:[?&]clinic=)([^&?#\s]+)/i);
                                     }
-                                    
+
                                     if (match && match[1]) {
                                         try {
                                             clinicId = decodeURIComponent(match[1]).trim();
@@ -1127,7 +1128,7 @@ function HomePageContent() {
                                         console.log('🔍 Extracted from regex on final URL:', clinicId);
                                     }
                                 }
-                                
+
                                 // If still a short URL and no clinic ID found, the API might not have followed all redirects
                                 const isStillShortUrl = /(me-qr\.com|scan\.page|bit\.ly|tinyurl|t\.co|goo\.gl|short\.link|ow\.ly|is\.gd)/i.test(data.finalUrl);
                                 if (isStillShortUrl && !clinicId) {
@@ -1147,13 +1148,13 @@ function HomePageContent() {
                         console.error('🔍 Error details:', apiError.message, apiError.stack);
                     }
                 }
-                
+
                 // Final fallback: try regex on original text
                 if (!clinicId) {
-                    const match = textToParse.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) || 
-                                 textToParse.match(/(?:[?&]clinic=)([^&?#\s]+)/i) ||
-                                 textToParse.match(/clinicId[=:]([^&?#\s]+)/i) ||
-                                 textToParse.match(/clinic[=:]([^&?#\s]+)/i);
+                    const match = textToParse.match(/(?:[?&]clinicId=)([^&?#\s]+)/i) ||
+                        textToParse.match(/(?:[?&]clinic=)([^&?#\s]+)/i) ||
+                        textToParse.match(/clinicId[=:]([^&?#\s]+)/i) ||
+                        textToParse.match(/clinic[=:]([^&?#\s]+)/i);
                     if (match && match[1]) {
                         try {
                             clinicId = decodeURIComponent(match[1]).trim();
@@ -1163,39 +1164,39 @@ function HomePageContent() {
                         console.log('🔍 Extracted from regex fallback:', clinicId);
                     }
                 }
-                
+
                 // Last resort: use entire text as clinic ID if it looks valid
                 if (!clinicId && /^[a-zA-Z0-9_-]+$/.test(textToParse)) {
                     clinicId = textToParse;
                     console.log('🔍 Using entire text as clinicId:', clinicId);
                 }
-                
+
                 // Validate clinic ID
                 console.log('🔍 Final clinicId value:', clinicId);
                 if (!clinicId || clinicId.trim().length === 0) {
                     console.error('❌ QR Code parsing failed. Decoded text:', textToParse);
                     console.error('❌ All extraction methods failed. Check console logs above for details.');
-                    
+
                     // Provide more helpful error message for short URLs
                     const isShortUrl = textToParse.startsWith('http://') || textToParse.startsWith('https://');
                     const errorMessage = isShortUrl
                         ? 'Failed to resolve QR code URL. Please check your internet connection and try again.'
                         : 'Could not find clinic ID in QR code. Please scan a valid QR code.';
-                    
+
                     toast({
                         variant: 'destructive',
                         title: language === 'ml' ? 'QR കോഡ് പിശക്' : 'Invalid QR Code',
-                        description: language === 'ml' 
-                            ? (isShortUrl 
+                        description: language === 'ml'
+                            ? (isShortUrl
                                 ? 'QR കോഡ് URL പരിഹരിക്കാൻ കഴിഞ്ഞില്ല. ഇന്റർനെറ്റ് കണക്ഷൻ പരിശോധിച്ച് വീണ്ടും ശ്രമിക്കുക.'
                                 : 'QR കോഡിൽ ക്ലിനിക് ID കണ്ടെത്താൻ കഴിഞ്ഞില്ല. ശരിയായ QR കോഡ് സ്കാൻ ചെയ്യുക.')
                             : errorMessage,
                     });
                     return;
                 }
-                
+
                 console.log('✅ Successfully extracted clinicId:', clinicId);
-                
+
                 // Navigate based on mode
                 const modeToUse = scanMode || 'consult';
                 if (modeToUse === 'consult') {
@@ -1215,7 +1216,7 @@ function HomePageContent() {
                             : 'Confirming arrival...',
                     });
                 }
-                
+
                 setScanMode(null);
             } catch (error) {
                 console.error('Error parsing QR code:', error);
@@ -1250,10 +1251,10 @@ function HomePageContent() {
 
     const walkInAppointment = useMemo(() => {
         const activeWalkins = effectiveAppointments.filter(
-            a => a.tokenNumber?.startsWith('W') && 
-                 isAppointmentForToday(a.date) &&
-                 a.status !== 'Cancelled' && 
-                 a.status !== 'Completed'
+            a => a.tokenNumber?.startsWith('W') &&
+                isAppointmentForToday(a.date) &&
+                a.status !== 'Cancelled' &&
+                a.status !== 'Completed'
         );
         activeWalkins.sort((a, b) => (a.numericToken || 0) - (b.numericToken || 0));
         return activeWalkins[0] || null;
@@ -1265,7 +1266,7 @@ function HomePageContent() {
             if (a.status === 'Cancelled' || a.status === 'Completed') {
                 return false;
             }
-            
+
             // Exclude today's walk-in appointments (handled by WalkInCard)
             if (a.tokenNumber?.startsWith('W')) {
                 try {
@@ -1280,7 +1281,7 @@ function HomePageContent() {
                     }
                 }
             }
-            
+
             // Include future appointments and today's non-walk-in appointments
             let date;
             try {
@@ -1288,7 +1289,7 @@ function HomePageContent() {
             } catch {
                 date = new Date(a.date);
             }
-            
+
             // Show if not past (includes today and future)
             return !isPast(date) || isToday(date);
         }).sort((a, b) => {
@@ -1298,7 +1299,7 @@ function HomePageContent() {
                 const dateB = parse(b.date, "d MMMM yyyy", new Date());
                 const dateDiff = dateA.getTime() - dateB.getTime();
                 if (dateDiff !== 0) return dateDiff;
-                
+
                 // If same date, sort by time
                 const timeA = a.time || '';
                 const timeB = b.time || '';
@@ -1307,7 +1308,7 @@ function HomePageContent() {
                 return new Date(a.date).getTime() - new Date(b.date).getTime();
             }
         });
-        
+
         // Debug logging (remove after debugging)
         if (process.env.NODE_ENV === 'development') {
             console.log('[HomePage] Upcoming Appointments Debug:', {
@@ -1316,20 +1317,20 @@ function HomePageContent() {
                 upcomingAppointments: filtered.map(a => ({ id: a.id, date: a.date, status: a.status, tokenNumber: a.tokenNumber }))
             });
         }
-        
+
         return filtered;
     }, [effectiveAppointments]);
-    
+
     // navItems removed - BottomNav handles its own icons via lazy loading
-    
+
     // Debounce search to reduce main-thread work (performance optimization)
     const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
-    
+
     const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
         // Update UI immediately for better UX
         setSearchQuery(value);
-        
+
         // Debounce the actual search logic
         if (searchDebounceRef.current) {
             clearTimeout(searchDebounceRef.current);
@@ -1338,7 +1339,7 @@ function HomePageContent() {
             setDebouncedSearchQuery(value);
         }, 300); // 300ms debounce
     }, []);
-    
+
     // Cleanup debounce on unmount
     useEffect(() => {
         return () => {
@@ -1369,7 +1370,7 @@ function HomePageContent() {
         if (isInitialLoad && effectiveUserDoctors.length === 0 && cachedDoctors === null) {
             return true; // Show skeleton during initial load if no cached data
         }
-        
+
         if (activeTab === 'all') {
             return loadingAllDoctors;
         } else {
@@ -1397,7 +1398,7 @@ function HomePageContent() {
     return (
         <div className="flex min-h-screen w-full flex-col font-body">
             <div className="flex-grow bg-card">
-                 {/* Header Section */}
+                {/* Header Section */}
                 <div className="bg-primary text-primary-foreground p-6 rounded-b-[2rem] pb-24">
                     <div className="flex justify-between items-center mb-4">
                         <div>
@@ -1417,16 +1418,19 @@ function HomePageContent() {
                                 </Button>
                             </div>
                         </div>
+                        <div className="text-primary-foreground">
+                            <NotificationHistory />
+                        </div>
                     </div>
                     <div className="relative mt-4">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                        <Input 
-                            placeholder={t.home.searchPlaceholder} 
+                        <Input
+                            placeholder={t.home.searchPlaceholder}
                             className="pl-10 h-12 bg-primary-foreground/20 placeholder:text-primary-foreground/70 border-0 focus-visible:ring-primary-foreground"
                             value={searchQuery}
                             onChange={handleSearchChange}
                         />
-                         {searchQuery && (
+                        {searchQuery && (
                             <Button
                                 aria-label={language === 'ml' ? 'തിരയൽ മായ്ക്കുക' : 'Clear search'}
                                 variant="ghost"
@@ -1438,10 +1442,10 @@ function HomePageContent() {
                             </Button>
                         )}
                         {searchResults.length > 0 && (
-                             <Card className="absolute top-full mt-2 w-full z-10 max-h-60 overflow-y-auto">
+                            <Card className="absolute top-full mt-2 w-full z-10 max-h-60 overflow-y-auto">
                                 <CardContent className="p-0">
                                     {searchResults.map(result => (
-                                        <div 
+                                        <div
                                             key={result.type === 'doctor' ? `doctor-${result.id}` : `clinic-${result.id}`}
                                             className="flex items-center gap-4 p-3 border-b last:border-b-0 cursor-pointer hover:bg-muted"
                                             onClick={() => {
@@ -1471,7 +1475,7 @@ function HomePageContent() {
                             </Card>
                         )}
                     </div>
-                    
+
                     {/* Always render appointments section to prevent layout shift */}
                     <div className="mt-6 space-y-4">
                         {/* Reserve space to prevent CLS when walk-in appointment loads */}
@@ -1480,8 +1484,8 @@ function HomePageContent() {
                                 {showAppointmentsSkeleton ? (
                                     <Skeleton className="h-40 w-full bg-primary/20" />
                                 ) : walkInAppointment ? (
-                                    <WalkInCard 
-                                        appointment={walkInAppointment} 
+                                    <WalkInCard
+                                        appointment={walkInAppointment}
                                         allClinicAppointments={allClinicAppointments}
                                         userDoctors={effectiveUserDoctors}
                                         t={t}
@@ -1508,7 +1512,7 @@ function HomePageContent() {
 
                 {/* Main Content */}
                 <main className="p-6 space-y-8 bg-background rounded-t-[2rem] -mt-16 pt-8 pb-24">
-                     {/* Clinics/Doctors Section with Tabs */}
+                    {/* Clinics/Doctors Section with Tabs */}
                     <section>
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">{t.home.availableDoctors}</h2>
@@ -1561,12 +1565,12 @@ function HomePageContent() {
                             </TabsContent>
                         </Tabs>
                     </section>
-                    
+
                     <div className="grid grid-cols-2 gap-4">
                         <button
                             type="button"
-                                    onClick={() => handleScanQR('consult')}
-                                    disabled={showQRScanner}
+                            onClick={() => handleScanQR('consult')}
+                            disabled={showQRScanner}
                             className="rounded-2xl border border-[#60896c]/30 bg-[#60896c]/10 p-4 text-center text-[#60896c] shadow-sm transition hover:shadow-md disabled:opacity-60 flex flex-col items-center justify-center min-h-[220px] gap-3"
                         >
                             <Camera className="h-10 w-10" />
@@ -1578,15 +1582,15 @@ function HomePageContent() {
                                 <div className="mt-2 text-sm font-semibold flex flex-col items-center justify-center gap-2" aria-live="polite">
                                     <Skeleton className="h-6 w-6 rounded-full" />
                                     <span>{language === 'ml' ? 'സ്കാൻ ചെയ്യുന്നു...' : 'Scanning...'}</span>
-                            </div>
+                                </div>
                             )}
                         </button>
 
-                    {clinicIds && clinicIds.length > 0 && (
+                        {clinicIds && clinicIds.length > 0 && (
                             <button
                                 type="button"
-                                        onClick={() => handleScanQR('confirm')}
-                                        disabled={showQRScanner}
+                                onClick={() => handleScanQR('confirm')}
+                                disabled={showQRScanner}
                                 className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-center text-blue-900 shadow-sm transition hover:shadow-md disabled:opacity-60 flex flex-col items-center justify-center min-h-[220px] gap-3"
                             >
                                 <CheckCircle2 className="h-10 w-10 text-blue-600" />
@@ -1601,17 +1605,17 @@ function HomePageContent() {
                                     </p>
                                 </div>
                             </button>
-                    )}
+                        )}
                     </div>
 
                     <button
                         type="button"
-                                    onClick={() => router.push('/clinics')}
+                        onClick={() => router.push('/clinics')}
                         className="w-full rounded-3xl bg-white shadow-lg border border-primary/10 px-6 py-5 flex items-center gap-3 text-primary hover:shadow-xl transition"
-                                >
+                    >
                         <div className="rounded-2xl bg-primary/10 p-3">
                             <Building2 className="h-6 w-6" />
-                            </div>
+                        </div>
                         <div className="text-left">
                             <p className="text-lg font-bold">{t.home.viewAllClinics}</p>
                             <p className="text-sm text-muted-foreground">{t.home.exploreClinics}</p>

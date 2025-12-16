@@ -20,19 +20,23 @@ export async function sendNotificationToPatient(params: {
     try {
         const { firestore, patientId, title, body, data } = params;
 
-
-
         // Get patient document to find primaryUserId
         const patientDoc = await getDoc(doc(firestore, 'patients', patientId));
         if (!patientDoc.exists()) {
-            console.error('🔔 DEBUG: Patient not found in Firestore');
             return false;
         }
 
         const patientData = patientDoc.data();
-        let userId = patientData.primaryUserId;
+        let userId: string | undefined;
 
-        // If primaryUserId is not found in patient document, find it by searching users collection
+        // User resolution logic based on isPrimary flag
+        if (patientData.isPrimary) {
+            userId = patientData.primaryUserId;
+        } else {
+            // Fallthrough to phone lookup logic below
+        }
+
+        // Search by phone if userId is not set (either !isPrimary or primaryUserId was missing/null)
         if (!userId) {
             const communicationPhone = patientData.communicationPhone || patientData.phone || null;
 
@@ -48,26 +52,20 @@ export async function sendNotificationToPatient(params: {
                     if (!usersSnapshot.empty) {
                         const primaryUserDoc = usersSnapshot.docs[0];
                         userId = primaryUserDoc.id;
-                    } else {
-                        console.warn('🔔 DEBUG: ⚠️ No user found with phone:', communicationPhone, 'and role=patient');
                     }
                 } catch (error) {
-                    console.error('🔔 DEBUG: ❌ Error searching for primary user by communicationPhone:', error);
+                    console.error('Error searching for primary user by communicationPhone:', error);
                 }
-            } else {
-                console.warn('🔔 DEBUG: ⚠️ Patient has no communicationPhone or phone. Cannot find primary user.');
             }
         }
 
         if (!userId) {
-            console.error('🔔 DEBUG: ❌ No primary user ID found for patient. Cannot send notification.');
             return false;
         }
 
         // Get user's FCM token
         const userDoc = await getDoc(doc(firestore, 'users', userId));
         if (!userDoc.exists()) {
-            console.error('🔔 DEBUG: User not found in Firestore');
             return false;
         }
 
@@ -81,28 +79,26 @@ export async function sendNotificationToPatient(params: {
 
         const fcmToken = userData.fcmToken;
         if (!fcmToken) {
-            // User has enabled notifications but token is missing - this might need attention
-            const reason = userData.fcmTokenUpdatedAt
-                ? 'Token was previously saved but is now missing (patient app may need to refresh token)'
-                : 'Token never saved (patient app may not have registered for notifications yet)';
-
-            console.warn('🔔 WARNING: User has notifications enabled but no FCM token available', {
-                userId,
-                phone: userData.phone,
-                notificationsEnabled: userData.notificationsEnabled,
-                notificationPermissionGranted: userData.notificationPermissionGranted,
-                fcmTokenUpdatedAt: userData.fcmTokenUpdatedAt || null,
-                reason,
-                action: 'Patient needs to grant notification permission and register FCM token in patient app',
-            });
             return false;
         }
 
-
-
         // Build API URL
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        // Priority:
+        // 1. NEXT_PUBLIC_BASE_URL env var if set
+        // 2. dynamically determine if on localhost (client-side)
+        // 3. Fallback to production URL
+
+        let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+
+        if (!baseUrl && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+            baseUrl = 'http://localhost:3000'; // Assume patient app runs on 3000 locally
+        }
+
+        // Fallback or default
+        baseUrl = baseUrl || 'https://app.kloqo.com';
+
         const apiUrl = `${baseUrl}/api/send-notification`;
+        console.log('🔍 [NURSE NOTIFICATION DEBUG] Sending to API:', apiUrl);
 
         // Send notification via API
         const response = await fetch(apiUrl, {
@@ -111,6 +107,7 @@ export async function sendNotificationToPatient(params: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
+                userId, // Pass userId so the API can save to history
                 fcmToken,
                 title,
                 body,
@@ -118,30 +115,9 @@ export async function sendNotificationToPatient(params: {
             }),
         });
 
-
-
         if (!response.ok) {
-            const errorText = await response.text();
-            let errorData;
-            try {
-                errorData = JSON.parse(errorText);
-            } catch {
-                errorData = { message: errorText };
-            }
-
-            console.error('🔔 DEBUG: Failed to send notification. Status:', response.status);
-            console.error('🔔 DEBUG: Error response:', errorText);
-
             // Check if token is invalid - this is a recoverable error
-            const errorCode = errorData?.details?.code || errorData?.code;
-            if (errorCode === 'messaging/registration-token-not-registered' ||
-                errorCode === 'messaging/invalid-registration-token') {
-                console.warn('🔔 DEBUG: ⚠️ Invalid/expired FCM token. Patient needs to refresh their token.');
-                console.warn('🔔 DEBUG: Notification failed but appointment booking will continue.');
-                // Return false but don't throw - this allows appointment booking to succeed
-                return false;
-            }
-
+            // Return false but don't throw - this allows appointment booking to succeed
             return false;
         }
 

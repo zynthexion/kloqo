@@ -78,6 +78,7 @@ export async function sendNotification(params: {
         title,
         body,
         data,
+        userId, // Pass userId to API for history storage
       }),
     });
 

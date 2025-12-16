@@ -547,7 +547,7 @@ export async function generateNextToken(
   const tokenNumber = await runTransaction(db, async transaction => {
     const counterState = await prepareNextTokenNumber(transaction, counterRef);
     commitNextTokenNumber(transaction, counterRef, counterState);
-    return `${type}${String(counterState.nextNumber).padStart(3, '0')}`;
+    return `${type}${String(counterState.nextNumber + (type === 'W' ? 100 : 0)).padStart(3, '0')}`;
   });
 
   return tokenNumber;
@@ -772,7 +772,7 @@ export async function generateNextTokenAndReserveSlot(
           if (!counterState) {
             throw new Error('Counter state not prepared for walk-in booking');
           }
-          const nextWalkInNumericToken = totalSlots + counterState.nextNumber;
+          const nextWalkInNumericToken = totalSlots + counterState.nextNumber + 100;
           const shiftPlan = await prepareAdvanceShift({
             firestore: db,
             transaction,

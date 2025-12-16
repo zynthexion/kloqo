@@ -230,7 +230,7 @@
     "slotsAvailable": "slots available",
     "proceedToBook": "Proceed to Book",
     "noSessionsAvailable": "No sessions available on this day.",
-    "autoCancelWarning": "Appointment will auto-cancel in 30 minutes if you don't show up (by {time})"
+    "autoCancelWarning": "Your appointment will be automatically canceled if you don't check in within 30 minutes (by {time})."
   },
   "consultToday": {
     "title": "Consult Today",

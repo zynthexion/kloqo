@@ -31,6 +31,7 @@ import successAnimation from '@/lib/animations/success.json';
 import { getDoctorFromCache, saveDoctorToCache } from '@/lib/doctor-cache';
 import { getPatientFromCache, savePatientToCache } from '@/lib/patient-cache';
 import { AuthGuard } from '@/components/auth-guard';
+import { FullScreenLoader } from '@/components/full-screen-loader';
 
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -208,6 +209,8 @@ function BookingSummaryPage() {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+
 
     const handleConfirmBooking = async () => {
         const effectiveDoctor = doctor || cachedDoctor;
@@ -1304,8 +1307,8 @@ function BookingSummaryPage() {
                                     <div className="flex items-center gap-2">
                                         <Clock className="w-4 h-4 text-muted-foreground" />
                                         <div className="text-center">
-                                            <span className="text-xs text-muted-foreground block">Arrive by</span>
-                                            <p className="text-sm font-medium">
+                                            <span className="text-sm text-muted-foreground block">Arrive by</span>
+                                            <p className="text-xl font-bold">
                                                 {(() => {
                                                     try {
                                                         const timeStr = appointmentArriveByTime || appointmentTime;
@@ -1327,7 +1330,7 @@ function BookingSummaryPage() {
                                         </div>
                                     </div>
                                     <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
-                                        <p className="text-xs font-bold text-red-600 text-center">
+                                        <p className="text-sm font-bold text-red-600 text-center">
                                             ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
                                                 try {
                                                     if (noShowTime) {
@@ -1372,148 +1375,151 @@ function BookingSummaryPage() {
 
 
     return (
-        <Suspense fallback={
-            <div className="min-h-screen flex items-center justify-center bg-background">
-                <div className="flex flex-col items-center gap-4">
-                    <Skeleton className="h-12 w-12 rounded-full" />
-                    <Skeleton className="h-4 w-32" />
+        <>
+            <FullScreenLoader isOpen={isSubmitting} />
+            <Suspense fallback={
+                <div className="min-h-screen flex items-center justify-center bg-background">
+                    <div className="flex flex-col items-center gap-4">
+                        <Skeleton className="h-12 w-12 rounded-full" />
+                        <Skeleton className="h-4 w-32" />
+                    </div>
                 </div>
-            </div>
-        }>
-            <div className="flex min-h-screen w-full flex-col bg-background font-body">
-                <header className="flex items-center p-4 border-b">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBack}>
-                        <ArrowLeft className="h-5 w-5" />
-                        <span className="sr-only">Back</span>
-                    </Button>
-                    <h1 className="text-xl font-bold text-center flex-grow">{t.bookAppointment.bookingSummary}</h1>
-                    <div className="w-8"></div>
-                </header>
-                <main className="flex-grow overflow-y-auto p-4 md:p-6 space-y-6">
-                    {/* Progressive loading: Show doctor card with skeleton if loading */}
-                    <Card>
-                        <CardContent className="p-4 space-y-4">
-                            {loading && !doctor && !cachedDoctor ? (
-                                // Show skeleton while doctor loads
-                                <>
-                                    <div className="flex items-center gap-4">
-                                        <Skeleton className="h-16 w-16 rounded-full" />
-                                        <div className="flex-grow space-y-2">
-                                            <Skeleton className="h-6 w-40" />
-                                            <Skeleton className="h-4 w-32" />
+            }>
+                <div className="flex min-h-screen w-full flex-col bg-background font-body">
+                    <header className="flex items-center p-4 border-b">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBack}>
+                            <ArrowLeft className="h-5 w-5" />
+                            <span className="sr-only">Back</span>
+                        </Button>
+                        <h1 className="text-xl font-bold text-center flex-grow">{t.bookAppointment.bookingSummary}</h1>
+                        <div className="w-8"></div>
+                    </header>
+                    <main className="flex-grow overflow-y-auto p-4 md:p-6 space-y-6">
+                        {/* Progressive loading: Show doctor card with skeleton if loading */}
+                        <Card>
+                            <CardContent className="p-4 space-y-4">
+                                {loading && !doctor && !cachedDoctor ? (
+                                    // Show skeleton while doctor loads
+                                    <>
+                                        <div className="flex items-center gap-4">
+                                            <Skeleton className="h-16 w-16 rounded-full" />
+                                            <div className="flex-grow space-y-2">
+                                                <Skeleton className="h-6 w-40" />
+                                                <Skeleton className="h-4 w-32" />
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="border-t pt-4 space-y-2">
-                                        <Skeleton className="h-5 w-48" />
-                                        <Skeleton className="h-5 w-32" />
-                                        <Skeleton className="h-12 w-full" />
-                                    </div>
-                                </>
-                            ) : (doctor || cachedDoctor) ? (
-                                // Show doctor info when loaded (use cached or fresh)
-                                <>
-                                    <div className="flex items-center gap-4">
-                                        <Avatar className="h-16 w-16">
-                                            {(doctor || cachedDoctor)?.avatar && <AvatarImage src={(doctor || cachedDoctor)!.avatar} alt={(doctor || cachedDoctor)!.name} />}
-                                            <AvatarFallback>{(doctor || cachedDoctor)!.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                                        </Avatar>
-                                        <div className="flex-grow">
-                                            <h3 className="font-bold text-lg">{(doctor || cachedDoctor)!.name}</h3>
-                                            <p className="text-muted-foreground">{getLocalizedDepartmentName((doctor || cachedDoctor)!.department, language, departments)}</p>
-                                        </div>
-                                    </div>
-                                    {selectedSlot && (
                                         <div className="border-t pt-4 space-y-2">
-                                            <div className="flex items-center gap-3">
-                                                <Calendar className="w-5 h-5 text-primary" />
-                                                <span className="font-semibold">{formatDayOfWeek(selectedSlot, language)}, {format(selectedSlot, 'dd')}{language === 'ml' ? ' ' : ', '}{formatDate(selectedSlot, 'MMMM', language)}, {format(selectedSlot, 'yyyy')}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <Clock className="w-5 h-5 text-primary" />
-                                                <div>
-                                                    <span className="text-xs text-muted-foreground block">Session Time</span>
-                                                    <span className="font-semibold">{(() => {
-                                                        try {
-                                                            // Add break offsets if doctor info is available
-                                                            const effectiveDoctor = doctor || cachedDoctor;
-                                                            const breakIntervals = effectiveDoctor && selectedSlot ? buildBreakIntervals(effectiveDoctor, selectedSlot) : [];
-                                                            const adjustedSlot = breakIntervals.length > 0
-                                                                ? applyBreakOffsets(selectedSlot, breakIntervals)
-                                                                : selectedSlot;
-                                                            const arriveBy = format(subMinutes(adjustedSlot, 15), 'hh:mm a');
-                                                            const sessionEnd = findSessionEndTime(effectiveDoctor, selectedSlot);
-                                                            return sessionEnd ? `${arriveBy} - ${sessionEnd}` : arriveBy;
-                                                        } catch {
-                                                            return format(subMinutes(selectedSlot, 15), 'hh:mm a');
-                                                        }
-                                                    })()}</span>
-                                                </div>
-                                            </div>
-                                            {(doctor || cachedDoctor)!.consultationFee && (
-                                                <div className="flex items-center gap-3">
-                                                    <span className="font-bold text-lg text-primary ml-1 font-mono">&#8377;</span>
-                                                    <span className="font-semibold">{(doctor || cachedDoctor)!.consultationFee} {t.bookAppointment.consultationFee}</span>
-                                                </div>
-                                            )}
+                                            <Skeleton className="h-5 w-48" />
+                                            <Skeleton className="h-5 w-32" />
+                                            <Skeleton className="h-12 w-full" />
                                         </div>
-                                    )}
-                                </>
-                            ) : null}
-                        </CardContent>
-                    </Card>
+                                    </>
+                                ) : (doctor || cachedDoctor) ? (
+                                    // Show doctor info when loaded (use cached or fresh)
+                                    <>
+                                        <div className="flex items-center gap-4">
+                                            <Avatar className="h-16 w-16">
+                                                {(doctor || cachedDoctor)?.avatar && <AvatarImage src={(doctor || cachedDoctor)!.avatar} alt={(doctor || cachedDoctor)!.name} />}
+                                                <AvatarFallback>{(doctor || cachedDoctor)!.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex-grow">
+                                                <h3 className="font-bold text-lg">{(doctor || cachedDoctor)!.name}</h3>
+                                                <p className="text-muted-foreground">{getLocalizedDepartmentName((doctor || cachedDoctor)!.department, language, departments)}</p>
+                                            </div>
+                                        </div>
+                                        {selectedSlot && (
+                                            <div className="border-t pt-4 space-y-2">
+                                                <div className="flex items-center gap-3">
+                                                    <Calendar className="w-5 h-5 text-primary" />
+                                                    <span className="font-semibold">{formatDayOfWeek(selectedSlot, language)}, {format(selectedSlot, 'dd')}{language === 'ml' ? ' ' : ', '}{formatDate(selectedSlot, 'MMMM', language)}, {format(selectedSlot, 'yyyy')}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <Clock className="w-5 h-5 text-primary" />
+                                                    <div>
+                                                        <span className="text-xs text-muted-foreground block">Session Time</span>
+                                                        <span className="font-semibold">{(() => {
+                                                            try {
+                                                                // Add break offsets if doctor info is available
+                                                                const effectiveDoctor = doctor || cachedDoctor;
+                                                                const breakIntervals = effectiveDoctor && selectedSlot ? buildBreakIntervals(effectiveDoctor, selectedSlot) : [];
+                                                                const adjustedSlot = breakIntervals.length > 0
+                                                                    ? applyBreakOffsets(selectedSlot, breakIntervals)
+                                                                    : selectedSlot;
+                                                                const arriveBy = format(subMinutes(adjustedSlot, 15), 'hh:mm a');
+                                                                const sessionEnd = findSessionEndTime(effectiveDoctor, selectedSlot);
+                                                                return sessionEnd ? `${arriveBy} - ${sessionEnd}` : arriveBy;
+                                                            } catch {
+                                                                return format(subMinutes(selectedSlot, 15), 'hh:mm a');
+                                                            }
+                                                        })()}</span>
+                                                    </div>
+                                                </div>
+                                                {(doctor || cachedDoctor)!.consultationFee && (
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="font-bold text-lg text-primary ml-1 font-mono">&#8377;</span>
+                                                        <span className="font-semibold">{(doctor || cachedDoctor)!.consultationFee} {t.bookAppointment.consultationFee}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                ) : null}
+                            </CardContent>
+                        </Card >
 
-                    {/* Progressive loading: Show patient card with skeleton if loading */}
-                    <Card>
-                        <CardContent className="p-4 space-y-3">
-                            <h3 className="font-bold text-lg mb-2">{t.patientForm.personalDetails}</h3>
-                            {loading && !patient && !cachedPatient ? (
-                                // Show skeleton while patient loads
-                                <>
-                                    <Skeleton className="h-5 w-full" />
-                                    <Skeleton className="h-5 w-full" />
-                                    <Skeleton className="h-5 w-full" />
-                                    <Skeleton className="h-5 w-full" />
-                                </>
-                            ) : (patient || cachedPatient) ? (
-                                // Show patient info when loaded (use cached or fresh)
-                                <>
-                                    <div className="flex items-center gap-3">
-                                        <User className="w-5 h-5 text-primary" />
-                                        <span className="text-muted-foreground">{t.common.name}:</span>
-                                        <span className="font-semibold ml-auto">{(patient || cachedPatient)!.name}</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <User className="w-5 h-5 text-primary" />
-                                        <span className="text-muted-foreground">{t.common.age}/{t.common.gender}:</span>
-                                        <span className="font-semibold ml-auto">{(patient || cachedPatient)!.age} / {(patient || cachedPatient)!.sex}</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <Phone className="w-5 h-5 text-primary" />
-                                        <span className="text-muted-foreground">{t.common.phone}:</span>
-                                        <span className="font-semibold ml-auto">{(patient || cachedPatient)!.communicationPhone || (patient || cachedPatient)!.phone || user?.phoneNumber}</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <MapPin className="w-5 h-5 text-primary" />
-                                        <span className="text-muted-foreground">{t.common.location}:</span>
-                                        <span className="font-semibold ml-auto">{(patient || cachedPatient)!.place}</span>
-                                    </div>
-                                </>
-                            ) : null}
-                        </CardContent>
-                    </Card>
+                        {/* Progressive loading: Show patient card with skeleton if loading */}
+                        < Card >
+                            <CardContent className="p-4 space-y-3">
+                                <h3 className="font-bold text-lg mb-2">{t.patientForm.personalDetails}</h3>
+                                {loading && !patient && !cachedPatient ? (
+                                    // Show skeleton while patient loads
+                                    <>
+                                        <Skeleton className="h-5 w-full" />
+                                        <Skeleton className="h-5 w-full" />
+                                        <Skeleton className="h-5 w-full" />
+                                        <Skeleton className="h-5 w-full" />
+                                    </>
+                                ) : (patient || cachedPatient) ? (
+                                    // Show patient info when loaded (use cached or fresh)
+                                    <>
+                                        <div className="flex items-center gap-3">
+                                            <User className="w-5 h-5 text-primary" />
+                                            <span className="text-muted-foreground">{t.common.name}:</span>
+                                            <span className="font-semibold ml-auto">{(patient || cachedPatient)!.name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <User className="w-5 h-5 text-primary" />
+                                            <span className="text-muted-foreground">{t.common.age}/{t.common.gender}:</span>
+                                            <span className="font-semibold ml-auto">{(patient || cachedPatient)!.age} / {(patient || cachedPatient)!.sex}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <Phone className="w-5 h-5 text-primary" />
+                                            <span className="text-muted-foreground">{t.common.phone}:</span>
+                                            <span className="font-semibold ml-auto">{(patient || cachedPatient)!.communicationPhone || (patient || cachedPatient)!.phone || user?.phoneNumber}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <MapPin className="w-5 h-5 text-primary" />
+                                            <span className="text-muted-foreground">{t.common.location}:</span>
+                                            <span className="font-semibold ml-auto">{(patient || cachedPatient)!.place}</span>
+                                        </div>
+                                    </>
+                                ) : null}
+                            </CardContent>
+                        </Card >
 
-                </main>
-                <footer className="p-4 border-t sticky bottom-0 bg-background">
-                    <Button
-                        className="w-full h-12 text-base font-semibold"
-                        onClick={handleConfirmBooking}
-                        disabled={isSubmitting || loading || (!doctor && !cachedDoctor) || (!patient && !cachedPatient) || !selectedSlot}
-                    >
-                        {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : t.bookAppointment.confirmBooking}
-                    </Button>
-                </footer>
-            </div>
-        </Suspense>
+                    </main >
+                    <footer className="p-4 border-t sticky bottom-0 bg-background">
+                        <Button
+                            className="w-full h-12 text-base font-semibold"
+                            onClick={handleConfirmBooking}
+                            disabled={isSubmitting || loading || (!doctor && !cachedDoctor) || (!patient && !cachedPatient) || !selectedSlot}
+                        >
+                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : t.bookAppointment.confirmBooking}
+                        </Button>
+                    </footer>
+                </div >
+            </Suspense>
+        </>
     );
 }
 

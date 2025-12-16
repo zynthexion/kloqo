@@ -549,7 +549,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const minutesUntilArrivalReminder = useMemo(() => {
         if (!arrivalReminderDateTime || !isAppointmentToday || hoursUntilArrivalReminder === null) return null;
-        if (hoursUntilArrivalReminder > 0) return null;
+        // if (hoursUntilArrivalReminder > 0) return null; // Removed to allow precision for hours > 0
         try {
             const diff = differenceInMinutes(arrivalReminderDateTime, currentTime);
             return Math.max(0, diff);
@@ -580,6 +580,32 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
         if (minutesValue >= 60) {
             const hours = Math.floor(minutesValue / 60);
+            const remainingMinutes = Math.floor(minutesValue % 60);
+            const hoursPart = formatLabel(hours, hourSingular, hourPlural);
+
+            if (remainingMinutes > 0) {
+                const minutesPart = formatLabel(remainingMinutes, minuteSingular, minutePlural);
+                // Remove prefix from minutes part to avoid "In 4 hours In 50 minutes"
+                // The formatLabel adds the prefix, so we handle basic concatenation here carefully
+                // But formatLabel adds "In " or "-" based on sign. 
+                // Let's refactor to clean this up or just use string manipulation.
+                // Simpler approach: Reconstruct the string manually for combined units or adjust formatLabel usage.
+
+                // Let's rewrite the block to be cleaner
+                const absHours = Math.max(1, hours);
+                const absMinutes = remainingMinutes;
+
+                const hoursLabel = absHours === 1 ? hourSingular : hourPlural;
+                const minutesLabel = absMinutes === 1 ? minuteSingular : minutePlural;
+
+                const timeString = `${absHours} ${hoursLabel} ${absMinutes} ${minutesLabel}`;
+
+                if (reportByDiffMinutes < 0) {
+                    return `-${timeString}`;
+                }
+                return `${inLabel} ${timeString}`;
+            }
+
             return formatLabel(hours, hourSingular, hourPlural);
         }
 
@@ -1500,16 +1526,24 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                             <div className="flex flex-col items-center justify-center">
                                 <span className="text-sm font-medium">{reportingLabel}</span>
                                 <span className="font-bold text-lg">
-                                    {language === 'ml' ?
-                                        (hoursUntilArrivalReminder === 1 ?
-                                            `ഇനി 1 ${t.liveToken.hour}` :
-                                            `ഇനി ${hoursUntilArrivalReminder} ${t.liveToken.hours}`
-                                        ) :
-                                        (hoursUntilArrivalReminder === 1 ?
-                                            `${t.liveToken.in} 1 ${t.liveToken.hour}` :
-                                            `${t.liveToken.in} ${hoursUntilArrivalReminder} ${t.liveToken.hours}`
-                                        )
-                                    }
+                                    {(() => {
+                                        // Calculate hours and remaining minutes from the total minutes
+                                        // We use minutesUntilArrivalReminder which we enabled above for > 0 hours
+                                        const totalMinutes = minutesUntilArrivalReminder || (hoursUntilArrivalReminder * 60);
+                                        const hoursVal = Math.floor(totalMinutes / 60);
+                                        const minsVal = totalMinutes % 60;
+
+                                        const hoursLabel = hoursVal === 1 ? (t.liveToken.hour || (language === 'ml' ? 'മണിക്കൂർ' : 'hour')) : (t.liveToken.hours || (language === 'ml' ? 'മണിക്കൂർ' : 'hours'));
+                                        const minutesLabel = minsVal === 1 ? (t.liveToken.minute || (language === 'ml' ? 'മിനിറ്റ്' : 'minute')) : (t.liveToken.minutes || (language === 'ml' ? 'മിനിറ്റുകൾ' : 'minutes'));
+
+                                        const hoursPart = `${hoursVal} ${hoursLabel}`;
+                                        const minutesPart = minsVal > 0 ? ` ${minsVal} ${minutesLabel}` : '';
+
+                                        if (language === 'ml') {
+                                            return `ഇനി ${hoursPart}${minutesPart}`;
+                                        }
+                                        return `${t.liveToken.in} ${hoursPart}${minutesPart}`;
+                                    })()}
                                 </span>
                             </div>
                         </div>
@@ -1548,10 +1582,17 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                         : `${t.liveToken.in} ${days} ${dayLabel}`;
                 } else if (minutesValue >= 60) {
                     const hoursValue = Math.max(1, Math.floor(minutesValue / 60));
+                    const remainingMinutes = minutesValue % 60;
+
                     const hourLabel = hoursValue === 1 ? t.liveToken.hour : t.liveToken.hours;
+                    const minuteLabel = remainingMinutes === 1 ? t.liveToken.minute : t.liveToken.minutes;
+
+                    const hoursPart = `${hoursValue} ${hourLabel}`;
+                    const minutesPart = remainingMinutes > 0 ? ` ${remainingMinutes} ${minuteLabel}` : '';
+
                     countdownLabel = language === 'ml'
-                        ? `ഇനി ${hoursValue} ${hourLabel}`
-                        : `${t.liveToken.in} ${hoursValue} ${hourLabel}`;
+                        ? `ഇനി ${hoursPart}${minutesPart}`
+                        : `${t.liveToken.in} ${hoursPart}${minutesPart}`;
                 } else {
                     const mins = Math.max(1, minutesValue);
                     countdownLabel = language === 'ml'

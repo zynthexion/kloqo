@@ -44,32 +44,32 @@ export default function AppointmentStatusChart({ dateRange, doctorId }: Appointm
     if (!auth.currentUser) return;
     setLoading(true);
     try {
-        const userDoc = await getDoc(doc(db, "users", auth.currentUser!.uid));
-        const clinicId = userDoc.data()?.clinicId;
-        if (!clinicId) {
-            setLoading(false);
-            return;
-        }
-        
-        const appointmentsQuery = query(collection(db, "appointments"), where("clinicId", "==", clinicId));
-        const appointmentsSnapshot = await getDocs(appointmentsQuery);
-        const appointmentsList = appointmentsSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}) as Appointment);
-        setAppointments(appointmentsList);
-        
-        const doctorsQuery = query(collection(db, "doctors"), where("clinicId", "==", clinicId));
-        const doctorsSnapshot = await getDocs(doctorsQuery);
-        const doctorsList = doctorsSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}) as Doctor);
-        setDoctors(doctorsList);
-    } catch(e) {
-        console.error("Failed to fetch appointments", e);
-    } finally {
+      const userDoc = await getDoc(doc(db, "users", auth.currentUser!.uid));
+      const clinicId = userDoc.data()?.clinicId;
+      if (!clinicId) {
         setLoading(false);
+        return;
+      }
+
+      const appointmentsQuery = query(collection(db, "appointments"), where("clinicId", "==", clinicId));
+      const appointmentsSnapshot = await getDocs(appointmentsQuery);
+      const appointmentsList = appointmentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Appointment);
+      setAppointments(appointmentsList);
+
+      const doctorsQuery = query(collection(db, "doctors"), where("clinicId", "==", clinicId));
+      const doctorsSnapshot = await getDocs(doctorsQuery);
+      const doctorsList = doctorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Doctor);
+      setDoctors(doctorsList);
+    } catch (e) {
+      console.error("Failed to fetch appointments", e);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchAppointments();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.currentUser]);
 
   const { chartData } = useMemo(() => {
@@ -78,10 +78,10 @@ export default function AppointmentStatusChart({ dateRange, doctorId }: Appointm
     let filteredAppointments = appointments;
 
     if (doctorId) {
-        const doctor = doctors.find(d => d.id === doctorId);
-        if (doctor) {
-            filteredAppointments = appointments.filter(apt => apt.doctor === doctor.name);
-        }
+      const doctor = doctors.find(d => d.id === doctorId);
+      if (doctor) {
+        filteredAppointments = appointments.filter(apt => apt.doctor === doctor.name);
+      }
     }
 
     const from = startOfDay(dateRange.from);
@@ -98,34 +98,34 @@ export default function AppointmentStatusChart({ dateRange, doctorId }: Appointm
 
     const completed = rangeAppointments.filter(apt => apt.status === 'Completed').length;
     const upcoming = rangeAppointments.filter(apt => (apt.status === 'Confirmed' || apt.status === 'Pending') && (isFuture(parse(apt.date, 'd MMMM yyyy', new Date())) || isToday(parse(apt.date, 'd MMMM yyyy', new Date())))).length;
-    const cancelled = rangeAppointments.filter(apt => apt.status === 'Cancelled').length;
+    const cancelled = rangeAppointments.filter(apt => apt.status === 'Cancelled' && !apt.cancelledByBreak).length;
     const noShow = rangeAppointments.filter(apt => apt.status === 'No-show' || apt.status === 'Skipped').length;
-    
+
     const data = [
       { name: "completed", value: completed },
       { name: "upcoming", value: upcoming },
       { name: "cancelled", value: cancelled },
       { name: "No-show", value: noShow },
     ].filter(item => item.value > 0);
-    
+
     return { chartData: data };
 
   }, [appointments, dateRange, doctorId, doctors]);
-  
+
   if (loading) {
     return (
-        <Card className="h-full flex flex-col">
-            <CardHeader>
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-            </CardHeader>
-            <CardContent className="flex-grow flex items-center justify-center">
-                 <Skeleton className="h-48 w-48 rounded-full" />
-            </CardContent>
-             <CardFooter>
-                 <Skeleton className="h-6 w-full" />
-            </CardFooter>
-        </Card>
+      <Card className="h-full flex flex-col">
+        <CardHeader>
+          <Skeleton className="h-6 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+        </CardHeader>
+        <CardContent className="flex-grow flex items-center justify-center">
+          <Skeleton className="h-48 w-48 rounded-full" />
+        </CardContent>
+        <CardFooter>
+          <Skeleton className="h-6 w-full" />
+        </CardFooter>
+      </Card>
     )
   }
 
@@ -137,47 +137,47 @@ export default function AppointmentStatusChart({ dateRange, doctorId }: Appointm
       </CardHeader>
       <CardContent className="flex-grow flex items-center justify-center p-0">
         {chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                    <Tooltip
-                        contentStyle={{
-                            background: "hsl(var(--background))",
-                            borderRadius: "var(--radius)",
-                            border: "1px solid hsl(var(--border))",
-                        }}
-                        labelFormatter={(value) => statusLabels[value as string]}
-                    />
-                    <Pie
-                        data={chartData}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={100}
-                        innerRadius={70}
-                        paddingAngle={5}
-                        dataKey="value"
-                        nameKey="name"
-                    >
-                        {chartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[entry.name as keyof typeof COLORS]} />
-                        ))}
-                    </Pie>
-                </PieChart>
-            </ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={250}>
+            <PieChart>
+              <Tooltip
+                contentStyle={{
+                  background: "hsl(var(--background))",
+                  borderRadius: "var(--radius)",
+                  border: "1px solid hsl(var(--border))",
+                }}
+                labelFormatter={(value) => statusLabels[value as string]}
+              />
+              <Pie
+                data={chartData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                outerRadius={100}
+                innerRadius={70}
+                paddingAngle={5}
+                dataKey="value"
+                nameKey="name"
+              >
+                {chartData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[entry.name as keyof typeof COLORS]} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
         ) : (
-            <p className="text-sm text-muted-foreground">No appointment data for this period.</p>
+          <p className="text-sm text-muted-foreground">No appointment data for this period.</p>
         )}
       </CardContent>
       {chartData.length > 0 && (
         <CardFooter className="flex-col gap-4 text-sm pt-4">
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-                {ALL_STATUSES.map(status => (
-                    <div key={status} className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[status as keyof typeof COLORS] }} />
-                        <span className="text-muted-foreground">{statusLabels[status]}</span>
-                    </div>
-                ))}
-            </div>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            {ALL_STATUSES.map(status => (
+              <div key={status} className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[status as keyof typeof COLORS] }} />
+                <span className="text-muted-foreground">{statusLabels[status]}</span>
+              </div>
+            ))}
+          </div>
         </CardFooter>
       )}
     </Card>

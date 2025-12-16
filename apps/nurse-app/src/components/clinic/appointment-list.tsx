@@ -260,6 +260,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                                 {appt.date && `${appt.date} - `}
                                 {appt.time ? appt.time : ''}
                               </Badge>
+                              {getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
                                 <div className="flex items-center gap-2">
                                   {appt.status === 'Pending' && onAddToQueue && shouldShowConfirmArrival(appt) && (

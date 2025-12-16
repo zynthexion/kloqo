@@ -638,22 +638,7 @@ function BookAppointmentContent() {
                 return !isBlocked;
             });
 
-            // Filter out slots where slot time + break duration would be outside availability
-            // REMOVED: This filter conflicts with availability extensions. 
-            // When a session is extended (e.g. by 30m), we generate slots at the end.
-            // But applyBreakOffsets shifts their "effective time" by another 30m, pushing them out of bounds again.
-            // Since we explicitly extended the session to accommodate these slots, they should be allowed.
-            /* 
-            allSlotsWithStatus = allSlotsWithStatus.filter(slot => {
-                // Calculate what the adjusted time would be (slot + break offsets)
-                const adjustedTime = breakIntervals.length > 0
-                    ? applyBreakOffsets(slot.time, breakIntervals)
-                    : slot.time;
 
-                // Hide slot if adjusted time would be outside availability
-                return adjustedTime <= availabilityEndTime;
-            });
-            */
 
             let visibleSlots: Slot[] = [];
             let foundFirstAvailable = false;

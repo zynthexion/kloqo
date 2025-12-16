@@ -7,16 +7,16 @@ import { useAuth } from "@/firebase";
 import type { Appointment, Doctor, Patient } from "@/lib/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { 
-    Users, 
-    Stethoscope, 
-    XCircle,
-    CheckCircle,
-    CalendarClock,
-    Building2,
-    TrendingUp,
-    TrendingDown,
-    Minus
+import {
+  Users,
+  Stethoscope,
+  XCircle,
+  CheckCircle,
+  CalendarClock,
+  Building2,
+  TrendingUp,
+  TrendingDown,
+  Minus
 } from "lucide-react";
 import { isFuture, parse, isPast, isWithinInterval, subDays, differenceInDays, startOfDay, isToday, format } from "date-fns";
 import type { DateRange } from "react-day-picker";
@@ -28,20 +28,20 @@ type PDFReportProps = {
 };
 
 type Stat = {
-    title: string;
-    value: string | number;
-    icon: string;
-    change?: string;
-    changeType?: 'increase' | 'decrease' | 'neutral';
+  title: string;
+  value: string | number;
+  icon: string;
+  change?: string;
+  changeType?: 'increase' | 'decrease' | 'neutral';
 }
 
 const iconMap: { [key: string]: { component: React.ElementType, color: string } } = {
-    "Total Patients": { component: Users, color: "text-cyan-500" },
-    "Total Doctors": { component: Stethoscope, color: "text-fuchsia-500" },
-    "Cancelled": { component: XCircle, color: "text-red-500" },
-    "Completed Appointments": { component: CheckCircle, color: "text-green-500" },
-    "Total Revenue": { component: () => <span className="font-bold">₹</span>, color: "text-blue-500" },
-    "Upcoming": { component: CalendarClock, color: "text-amber-500" },
+  "Total Patients": { component: Users, color: "text-cyan-500" },
+  "Total Doctors": { component: Stethoscope, color: "text-fuchsia-500" },
+  "Cancelled": { component: XCircle, color: "text-red-500" },
+  "Completed Appointments": { component: CheckCircle, color: "text-green-500" },
+  "Total Revenue": { component: () => <span className="font-bold">₹</span>, color: "text-blue-500" },
+  "Upcoming": { component: CalendarClock, color: "text-amber-500" },
 };
 
 export default function PDFReport({ dateRange, selectedDate }: PDFReportProps) {
@@ -81,132 +81,136 @@ export default function PDFReport({ dateRange, selectedDate }: PDFReportProps) {
 
       console.log("Clinic ID:", clinicId);
 
-        // Fetch clinic name
-        const clinicDocRef = doc(db, "clinics", clinicId);
-        const clinicDoc = await getDoc(clinicDocRef);
-        if (clinicDoc.exists()) {
-          setClinicName(clinicDoc.data().name);
-        }
-
-        const appointmentsQuery = query(collection(db, "appointments"), where("clinicId", "==", clinicId));
-        const doctorsQuery = query(collection(db, "doctors"), where("clinicId", "==", clinicId));
-
-        const [appointmentsSnapshot, doctorsSnapshot] = await Promise.all([
-          getDocs(appointmentsQuery),
-          getDocs(doctorsQuery)
-        ]);
-
-        const allAppointments = appointmentsSnapshot.docs.map(doc => doc.data() as Appointment);
-        const allDoctors = doctorsSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}) as Doctor);
-
-        // Filter appointments by date range
-        const currentFrom = dateRange?.from || subDays(new Date(), 6);
-        const currentTo = dateRange?.to || new Date();
-        
-        const periodAppointments = allAppointments.filter(apt => {
-            try {
-                const aptDate = parse(apt.date, 'd MMMM yyyy', new Date());
-                return isWithinInterval(aptDate, { start: startOfDay(currentFrom), end: startOfDay(currentTo) });
-            } catch { return false; }
-        });
-
-        // Calculate stats
-        const uniquePatients = new Set(periodAppointments.map(apt => apt.patientId));
-        const completedAppointments = periodAppointments.filter(apt => apt.status === 'Completed');
-        const cancelledAppointments = periodAppointments.filter(apt => apt.status === 'Cancelled').length;
-        
-        let totalRevenue = 0;
-        const completedByPatientAndDoctor: Record<string, Appointment[]> = {};
-
-        // Group completed appointments by patient and doctor for revenue calculation
-        completedAppointments.forEach(apt => {
-          const key = `${apt.patientId}-${apt.doctor}`;
-          if (!completedByPatientAndDoctor[key]) {
-            completedByPatientAndDoctor[key] = [];
-          }
-          completedByPatientAndDoctor[key].push(apt);
-        });
-        
-        for (const key in completedByPatientAndDoctor) {
-            const appointments = completedByPatientAndDoctor[key].sort((a,b) => parse(a.date, 'd MMMM yyyy', new Date()).getTime() - parse(b.date, 'd MMMM yyyy', new Date()).getTime());
-            const doctor = allDoctors.find(d => d.name === appointments[0].doctor);
-            const freeFollowUpDays = doctor?.freeFollowUpDays ?? 0;
-            const consultationFee = doctor?.consultationFee ?? 0;
-
-            for (let i = 0; i < appointments.length; i++) {
-                const currentApt = appointments[i];
-                const previousApt = i > 0 ? appointments[i-1] : null;
-
-                let isFree = false;
-                if (previousApt && freeFollowUpDays > 0) {
-                    const daysBetween = differenceInDays(
-                        parse(currentApt.date, 'd MMMM yyyy', new Date()),
-                        parse(previousApt.date, 'd MMMM yyyy', new Date())
-                    );
-                    if(daysBetween <= freeFollowUpDays) {
-                        isFree = true;
-                    }
-                }
-                if (!isFree) {
-                    totalRevenue += consultationFee;
-                }
-            }
-        }
-        
-        const upcomingAppointments = allAppointments.filter(apt => {
-            try {
-                const aptDate = parse(apt.date, 'd MMMM yyyy', new Date());
-                return (apt.status === 'Confirmed' || apt.status === 'Pending') && (isFuture(aptDate) || isToday(aptDate));
-            } catch { return false; }
-        }).length;
-
-        const allStats: Stat[] = [
-          { 
-              title: "Total Patients", 
-              value: uniquePatients.size, 
-              icon: "Total Patients"
-          },
-          { 
-              title: "Total Doctors", 
-              value: allDoctors.length, 
-              icon: "Total Doctors" 
-          },
-          { 
-              title: "Completed Appointments", 
-              value: completedAppointments.length, 
-              icon: "Completed Appointments"
-          },
-          { 
-              title: "Upcoming", 
-              value: upcomingAppointments, 
-              icon: "Upcoming" 
-          },
-          { 
-              title: "Cancelled", 
-              value: cancelledAppointments, 
-              icon: "Cancelled"
-          },
-          { 
-              title: "Total Revenue", 
-              value: `₹${totalRevenue.toLocaleString()}`, 
-              icon: "Total Revenue"
-          },
-        ];
-
-        console.log("Stats:", allStats);
-        console.log("Appointments:", periodAppointments.length);
-        console.log("Doctors:", allDoctors.length);
-
-        setStats(allStats);
-        setAppointments(periodAppointments);
-        setDoctors(allDoctors);
-
-      } catch (error) {
-        console.error("Error fetching report data:", error);
-      } finally {
-        setLoading(false);
+      // Fetch clinic name
+      const clinicDocRef = doc(db, "clinics", clinicId);
+      const clinicDoc = await getDoc(clinicDocRef);
+      if (clinicDoc.exists()) {
+        setClinicName(clinicDoc.data().name);
       }
-    }, [auth.currentUser, dateRange]);
+
+      const appointmentsQuery = query(collection(db, "appointments"), where("clinicId", "==", clinicId));
+      const doctorsQuery = query(collection(db, "doctors"), where("clinicId", "==", clinicId));
+
+      const [appointmentsSnapshot, doctorsSnapshot] = await Promise.all([
+        getDocs(appointmentsQuery),
+        getDocs(doctorsQuery)
+      ]);
+
+      const allAppointments = appointmentsSnapshot.docs.map(doc => doc.data() as Appointment);
+      const allDoctors = doctorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Doctor);
+
+      // Filter appointments by date range
+      const currentFrom = dateRange?.from || subDays(new Date(), 6);
+      const currentTo = dateRange?.to || new Date();
+
+      const periodAppointments = allAppointments.filter(apt => {
+        try {
+          // Exclude appointments cancelled by break
+          if (apt.status === 'Cancelled' && apt.cancelledByBreak) {
+            return false;
+          }
+          const aptDate = parse(apt.date, 'd MMMM yyyy', new Date());
+          return isWithinInterval(aptDate, { start: startOfDay(currentFrom), end: startOfDay(currentTo) });
+        } catch { return false; }
+      });
+
+      // Calculate stats
+      const uniquePatients = new Set(periodAppointments.map(apt => apt.patientId));
+      const completedAppointments = periodAppointments.filter(apt => apt.status === 'Completed');
+      const cancelledAppointments = periodAppointments.filter(apt => apt.status === 'Cancelled').length;
+
+      let totalRevenue = 0;
+      const completedByPatientAndDoctor: Record<string, Appointment[]> = {};
+
+      // Group completed appointments by patient and doctor for revenue calculation
+      completedAppointments.forEach(apt => {
+        const key = `${apt.patientId}-${apt.doctor}`;
+        if (!completedByPatientAndDoctor[key]) {
+          completedByPatientAndDoctor[key] = [];
+        }
+        completedByPatientAndDoctor[key].push(apt);
+      });
+
+      for (const key in completedByPatientAndDoctor) {
+        const appointments = completedByPatientAndDoctor[key].sort((a, b) => parse(a.date, 'd MMMM yyyy', new Date()).getTime() - parse(b.date, 'd MMMM yyyy', new Date()).getTime());
+        const doctor = allDoctors.find(d => d.name === appointments[0].doctor);
+        const freeFollowUpDays = doctor?.freeFollowUpDays ?? 0;
+        const consultationFee = doctor?.consultationFee ?? 0;
+
+        for (let i = 0; i < appointments.length; i++) {
+          const currentApt = appointments[i];
+          const previousApt = i > 0 ? appointments[i - 1] : null;
+
+          let isFree = false;
+          if (previousApt && freeFollowUpDays > 0) {
+            const daysBetween = differenceInDays(
+              parse(currentApt.date, 'd MMMM yyyy', new Date()),
+              parse(previousApt.date, 'd MMMM yyyy', new Date())
+            );
+            if (daysBetween <= freeFollowUpDays) {
+              isFree = true;
+            }
+          }
+          if (!isFree) {
+            totalRevenue += consultationFee;
+          }
+        }
+      }
+
+      const upcomingAppointments = allAppointments.filter(apt => {
+        try {
+          const aptDate = parse(apt.date, 'd MMMM yyyy', new Date());
+          return (apt.status === 'Confirmed' || apt.status === 'Pending') && (isFuture(aptDate) || isToday(aptDate));
+        } catch { return false; }
+      }).length;
+
+      const allStats: Stat[] = [
+        {
+          title: "Total Patients",
+          value: uniquePatients.size,
+          icon: "Total Patients"
+        },
+        {
+          title: "Total Doctors",
+          value: allDoctors.length,
+          icon: "Total Doctors"
+        },
+        {
+          title: "Completed Appointments",
+          value: completedAppointments.length,
+          icon: "Completed Appointments"
+        },
+        {
+          title: "Upcoming",
+          value: upcomingAppointments,
+          icon: "Upcoming"
+        },
+        {
+          title: "Cancelled",
+          value: cancelledAppointments,
+          icon: "Cancelled"
+        },
+        {
+          title: "Total Revenue",
+          value: `₹${totalRevenue.toLocaleString()}`,
+          icon: "Total Revenue"
+        },
+      ];
+
+      console.log("Stats:", allStats);
+      console.log("Appointments:", periodAppointments.length);
+      console.log("Doctors:", allDoctors.length);
+
+      setStats(allStats);
+      setAppointments(periodAppointments);
+      setDoctors(allDoctors);
+
+    } catch (error) {
+      console.error("Error fetching report data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [auth.currentUser, dateRange]);
 
   useEffect(() => {
     fetchReportData();
@@ -303,7 +307,7 @@ export default function PDFReport({ dateRange, selectedDate }: PDFReportProps) {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-medium text-gray-900">{apt.time}</p>
-                      <Badge 
+                      <Badge
                         variant={apt.status === 'Completed' ? 'default' : apt.status === 'Cancelled' ? 'destructive' : 'secondary'}
                         className="text-xs"
                       >
@@ -340,7 +344,7 @@ export default function PDFReport({ dateRange, selectedDate }: PDFReportProps) {
                         <p className="text-sm text-gray-600">{doctor.specialty}</p>
                       </div>
                     </div>
-                    <Badge 
+                    <Badge
                       variant={doctor.consultationStatus === 'In' ? 'default' : 'secondary'}
                       className="text-xs"
                     >

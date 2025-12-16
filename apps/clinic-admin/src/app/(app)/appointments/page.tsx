@@ -517,7 +517,10 @@ export default function AppointmentsPage() {
           return acc;
         }, [] as Appointment[]);
 
-        setAppointments(uniqueAppointments);
+        // Filter out appointments cancelled by break
+        const filteredAppointments = uniqueAppointments.filter(apt => !(apt.status === 'Cancelled' && apt.cancelledByBreak));
+
+        setAppointments(filteredAppointments);
         setLoading(false);
       }, (error) => {
         console.error("Error fetching appointments:", error);

@@ -59,14 +59,14 @@ export default function TodaysAppointments({ selectedDate }: { selectedDate: Dat
           where("date", "==", dateStr)
         );
         const querySnapshot = await getDocs(q);
-        const appts = querySnapshot.docs.map(
-          (doc) => doc.data() as Appointment
-        );
-        
+        const appts = querySnapshot.docs
+          .map((doc) => doc.data() as Appointment)
+          .filter(apt => !(apt.status === 'Cancelled' && apt.cancelledByBreak)); // Exclude cancelled by break
+
         const sortedAppts = appts.sort((a, b) => {
-            const timeA = new Date(`1970/01/01 ${a.time}`).getTime();
-            const timeB = new Date(`1970/01/01 ${b.time}`).getTime();
-            return timeA - timeB;
+          const timeA = new Date(`1970/01/01 ${a.time}`).getTime();
+          const timeB = new Date(`1970/01/01 ${b.time}`).getTime();
+          return timeA - timeB;
         });
 
         setAppointments(sortedAppts.slice(0, 3));
@@ -118,10 +118,10 @@ export default function TodaysAppointments({ selectedDate }: { selectedDate: Dat
                           apt.status === "Confirmed"
                             ? "success"
                             : apt.status === "Pending"
-                            ? "warning"
-                            : apt.status === "Completed"
-                            ? "success"
-                            : "destructive"
+                              ? "warning"
+                              : apt.status === "Completed"
+                                ? "success"
+                                : "destructive"
                         }
                       >
                         {apt.status}
@@ -143,13 +143,13 @@ export default function TodaysAppointments({ selectedDate }: { selectedDate: Dat
           </Table>
         </ScrollArea>
       </CardContent>
-       <CardFooter className="pt-4 justify-end">
-          <Button asChild variant="link" className="text-primary">
-              <Link href="/appointments?drawer=open">
-                  View All
-                  <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-          </Button>
+      <CardFooter className="pt-4 justify-end">
+        <Button asChild variant="link" className="text-primary">
+          <Link href="/appointments?drawer=open">
+            View All
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </Button>
       </CardFooter>
     </Card>
   );

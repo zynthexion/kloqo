@@ -141,6 +141,12 @@ export default function ClinicDashboard() {
     const fetchedAppointments: Appointment[] = [];
     querySnapshot.forEach((docSnap: any) => {
       const data = docSnap.data();
+
+      // Filter out appointments cancelled by break
+      if (data.status === 'Cancelled' && data.cancelledByBreak) {
+        return;
+      }
+
       fetchedAppointments.push({
         id: docSnap.id,
         docId: docSnap.id,

@@ -28,15 +28,23 @@ service cloud.firestore {
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
+
+    // Check if the user document is linked to the auth user (for phone-based IDs)
+    function isLinkedOwner(userId) {
+      return isAuthenticated() && (
+        request.auth.uid == userId || 
+        (exists(/databases/$(database)/documents/users/$(userId)) && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid)
+      );
+    }
     
     // Users collection - User profile management
     match /users/{userId} {
-      // Users can read their own profile
-      allow read: if isOwner(userId);
+      // Users can read their own profile (Direct ID match OR Linked UID match)
+      allow read: if isLinkedOwner(userId);
       // Clinic admins can read all users
       allow read: if isClinicAdmin();
       // Patients can read their own profile
-      allow read: if isPatient() && isOwner(userId);
+      allow read: if isPatient() && isLinkedOwner(userId);
       
       // Allow list for clinic admins
       allow list: if isClinicAdmin();
@@ -48,13 +56,14 @@ service cloud.firestore {
         request.resource.data.phone is string;
       
       // Users can update their own profile
-      allow update: if isOwner(userId);
+      allow update: if isLinkedOwner(userId);
       // Clinic admins can delete users
       allow delete: if isClinicAdmin();
       
       // User Notifications Subcollection
       match /notifications/{notificationId} {
-        allow read, write: if isOwner(userId);
+        // Allow if owner OR if parent user doc links to auth uid
+        allow read, write: if isLinkedOwner(userId);
       }
     }
     
@@ -173,6 +182,21 @@ service cloud.firestore {
     match /token-counters/{counterId} {
       // Allow authenticated users to read and write token counters
       allow read, write: if isAuthenticated();
+    }
+    
+    // Reviews collection - Simple and permissive
+    match /reviews/{reviewId} {
+      allow read, write, list: if isAuthenticated();
+    }
+    
+    // Error logs collection (added based on user's snippet)
+    match /error_logs/{errorId} {
+      allow create, read: if isAuthenticated();
+    }
+    
+    // Event logs collection (added based on user's snippet)
+    match /event_logs/{eventId} {
+      allow create, read: if isAuthenticated();
     }
   }
 }

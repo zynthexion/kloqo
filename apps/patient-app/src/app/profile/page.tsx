@@ -17,56 +17,56 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AuthGuard } from '@/components/auth-guard';
 
 const NotificationSettings = dynamic(
-  () =>
-    import('@/components/notification-settings').then((mod) => ({
-      default: mod.NotificationSettings,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="p-4 border-b">
-        <Skeleton className="h-10 w-full" />
-      </div>
-    ),
-  }
+    () =>
+        import('@/components/notification-settings').then((mod) => ({
+            default: mod.NotificationSettings,
+        })),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="p-4 border-b">
+                <Skeleton className="h-10 w-full" />
+            </div>
+        ),
+    }
 );
 
 const LanguageSettings = dynamic(
-  () =>
-    import('@/components/language-settings').then((mod) => ({
-      default: mod.LanguageSettings,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="p-4 border-b">
-        <Skeleton className="h-10 w-full" />
-      </div>
-    ),
-  }
+    () =>
+        import('@/components/language-settings').then((mod) => ({
+            default: mod.LanguageSettings,
+        })),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="p-4 border-b">
+                <Skeleton className="h-10 w-full" />
+            </div>
+        ),
+    }
 );
 
 function ProfilePage() {
     const { t } = useLanguage();
     const pathname = usePathname();
     const { user, logout, loading: userLoading } = useUser();
-    
+
     // Debug logging and direct redirect check
     useEffect(() => {
         console.log('[ProfilePage] 🔍 Debug:', {
             loading: userLoading,
             hasUser: !!user,
-            userId: user?.uid || 'null',
+            userId: user?.dbUserId || 'null',
             pathname,
             timestamp: new Date().toISOString()
         });
-        
+
         // Additional safety check: if not loading and no user, redirect directly
         if (!userLoading && !user && typeof window !== 'undefined') {
             console.log('[ProfilePage] 🚫 No user found, redirecting directly to login...');
             const currentPath = window.location.pathname + window.location.search;
             localStorage.setItem('redirectAfterLogin', currentPath);
-            
+
             // Use window.location for more reliable redirect
             if (window.location.pathname !== '/login') {
                 console.log('[ProfilePage] 🔀 Using window.location.href to redirect');
@@ -149,7 +149,7 @@ function ProfilePage() {
         console.log('[ProfilePage] 🚫 Blocking render - no user after loading');
         return null;
     }
-    
+
     // Show loading while checking auth
     if (userLoading) {
         return (
@@ -342,9 +342,9 @@ function ProfilePage() {
                         {/** Malayalam */}
                         ആപ്പിനെ വിലയിരുത്താനുള്ള സൗകര്യം ഉടൻ ലഭ്യമാകും. ദയവായി കാത്തിരിക്കുക.
                     </p>
-                        <Button onClick={() => setShowComingSoon(false)} className="w-full">
-                            OK
-                        </Button>
+                    <Button onClick={() => setShowComingSoon(false)} className="w-full">
+                        OK
+                    </Button>
                 </DialogContent>
             </Dialog>
 
@@ -436,4 +436,3 @@ function ProfilePageWithAuth() {
 }
 
 export default ProfilePageWithAuth;
-    

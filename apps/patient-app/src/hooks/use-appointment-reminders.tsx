@@ -21,7 +21,7 @@ export function useAppointmentReminders() {
   const checkRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (!firestore || !user?.uid || !user?.patientId) return;
+    if (!firestore || !user?.dbUserId || !user?.patientId) return;
 
     const checkAndSendReminders = async () => {
       // Prevent multiple simultaneous checks
@@ -66,7 +66,7 @@ export function useAppointmentReminders() {
                 // Send reminder notification
                 await sendAppointmentReminderNotification({
                   firestore,
-                  userId: user.uid,
+                  userId: user.dbUserId,
                   appointmentId: appointment.id,
                   doctorName: appointment.doctor,
                   time: appointment.time,

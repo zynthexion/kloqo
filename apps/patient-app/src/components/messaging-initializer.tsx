@@ -22,112 +22,57 @@ export function MessagingInitializer() {
         console.error('[MessagingInitializer] Error registering service worker:', error);
       }
     };
-    
+
     registerSW();
-    
+
     // Setup foreground message listener
     setupForegroundMessageListener();
   }, []);
 
   // Get current token from Firestore and refresh it immediately on app load
   useEffect(() => {
-    if (!firestore || !user?.uid) return;
+    // Rely on dbUserId which is resolved by useUser hook
+    if (!firestore || !user?.dbUserId) return;
 
     const refreshTokenOnLoad = async () => {
       try {
-        // Get current token from Firestore
-        const userDoc = await getDoc(doc(firestore, 'users', user.uid));
+        // Get current token from Firestore using resolved dbUserId
+        const userDocRef = doc(firestore, 'users', user.dbUserId);
+        const userDoc = await getDoc(userDocRef);
         const storedToken = userDoc.exists() ? userDoc.data()?.fcmToken : null;
         setCurrentToken(storedToken);
-        
+
         // Always refresh token on app load to ensure it's valid
-        // This handles cases where token became invalid
         const { getFCMToken } = await import('@/lib/firebase-messaging');
         const { isNotificationEnabled } = await import('@/lib/firebase-messaging');
-        
+
         if (isNotificationEnabled()) {
-              const newToken = await getFCMToken();
-          
-          // Check if we're on localhost (for better error messages)
-          const isLocalhost = typeof window !== 'undefined' && 
-            (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-          
+          const newToken = await getFCMToken();
+
           if (newToken) {
             // Check if we need to update (new token or notifications not enabled)
             const userData = userDoc.exists() ? userDoc.data() : {};
             const needsUpdate = newToken !== storedToken || !userData.notificationsEnabled;
-            
+
             if (needsUpdate) {
               try {
-                // Find primaryUserId from patient document and save token directly to it
-                let primaryUserIdToSave: string | null = null;
-                
-                // Step 1: Find the patient document associated with logged-in user
-                let patientIdToUse: string | null = user.patientId || null;
-                if (!patientIdToUse && userDoc.exists()) {
-                  const userDocData = userDoc.data();
-                  patientIdToUse = userDocData.patientId || null;
-                }
-                
-                // Step 2: If no patientId, try to find patient by phone number
-                if (!patientIdToUse) {
-                  const phoneToSearch = user.phoneNumber || (userDoc.exists() ? userDoc.data()?.phone || userDoc.data()?.phoneNumber : null);
-                  if (phoneToSearch) {
-                    try {
-                      const { collection, query: firestoreQuery, where: firestoreWhere, getDocs } = await import('firebase/firestore');
-                      const patientsQuery = firestoreQuery(
-                        collection(firestore, 'patients'),
-                        firestoreWhere('phone', '==', phoneToSearch)
-                      );
-                      const patientsSnapshot = await getDocs(patientsQuery);
-                      if (!patientsSnapshot.empty) {
-                        const primaryPatient = patientsSnapshot.docs.find(d => d.data().isPrimary) || patientsSnapshot.docs[0];
-                        patientIdToUse = primaryPatient.id;
-                      }
-                    } catch (error) {
-                      // Silent fail - continue with patient lookup
-                    }
-                  }
-                }
-                
-                // Step 3: Get primaryUserId directly from patient document
-                if (patientIdToUse) {
-                  try {
-                    const patientDoc = await getDoc(doc(firestore, 'patients', patientIdToUse));
-                    if (patientDoc.exists()) {
-                      const patientData = patientDoc.data() as Patient;
-                      primaryUserIdToSave = patientData.primaryUserId || null;
-                    }
-                  } catch (error) {
-                    console.error('[MessagingInitializer] Error getting primaryUserId from patient document:', error);
-                  }
-                }
-                
-                // Save token to primaryUserId document (NOT to logged-in user's UID)
-                if (primaryUserIdToSave) {
-                  try {
-                    await setDoc(
-                      doc(firestore, 'users', primaryUserIdToSave),
-                      {
-                        fcmToken: newToken,
-                        notificationsEnabled: true,
-                        notificationPermissionGranted: true,
-                        fcmTokenUpdatedAt: new Date().toISOString(),
-                      },
-                      { merge: true }
-                    );
-                  } catch (saveError) {
-                    console.error('[MessagingInitializer] Failed to save token to primaryUserId:', saveError);
-                    throw saveError; // Fail if we can't save to primaryUserId
-                  }
-                } else {
-                  console.error('[MessagingInitializer] Cannot save FCM token - primaryUserId not found in patient document');
-                }
-
-                setCurrentToken(newToken);
+                await setDoc(
+                  userDocRef,
+                  {
+                    fcmToken: newToken,
+                    uid: user.uid, // Link auth UID to firestore doc for security rules
+                    notificationsEnabled: true,
+                    notificationPermissionGranted: true,
+                    fcmTokenUpdatedAt: new Date().toISOString(),
+                  },
+                  { merge: true }
+                );
+                console.log('[MessagingInitializer] Token saved to users/', user.dbUserId);
               } catch (saveError) {
                 console.error('[MessagingInitializer] Failed to save token to Firestore:', saveError);
+                throw saveError;
               }
+              setCurrentToken(newToken);
             }
           }
         }
@@ -137,94 +82,31 @@ export function MessagingInitializer() {
     };
 
     refreshTokenOnLoad();
-  }, [firestore, user?.uid]);
+  }, [firestore, user?.dbUserId]);
 
   // Setup token refresh listener
   useEffect(() => {
-    if (!firestore || !user?.uid) return;
+    if (!firestore || !user?.dbUserId) return;
 
     const cleanup = setupTokenRefreshListener(
       async (newToken) => {
-        // Update token in Firestore when it refreshes
-        // Also ensure notificationsEnabled is set to true if we have a token
         try {
-          // Find primaryUserId from patient document and save token directly to it
-          let primaryUserIdToSave: string | null = null;
-          
-          // Step 1: Find the patient document associated with logged-in user
-          let patientIdToUse: string | null = user.patientId || null;
-          if (!patientIdToUse) {
-            try {
-              const userDocRef = doc(firestore, 'users', user.uid);
-              const userDocSnap = await getDoc(userDocRef);
-              if (userDocSnap.exists()) {
-                const userDocData = userDocSnap.data();
-                patientIdToUse = userDocData.patientId || null;
-              }
-            } catch (error) {
-              // Silent fail - continue with patient lookup
-            }
-          }
-          
-          // Step 2: If no patientId, try to find patient by phone number
-          if (!patientIdToUse) {
-            const phoneToSearch = user.phoneNumber || null;
-            if (phoneToSearch) {
-              try {
-                const { collection, query: firestoreQuery, where: firestoreWhere, getDocs } = await import('firebase/firestore');
-                const patientsQuery = firestoreQuery(
-                  collection(firestore, 'patients'),
-                  firestoreWhere('phone', '==', phoneToSearch)
-                );
-                const patientsSnapshot = await getDocs(patientsQuery);
-                if (!patientsSnapshot.empty) {
-                  const primaryPatient = patientsSnapshot.docs.find(d => d.data().isPrimary) || patientsSnapshot.docs[0];
-                  patientIdToUse = primaryPatient.id;
-                }
-              } catch (error) {
-                // Silent fail - continue with patient lookup
-              }
-            }
-          }
-          
-          // Step 3: Get primaryUserId directly from patient document
-          if (patientIdToUse) {
-            try {
-              const patientDoc = await getDoc(doc(firestore, 'patients', patientIdToUse));
-              if (patientDoc.exists()) {
-                const patientData = patientDoc.data() as Patient;
-                primaryUserIdToSave = patientData.primaryUserId || null;
-              }
-            } catch (error) {
-              console.error('[MessagingInitializer] Error getting primaryUserId from patient document:', error);
-            }
-          }
-          
-          // Save token to primaryUserId document (NOT to logged-in user's UID)
-          if (primaryUserIdToSave) {
-            try {
-              await setDoc(
-                doc(firestore, 'users', primaryUserIdToSave),
-                {
-                  fcmToken: newToken,
-                  notificationsEnabled: true,
-                  notificationPermissionGranted: true,
-                  fcmTokenUpdatedAt: new Date().toISOString(),
-                },
-                { merge: true }
-              );
-            } catch (saveError) {
-              console.error('[MessagingInitializer] Failed to save token to primaryUserId:', saveError);
-              throw saveError; // Fail if we can't save to primaryUserId
-            }
-          } else {
-            console.error('[MessagingInitializer] Cannot save FCM token - primaryUserId not found in patient document');
-          }
-
-          setCurrentToken(newToken); // Update local state
+          // Save token to resolved dbUserId
+          await setDoc(
+            doc(firestore, 'users', user.dbUserId),
+            {
+              fcmToken: newToken,
+              uid: user.uid, // Link auth UID to firestore doc for security rules
+              notificationsEnabled: true,
+              notificationPermissionGranted: true,
+              fcmTokenUpdatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+          console.log('[MessagingInitializer] Refreshed Token saved to users/', user.dbUserId);
+          setCurrentToken(newToken);
         } catch (saveError) {
           console.error('[MessagingInitializer] Failed to save refreshed token to Firestore:', saveError);
-          // Still update local state even if Firestore save fails
           setCurrentToken(newToken);
         }
       },
@@ -234,7 +116,7 @@ export function MessagingInitializer() {
 
     // Cleanup on unmount
     return cleanup;
-  }, [firestore, user?.uid, currentToken]);
+  }, [firestore, user?.dbUserId, currentToken]);
 
   return null;
 }

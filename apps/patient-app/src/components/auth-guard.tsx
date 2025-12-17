@@ -26,7 +26,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isValidated, setIsValidated] = useState(false);
   const redirectingRef = useRef(false);
-  
+
   // Cache validation results per user to avoid re-validation on navigation
   const validationCacheRef = useRef<{
     userId: string | null;
@@ -34,7 +34,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     isValidated: boolean;
     timestamp: number;
   } | null>(null);
-  
+
   const VALIDATION_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 
   const validatePatientAndUser = async (currentUser: typeof user) => {
@@ -119,12 +119,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
         return;
       }
 
-      // Check if any of the found users match the current user
-      const matchingUser = usersSnapshot.docs.find(doc => doc.id === currentUser.uid);
-      
+      // Check if any of the found users match the current user's resolved dbUserId
+      const matchingUser = usersSnapshot.docs.find(doc => doc.id === currentUser.dbUserId);
+
       if (!matchingUser) {
-        console.log('[AuthGuard] ⚠️ Step 4 Warning: Found users but none match current user UID', {
+        console.log('[AuthGuard] ⚠️ Step 4 Warning: Found users but none match current user dbUserId', {
           currentUserId: currentUser.uid,
+          currentDbUserId: currentUser.dbUserId,
           foundUserIds: usersSnapshot.docs.map(doc => doc.id)
         });
         // Still allow if we found at least one patient user with the communicationPhone
@@ -141,7 +142,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       console.log('[AuthGuard] ✅✅✅ ALL VALIDATION STEPS PASSED - User is authenticated and validated');
       setIsValidated(true);
       setValidating(false);
-      
+
       // Cache validation result for faster subsequent navigation
       if (currentUser) {
         validationCacheRef.current = {
@@ -181,37 +182,37 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
     redirectingRef.current = true;
     console.log('[AuthGuard] 🔀 Starting redirect to login...');
-    
+
     // Preserve current path and query params for redirect after login
     const currentPath = pathname;
     const currentQuery = searchParams.toString();
     const fullPath = currentQuery ? `${currentPath}?${currentQuery}` : currentPath;
-    
+
     console.log('[AuthGuard] 💾 Saving redirect path:', fullPath);
-    
+
     // Save the full path for redirect after login
     if (typeof window !== 'undefined') {
       localStorage.setItem('redirectAfterLogin', fullPath);
-      
+
       // Build login URL with any clinicId from current URL
       const loginParams = new URLSearchParams();
       const clinicId = searchParams.get('clinicId');
       if (clinicId) {
         loginParams.set('clinicId', clinicId);
       }
-      
-      const loginUrl = loginParams.toString() 
+
+      const loginUrl = loginParams.toString()
         ? `/login?${loginParams.toString()}`
         : '/login';
-      
+
       console.log('[AuthGuard] 🔀 Redirecting to:', loginUrl);
       console.log('[AuthGuard] 🔀 Using window.location.replace for redirect (prevents back button issues)');
-      
+
       // Use replace immediately to prevent loops - no setTimeout to avoid race conditions
       console.log('[AuthGuard] 🔀 Executing redirect NOW to:', loginUrl);
       console.log('[AuthGuard] 🔀 Current pathname:', window.location.pathname);
       console.log('[AuthGuard] 🔀 Redirecting to:', loginUrl);
-      
+
       // Immediately redirect - don't wait
       window.location.replace(loginUrl);
     } else {
@@ -234,7 +235,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       console.log('[AuthGuard] 🔄 Pathname changed, resetting redirect flag');
       redirectingRef.current = false;
     }
-    
+
     // Clear validation cache if user changed (different user logged in)
     if (validationCacheRef.current && user && validationCacheRef.current.userId !== user.uid) {
       console.log('[AuthGuard] 🔄 User changed, clearing validation cache');
@@ -283,11 +284,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
     if (validationCacheRef.current) {
       const cached = validationCacheRef.current;
       const now = Date.now();
-      const isValidCache = 
+      const isValidCache =
         cached.userId === user.uid &&
         cached.patientId === user.patientId &&
         (now - cached.timestamp) < VALIDATION_CACHE_DURATION;
-      
+
       if (isValidCache && cached.isValidated) {
         console.log('[AuthGuard] ✅ Using cached validation result');
         setIsValidated(true);
@@ -317,7 +318,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   // Optimistic rendering: Allow pages to render immediately if user exists
   // This prevents the empty screen flash - pages can show their own skeletons
   // while validation happens in the background
-  
+
   // Only block if we're actually redirecting
   if (redirectingRef.current) {
     return <SplashScreen />;

@@ -43,7 +43,7 @@ import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import type { Appointment, Doctor } from '@/lib/types';
-import { sendAppointmentCancelledNotification } from '@kloqo/shared-core';
+import { sendAppointmentCancelledNotification } from '@/lib/notification-service';
 import nextDynamic from 'next/dynamic';
 import { previewWalkInPlacement } from '@kloqo/shared-core';
 
@@ -176,11 +176,11 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
             );
 
             // 4. Send cancellation notification
-            if (user?.uid && firestore) {
+            if (user?.dbUserId && firestore) {
                 try {
                     await sendAppointmentCancelledNotification({
                         firestore,
-                        userId: user.uid,
+                        userId: user.dbUserId,
                         appointmentId: appointment.id,
                         doctorName: appointment.doctor,
                         date: appointment.date,

@@ -36,9 +36,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('app-language', lang);
 
     // Sync to Firestore if user is logged in
-    if (user && firestore) {
+    if (user?.dbUserId && firestore) {
       try {
-        await updateDoc(doc(firestore, 'users', user.uid), {
+        await updateDoc(doc(firestore, 'users', user.dbUserId), {
           language: lang
         });
       } catch (error) {

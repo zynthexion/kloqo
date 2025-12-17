@@ -9,6 +9,7 @@ import { userCache } from '@/lib/user-cache';
 
 export type AppUser = {
     uid: string;
+    dbUserId: string; // The actual Firestore Document ID (users/{id})
     patientId: string | null;
     phoneNumber: string | null;
     displayName?: string;
@@ -37,9 +38,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     const fetchAppUserDetails = useCallback(async (firebaseUser: User): Promise<AppUser> => {
         let patientIdToSet: string | null = null;
+        // Default dbUserId to uid if no resolution happens (will be overridden if found)
+        let resolvedDbUserId: string = firebaseUser.uid;
+
         if (!firestore || !firebaseUser.phoneNumber) {
             return {
                 uid: firebaseUser.uid,
+                dbUserId: firebaseUser.uid,
                 patientId: null,
                 phoneNumber: firebaseUser.phoneNumber,
                 displayName: firebaseUser.displayName || 'User',
@@ -53,11 +58,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             const userDocSnap = await getDoc(userDocRef);
 
             let userDocData: any = null;
-            let userDocId: string | null = null;
 
             if (userDocSnap.exists()) {
                 userDocData = userDocSnap.data();
-                userDocId = firebaseUser.uid;
+                resolvedDbUserId = firebaseUser.uid;
             } else {
                 // Fallback: Search by phone number if document doesn't exist by UID
                 if (firebaseUser.phoneNumber) {
@@ -76,7 +80,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                         if (patientUsers.length > 0) {
                             const firstPatientUser = patientUsers[0];
                             userDocData = firstPatientUser;
-                            userDocId = firstPatientUser.id;
+                            resolvedDbUserId = firstPatientUser.id;
                         }
                     }
                 }
@@ -115,6 +119,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
                         return {
                             uid: firebaseUser.uid,
+                            dbUserId: resolvedDbUserId,
                             patientId: patientId,
                             phoneNumber: firebaseUser.phoneNumber,
                             displayName: patientName || firebaseUser.displayName || 'User',
@@ -133,6 +138,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         // Fallback if anything fails
         return {
             uid: firebaseUser.uid,
+            dbUserId: resolvedDbUserId, // Use the resolved ID if found, otherwise default from init
             patientId: patientIdToSet,
             phoneNumber: firebaseUser.phoneNumber,
             displayName: firebaseUser.displayName || 'User',

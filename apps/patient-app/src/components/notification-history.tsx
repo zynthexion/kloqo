@@ -23,6 +23,7 @@ const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => 
     const [startX, setStartX] = useState<number | null>(null);
     const [currentX, setCurrentX] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
 
     const handleTouchStart = (e: React.TouchEvent) => {
         setStartX(e.touches[0].clientX);
@@ -39,14 +40,41 @@ const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => 
 
     const handleTouchEnd = () => {
         if (currentX < -100) {
-            // Threshold met - delete
             setIsDeleting(true);
             onDelete(note.id);
         } else {
-            // Reset
             setCurrentX(0);
         }
         setStartX(null);
+    };
+
+    // Mouse Event Handlers (Desktop Support)
+    const handleMouseDown = (e: React.MouseEvent) => {
+        setIsDragging(true);
+        setStartX(e.clientX);
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!isDragging || startX === null) return;
+        const diff = e.clientX - startX;
+        if (diff < 0) {
+            setCurrentX(diff);
+        }
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+        if (currentX < -100) {
+            setIsDeleting(true);
+            onDelete(note.id);
+        } else {
+            setCurrentX(0);
+        }
+        setStartX(null);
+    };
+
+    const handleMouseLeave = () => {
+        if (isDragging) handleMouseUp();
     };
 
     const opacity = Math.max(0, 1 + currentX / 200); // Fade out as you swipe
@@ -62,11 +90,15 @@ const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => 
 
             {/* Foreground (Actual Content) */}
             <div
-                className={`relative bg-white flex gap-3 p-3 rounded-lg border transition-transform duration-200 ease-out ${!note.read ? 'bg-blue-50 border-blue-100' : 'border-gray-100'}`}
+                className={`relative bg-white flex gap-3 p-3 rounded-lg border transition-transform duration-200 ease-out select-none ${!note.read ? 'bg-blue-50 border-blue-100' : 'border-gray-100'}`}
                 style={{ transform: `translateX(${currentX}px)`, opacity }}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseLeave}
                 onClick={onMarkRead}
             >
                 <div className="mt-1 flex-shrink-0">
@@ -115,60 +147,18 @@ export function NotificationHistory() {
     const { language } = useLanguage();
     const router = useRouter();
 
-    console.log('🔔 [HISTORY-RENDER] Component Rendered. Auth User:', user ? user.uid : 'NULL');
+    console.log('🔔 [HISTORY-RENDER] Component Rendered. Auth User:', user ? `UID: ${user.uid}, DB_ID: ${user.dbUserId}` : 'NULL');
     console.log('🔔 [HISTORY-RENDER] Current Notifications State:', notifications.length);
 
-    const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+    // Use centralized dbUserId from useUser hook
+    const resolvedUserId = user?.dbUserId;
 
-    // Effect 1: Resolve User ID based on Phone Number
+    // Effect: Listen for Notifications using dbUserId
     useEffect(() => {
-        const resolveUserId = async () => {
-            if (!firestore || !user?.phoneNumber) {
-                console.log('🔔 [HISTORY-DEBUG] Waiting for firestore or user phone...', {
-                    hasFirestore: !!firestore,
-                    hasUser: !!user,
-                    phone: user?.phoneNumber
-                });
-                return;
-            }
-
-            try {
-                // Sanitize phone number if needed (ensure format matches DB)
-                // Assuming DB uses +91XXXXXXXXXX format same as Auth
-                const phoneToSearch = user.phoneNumber;
-                console.log(`🔔 [HISTORY-DEBUG] Resolving userId for phone: ${phoneToSearch}`);
-
-                const usersQuery = query(
-                    collection(firestore, 'users'),
-                    where('phone', '==', phoneToSearch),
-                    where('role', '==', 'patient')
-                );
-
-                const snapshot = await getDocs(usersQuery);
-
-                if (snapshot.empty) {
-                    console.error(`🔔 [HISTORY-DEBUG] No patient user found for phone ${phoneToSearch}`);
-                    setLoading(false);
-                    return;
-                }
-
-                // Use the first matching document
-                const userDoc = snapshot.docs[0];
-                console.log(`🔔 [HISTORY-DEBUG] Resolved userId: ${userDoc.id} (Auth UID: ${user.uid})`);
-                setResolvedUserId(userDoc.id);
-
-            } catch (error) {
-                console.error('🔔 [HISTORY-DEBUG] Error resolving userId:', error);
-                setLoading(false);
-            }
-        };
-
-        resolveUserId();
-    }, [firestore, user?.phoneNumber, user?.uid]);
-
-    // Effect 2: Listen for Notifications using Resolved User ID
-    useEffect(() => {
-        if (!firestore || !resolvedUserId) return;
+        if (!firestore || !resolvedUserId) {
+            console.log('🔔 [HISTORY-DEBUG] Waiting for firestore or resolvedUserId...', { firestore: !!firestore, resolvedUserId });
+            return;
+        }
 
         console.log(`🔔 [HISTORY-DEBUG] Listening to users/${resolvedUserId}/notifications`);
         const notificationsRef = collection(firestore, 'users', resolvedUserId, 'notifications');
@@ -200,6 +190,9 @@ export function NotificationHistory() {
             setLoading(false);
         }, (error) => {
             console.error("🔔 [HISTORY-DEBUG] Error fetching notifications:", error);
+            console.error("🔔 [HISTORY-DEBUG] Path:", `users/${resolvedUserId}/notifications`);
+            console.error("🔔 [HISTORY-DEBUG] Code:", error.code);
+            console.error("🔔 [HISTORY-DEBUG] Message:", error.message);
             setLoading(false);
         });
 

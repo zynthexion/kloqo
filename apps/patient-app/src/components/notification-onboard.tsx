@@ -29,10 +29,10 @@ export function NotificationOnboard() {
       // If permission is already granted, just get the token
       if (Notification.permission === 'granted') {
         const token = await getFCMToken();
-        if (token && user?.uid) {
+        if (token && user?.dbUserId) {
           // Use API route which saves to primaryUserId from patient document
           try {
-            await fetch(`/api/users/${user.uid}/notifications`, {
+            await fetch(`/api/users/${user.dbUserId}/notifications`, {
               method: 'PATCH',
               headers: {
                 'Content-Type': 'application/json',
@@ -58,10 +58,10 @@ export function NotificationOnboard() {
 
         if (permissionGranted) {
           const token = await getFCMToken();
-          if (token && user?.uid) {
+          if (token && user?.dbUserId) {
             // Use API route which saves to primaryUserId from patient document
             try {
-              await fetch(`/api/users/${user.uid}/notifications`, {
+              await fetch(`/api/users/${user.dbUserId}/notifications`, {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json',

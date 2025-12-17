@@ -520,7 +520,7 @@ function HomePageContent() {
         return false;
     }, [activeTab, userLocation, isLocationLoading, clinicsResponse, allClinicsData, nearbyClinicIds, nearbyClinicIdsParam, nearbyDoctorsLoading, nearbyDoctorsResponse]);
     const cachedAppointments = useCachedData<Appointment[]>(
-        user?.uid ? `appointments:${user.uid}` : null,
+        user?.dbUserId ? `appointments:${user.dbUserId}` : null,
         familyAppointments,
         !appointmentsLoading
     );

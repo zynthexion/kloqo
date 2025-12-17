@@ -24,13 +24,13 @@ export function NotificationDebug() {
     setLoading(true);
     try {
       const info = await debugNotificationSetup();
-      
+
       // Also check Firestore token
       let firestoreToken = null;
       let firestoreError = null;
-      if (user?.uid) {
+      if (user?.dbUserId) {
         try {
-          const response = await fetch(`/api/users/${user.uid}/notifications`, {
+          const response = await fetch(`/api/users/${user.dbUserId}/notifications`, {
             method: 'GET',
           });
           if (response.ok) {
@@ -52,7 +52,7 @@ export function NotificationDebug() {
 
       // Check service worker registrations
       const registrations = await navigator.serviceWorker.getRegistrations();
-      
+
       setDebugInfo({
         ...info,
         firestoreToken,
@@ -88,18 +88,18 @@ export function NotificationDebug() {
     try {
       const { requestNotificationPermission, getFCMToken } = await import('@/lib/firebase-messaging');
       const granted = await requestNotificationPermission();
-      
+
       if (granted) {
         const token = await getFCMToken();
-        if (token && user?.uid) {
+        if (token && user?.dbUserId) {
           // Save token to Firestore
-          await fetch(`/api/users/${user.uid}/notifications`, {
+          await fetch(`/api/users/${user.dbUserId}/notifications`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              fcmToken: token, 
+            body: JSON.stringify({
+              fcmToken: token,
               notificationsEnabled: true,
-              notificationPermissionGranted: true 
+              notificationPermissionGranted: true
             }),
           });
         }
@@ -142,7 +142,7 @@ export function NotificationDebug() {
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         alert(`✅ Test push notification sent successfully!\n\nMessage ID: ${result.messageId || 'N/A'}\n\nCheck your device for the notification.`);
         console.log('✅ Test push notification sent:', result);
@@ -159,7 +159,7 @@ export function NotificationDebug() {
   };
 
   const saveTokenToFirestore = async () => {
-    if (!debugInfo?.fcmToken || !user?.uid) {
+    if (!debugInfo?.fcmToken || !user?.dbUserId) {
       alert('❌ No FCM token or user ID available');
       return;
     }
@@ -172,15 +172,15 @@ export function NotificationDebug() {
         notificationPermissionGranted: true,
         fcmTokenUpdatedAt: new Date().toISOString(),
       };
-      
+
       console.log('[Debug] Saving token to Firestore:', {
-        userId: user.uid,
+        userId: user.dbUserId,
         tokenLength: debugInfo.fcmToken.length,
         tokenPreview: `${debugInfo.fcmToken.substring(0, 30)}...`,
         data: tokenData,
       });
 
-      const response = await fetch(`/api/users/${user.uid}/notifications`, {
+      const response = await fetch(`/api/users/${user.dbUserId}/notifications`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -222,10 +222,10 @@ export function NotificationDebug() {
     try {
       setLoading(true);
       console.log('🔄 Resetting service workers...');
-      
+
       // Get all service worker registrations
       const registrations = await navigator.serviceWorker.getRegistrations();
-      
+
       if (registrations.length === 0) {
         alert('✅ No service workers found. Page will reload.');
         window.location.reload();
@@ -264,7 +264,7 @@ export function NotificationDebug() {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const debugParam = urlParams.get('debug');
-      
+
       if (debugParam === 'notifications') {
         setIsEnabled(true);
         localStorage.setItem('debugNotifications', 'true');
@@ -284,7 +284,7 @@ export function NotificationDebug() {
       if (e.key.toLowerCase() === 'd' || e.key.toLowerCase() === 'D') {
         const now = Date.now();
         const recentKeys = keySequence.filter(timestamp => now - timestamp < 3000);
-        
+
         if (recentKeys.length >= 4) {
           // 5th 'D' press - enable debug mode!
           setIsEnabled(true);
@@ -377,8 +377,8 @@ export function NotificationDebug() {
                 Test Local Notification
               </Button>
               {debugInfo?.fcmToken && (
-                <Button 
-                  onClick={sendTestPushNotification} 
+                <Button
+                  onClick={sendTestPushNotification}
                   variant="default"
                   disabled={loading}
                 >
@@ -391,9 +391,9 @@ export function NotificationDebug() {
             🔄 Reset Service Worker
           </Button>
           {debugInfo?.fcmToken && (!debugInfo?.firestoreToken || !debugInfo?.firestoreTokenMatches) && (
-            <Button 
-              onClick={saveTokenToFirestore} 
-              disabled={loading} 
+            <Button
+              onClick={saveTokenToFirestore}
+              disabled={loading}
               variant="secondary"
               size="sm"
             >
@@ -425,9 +425,9 @@ export function NotificationDebug() {
             </div>
             <div>
               <strong>Notification Permission:</strong>{' '}
-              {debugInfo.notificationPermission === 'granted' ? '✅ Granted' : 
-               debugInfo.notificationPermission === 'denied' ? '❌ Denied' : 
-               '⚠️ Default (not requested)'}
+              {debugInfo.notificationPermission === 'granted' ? '✅ Granted' :
+                debugInfo.notificationPermission === 'denied' ? '❌ Denied' :
+                  '⚠️ Default (not requested)'}
             </div>
             <div>
               <strong>VAPID Key:</strong>{' '}

@@ -305,8 +305,8 @@ function BookingSummaryPage() {
 
                     for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
                         const session = availabilityForDay.timeSlots[i];
-                        let currentTime = parseTime(session.from, 'hh:mm a', appointmentDate);
-                        const endTime = parseTime(session.to, 'hh:mm a', appointmentDate);
+                        let currentTime = parseTime(session.from, appointmentDate);
+                        const endTime = parseTime(session.to, appointmentDate);
 
                         while (isBefore(currentTime, endTime)) {
                             // CRITICAL RULE 1: Skip ALL past slots (not just for today)
@@ -490,11 +490,11 @@ function BookingSummaryPage() {
                 await releaseReservation(reservationId, 2000);
 
                 // Send rescheduled notification if date or time changed
-                if ((oldDate !== appointmentData.date || oldTime !== appointmentData.time) && user?.uid && firestore) {
+                if ((oldDate !== appointmentData.date || oldTime !== appointmentData.time) && user?.dbUserId && firestore) {
                     try {
                         await sendAppointmentRescheduledNotification({
                             firestore,
-                            userId: user.uid,
+                            userId: user.dbUserId,
                             appointmentId: appointmentId,
                             doctorName: finalDoctor.name,
                             oldDate: oldDate,
@@ -1251,11 +1251,11 @@ function BookingSummaryPage() {
             });
 
             // Send notification after successful booking
-            if (user?.uid && firestore) {
+            if (user?.dbUserId && firestore) {
                 try {
                     await sendAppointmentConfirmedNotification({
                         firestore,
-                        userId: user.uid,
+                        userId: user.dbUserId,
                         appointmentId: appointmentRef.id,
                         doctorName: finalDoctor.name,
                         date: finalAppointmentData.date,

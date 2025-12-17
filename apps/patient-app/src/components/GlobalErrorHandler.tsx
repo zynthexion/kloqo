@@ -36,7 +36,7 @@ export function GlobalErrorHandler() {
   // Set global references for ErrorBoundary
   useEffect(() => {
     setGlobalFirestore(firestore);
-    setGlobalUser(user ? { uid: user.uid, role: user.role } : null);
+    setGlobalUser(user ? { uid: user.dbUserId, role: user.role } : null);
   }, [firestore, user]);
 
   useEffect(() => {
@@ -45,9 +45,9 @@ export function GlobalErrorHandler() {
     // Handle unhandled errors
     const handleError = (event: ErrorEvent) => {
       const error = event.error || new Error(event.message || 'Unknown error');
-      
+
       logError(error, firestore, {
-        userId: user?.uid,
+        userId: user?.dbUserId,
         userRole: user?.role,
         page: pathname,
         action: 'unhandled_error',
@@ -61,12 +61,12 @@ export function GlobalErrorHandler() {
 
     // Handle unhandled promise rejections
     const handleRejection = (event: PromiseRejectionEvent) => {
-      const error = event.reason instanceof Error 
-        ? event.reason 
+      const error = event.reason instanceof Error
+        ? event.reason
         : new Error(String(event.reason || 'Unhandled promise rejection'));
 
       logError(error, firestore, {
-        userId: user?.uid,
+        userId: user?.dbUserId,
         userRole: user?.role,
         page: pathname,
         action: 'unhandled_promise_rejection',

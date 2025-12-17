@@ -1,22 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useFirebase } from '@/firebase/provider';
-import { checkAndSendDailyReminders } from '@kloqo/shared-core/services/notification-service';
+import { db } from '@/lib/firebase';
+import { checkAndSendDailyReminders } from '@kloqo/shared-core';
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function DailyReminderHandler() {
-    const { firestore } = useFirebase();
     const { user } = useAuth(); // Removed userRole as it might not be directly exposed or needed if we check user.role or implicit clinicId
     const [hasChecked, setHasChecked] = useState(false);
 
     useEffect(() => {
         // Requirements:
         // 1. User must be logged in
-        // 2. Firestore must be initialized
+        // 2. Firestore must be initialized (db is always initialized if imported)
         // 3. Must not have already run today
-        if (!user || !firestore || hasChecked) return;
+        if (!user || !db || hasChecked) return;
 
         // Optional: Restrict to 'admin' or specfic roles if needed
         // if (userRole !== 'admin') return; 
@@ -44,7 +43,7 @@ export function DailyReminderHandler() {
             }
 
             console.log('Running Daily Reminder Check...');
-            await checkAndSendDailyReminders({ firestore, clinicId });
+            await checkAndSendDailyReminders({ firestore: db, clinicId });
 
             // Mark as done
             localStorage.setItem('last_daily_reminder_run', today);
@@ -53,7 +52,7 @@ export function DailyReminderHandler() {
 
         runCheck();
 
-    }, [user, firestore, hasChecked]);
+    }, [user, hasChecked]);
 
     return null; // Logic only, no UI
 }

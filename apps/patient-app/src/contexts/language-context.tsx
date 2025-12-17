@@ -47,6 +47,16 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Sync to Firestore when user loads, if local preference exists
+  useEffect(() => {
+    if (user?.dbUserId && firestore && language) {
+      // We sync the CURRENT local language to the cloud to ensure consistency
+      updateDoc(doc(firestore, 'users', user.dbUserId), {
+        language: language
+      }).catch(err => console.error("Auto-sync language failed:", err));
+    }
+  }, [user?.dbUserId, firestore, language]);
+
   // Provide default values until mounted
   const value = {
     language,

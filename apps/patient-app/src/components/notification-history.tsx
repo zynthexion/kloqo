@@ -138,6 +138,10 @@ export function NotificationHistory() {
             console.log(`🔔 [HISTORY-DEBUG] Snapshot received. Docs: ${snapshot.size}`);
             const newNotifications = snapshot.docs.map(doc => {
                 const data = doc.data();
+                // DEBUG: Log first notification to see structure
+                if (snapshot.docs.indexOf(doc) === 0) {
+                    console.log('🔔 [HISTORY-DEBUG] Sample Notification Data:', { id: doc.id, ...data });
+                }
                 return {
                     id: doc.id,
                     ...data,
@@ -146,7 +150,9 @@ export function NotificationHistory() {
                     timestamp: data.timestamp || Date.now()
                 };
             });
+            console.log(`🔔 [HISTORY-DEBUG] Processed ${newNotifications.length} notifications for user ${user.uid}`);
             setNotifications(newNotifications);
+
 
             const unread = newNotifications.filter((n: any) => !n.read).length;
             setUnreadCount(unread);

@@ -60,6 +60,7 @@ export async function sendNotificationToPatient(params: {
         }
 
         if (!userId) {
+            console.warn('Could not resolve userId for patient', patientId);
             return false;
         }
 
@@ -82,6 +83,8 @@ export async function sendNotificationToPatient(params: {
             return false;
         }
 
+        const language = userData.language || 'en';
+
         // Build API URL
         // Priority:
         // 1. NEXT_PUBLIC_BASE_URL env var if set
@@ -90,16 +93,14 @@ export async function sendNotificationToPatient(params: {
 
         let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
-        if (!baseUrl && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-            baseUrl = 'http://localhost:3000'; // Assume patient app runs on 3000 locally
+        if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+            baseUrl = 'http://localhost:3002'; // Patient app likely on 3002 (Clinic=3000, Nurse=3001)
         }
 
         // Fallback or default
         baseUrl = baseUrl || 'https://app.kloqo.com';
 
         const apiUrl = `${baseUrl}/api/send-notification`;
-        console.log('🔍 [NURSE NOTIFICATION DEBUG] Sending to API:', apiUrl);
-
         // Send notification via API
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -112,10 +113,12 @@ export async function sendNotificationToPatient(params: {
                 title,
                 body,
                 data,
+                language,
             }),
         });
 
         if (!response.ok) {
+            console.error('Notification API Failed:', response.statusText);
             // Check if token is invalid - this is a recoverable error
             // Return false but don't throw - this allows appointment booking to succeed
             return false;

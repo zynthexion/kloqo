@@ -6,49 +6,153 @@ import {
     SheetContent,
     SheetHeader,
     SheetTitle,
-    SheetTrigger
+    SheetTrigger,
+    SheetDescription
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Bell, Calendar, Clock, Info, CheckCircle2, User, AlertCircle, RefreshCw } from 'lucide-react';
+import { Bell, Calendar, Clock, Info, CheckCircle2, User, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { useFirebase } from '@/firebase/provider';
 import { useUser } from '@/firebase/auth/use-user';
-import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLanguage } from '@/contexts/language-context';
 
+// Sub-component for Swipeable Notification
+const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => {
+    const [startX, setStartX] = useState<number | null>(null);
+    const [currentX, setCurrentX] = useState(0);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        setStartX(e.touches[0].clientX);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (startX === null) return;
+        const diff = e.touches[0].clientX - startX;
+        // Only allow swiping left (negative X)
+        if (diff < 0) {
+            setCurrentX(diff);
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (currentX < -100) {
+            // Threshold met - delete
+            setIsDeleting(true);
+            onDelete(note.id);
+        } else {
+            // Reset
+            setCurrentX(0);
+        }
+        setStartX(null);
+    };
+
+    const opacity = Math.max(0, 1 + currentX / 200); // Fade out as you swipe
+
+    if (isDeleting) return null;
+
+    return (
+        <div className="relative overflow-hidden mb-3 rounded-lg">
+            {/* Background (Delete Action) */}
+            <div className="absolute inset-0 bg-red-500 flex items-center justify-end pr-4 rounded-lg">
+                <Trash2 className="text-white h-5 w-5" />
+            </div>
+
+            {/* Foreground (Actual Content) */}
+            <div
+                className={`relative bg-white flex gap-3 p-3 rounded-lg border transition-transform duration-200 ease-out ${!note.read ? 'bg-blue-50 border-blue-100' : 'border-gray-100'}`}
+                style={{ transform: `translateX(${currentX}px)`, opacity }}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onClick={onMarkRead}
+            >
+                <div className="mt-1 flex-shrink-0">
+                    {getIcon(note.data?.type || 'default')}
+                </div>
+                <div className="flex-1 space-y-1">
+                    <h4 className={`text-sm ${!note.read ? 'font-semibold text-blue-900' : 'font-medium text-gray-900'}`}>
+                        {note.title}
+                    </h4>
+                    <p className="text-xs text-gray-600 leading-snug">
+                        {note.body}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                        {formatDistanceToNow(note.createdAt, { addSuffix: true })}
+                    </p>
+                </div>
+                {!note.read && (
+                    <div className="mt-2 h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />
+                )}
+            </div>
+        </div>
+    );
+};
+
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+import { useRouter } from 'next/navigation';
+
 export function NotificationHistory() {
     const [open, setOpen] = useState(false);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [notifications, setNotifications] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [unreadCount, setUnreadCount] = useState(0);
     const { firestore } = useFirebase() || {};
     const { user } = useUser();
     const { language } = useLanguage();
+    const router = useRouter();
+
+    console.log('🔔 [HISTORY-RENDER] Component Rendered. Auth User:', user ? user.uid : 'NULL');
+    console.log('🔔 [HISTORY-RENDER] Current Notifications State:', notifications.length);
 
     useEffect(() => {
-        if (!firestore || !user?.uid) return;
+        if (!firestore || !user?.uid) {
+            console.log('🔔 [HISTORY-DEBUG] Missing firestore or user', { firestore: !!firestore, userId: user?.uid });
+            return;
+        }
 
-        // Load recent notifications
-        const q = query(
-            collection(firestore, 'users', user.uid, 'notifications'),
-            orderBy('createdAt', 'desc'),
-            limit(20)
-        );
+        // Verify we are talking to the right project
+        console.log('🔔 [HISTORY-DEBUG] Firestore Project ID:', firestore.app.options.projectId);
+
+        console.log(`🔔 [HISTORY-DEBUG] Listening to users/${user.uid}/notifications`);
+        const notificationsRef = collection(firestore, 'users', user.uid, 'notifications');
+
+        // TEMPORARY DEBUG: Removing ordering to rule out index issues
+        // const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(50));
+        const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(50));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const notes = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                // Convert timestamp to Date object if needed
-                createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(doc.data().timestamp || Date.now())
-            }));
-            setNotifications(notes);
+            console.log(`🔔 [HISTORY-DEBUG] Snapshot received. Docs: ${snapshot.size}`);
+            const newNotifications = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    // Handle serverTimestamp which might be null immediately after write
+                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
+                    timestamp: data.timestamp || Date.now()
+                };
+            });
+            setNotifications(newNotifications);
 
-            // Calculate unread count
-            const unread = notes.filter((n: any) => !n.read).length;
+            const unread = newNotifications.filter((n: any) => !n.read).length;
             setUnreadCount(unread);
-
+            setLoading(false);
+        }, (error) => {
+            console.error("🔔 Error fetching notifications:", error);
             setLoading(false);
         });
 
@@ -69,6 +173,29 @@ export function NotificationHistory() {
         });
 
         await batch.commit();
+    };
+
+    const handleClearAllClick = () => {
+        setShowClearConfirm(true);
+    };
+
+    const handleConfirmClear = async () => {
+        if (!firestore || !user?.uid) return;
+
+        setLoading(true);
+        const batch = writeBatch(firestore);
+        notifications.forEach(note => {
+            const ref = doc(firestore, 'users', user.uid, 'notifications', note.id);
+            batch.delete(ref);
+        });
+        await batch.commit();
+        setLoading(false);
+        setShowClearConfirm(false);
+    };
+
+    const handleDeleteOne = async (id: string) => {
+        if (!firestore || !user?.uid) return;
+        await deleteDoc(doc(firestore, 'users', user.uid, 'notifications', id));
     };
 
     const handleOpenChange = (isOpen: boolean) => {
@@ -102,16 +229,31 @@ export function NotificationHistory() {
             </SheetTrigger>
             <SheetContent side="right" className="w-[85vw] sm:max-w-[400px] p-0 flex flex-col h-full bg-white">
                 <SheetHeader className="p-4 border-b">
-                    <SheetTitle className="text-left flex items-center gap-2">
-                        <Bell className="h-5 w-5" />
-                        {language === 'ml' ? 'അറിയിപ്പുകൾ' : 'Notifications'}
-                    </SheetTitle>
+                    <div className='flex justify-between items-center mr-6'>
+                        <SheetTitle className="text-left flex items-center gap-2">
+                            <Bell className="h-5 w-5" />
+                            {language === 'ml' ? 'അറിയിപ്പുകൾ' : 'Notifications'}
+                        </SheetTitle>
+                        {notifications.length > 0 && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 text-xs h-8 px-2"
+                                onClick={handleClearAllClick}
+                            >
+                                {language === 'ml' ? 'എല്ലാം മായ്ക്കുക' : 'Clear All'}
+                            </Button>
+                        )}
+                    </div>
+                    <SheetDescription className="text-left text-xs text-muted-foreground">
+                        {language === 'ml' ? 'നിങ്ങളുടെ സമീപകാല അപ്‌ഡേറ്റുകളും സന്ദേശങ്ങളും ഇവിടെ കാണാം' : 'View your recent updates and messages here'}
+                    </SheetDescription>
                 </SheetHeader>
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-4">
                     {loading ? (
                         Array(3).fill(0).map((_, i) => (
-                            <div key={i} className="flex gap-4 p-3 border rounded-lg">
+                            <div key={i} className="flex gap-4 p-3 border rounded-lg mb-3">
                                 <Skeleton className="h-10 w-10 rounded-full" />
                                 <div className="space-y-2 flex-1">
                                     <Skeleton className="h-4 w-3/4" />
@@ -126,32 +268,40 @@ export function NotificationHistory() {
                         </div>
                     ) : (
                         notifications.map((note) => (
-                            <div
+                            <SwipeableNotification
                                 key={note.id}
-                                className={`flex gap-3 p-3 rounded-lg border ${!note.read ? 'bg-blue-50 border-blue-100' : 'bg-white border-gray-100'}`}
-                            >
-                                <div className="mt-1 flex-shrink-0">
-                                    {getIcon(note.data?.type || 'default')}
-                                </div>
-                                <div className="flex-1 space-y-1">
-                                    <h4 className={`text-sm ${!note.read ? 'font-semibold text-blue-900' : 'font-medium text-gray-900'}`}>
-                                        {note.title}
-                                    </h4>
-                                    <p className="text-xs text-gray-600 leading-snug">
-                                        {note.body}
-                                    </p>
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                        {formatDistanceToNow(note.createdAt, { addSuffix: true })}
-                                    </p>
-                                </div>
-                                {!note.read && (
-                                    <div className="mt-2 h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />
-                                )}
-                            </div>
+                                note={note}
+                                getIcon={getIcon}
+                                onMarkRead={() => { }} // Already marked on open
+                                onDelete={handleDeleteOne}
+                            />
                         ))
                     )}
                 </div>
             </SheetContent>
+
+            <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {language === 'ml' ? 'എല്ലാ അറിയിപ്പുകളും മായ്ക്കണോ?' : 'Delete all notifications?'}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {language === 'ml'
+                                ? 'ഈ പ്രവർത്തനം പഴയപടിയാക്കാൻ കഴിയില്ല. ഇത് നിങ്ങളുടെ എല്ലാ അറിയിപ്പുകളും ശാശ്വതമായി നീക്കം ചെയ്യും.'
+                                : 'This action cannot be undone. This will permanently remove all your notifications.'}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>
+                            {language === 'ml' ? 'റദ്ദാക്കുക' : 'Cancel'}
+                        </AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmClear} className="bg-red-600 hover:bg-red-700">
+                            {language === 'ml' ? 'മായ്ക്കുക' : 'Delete All'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Sheet>
     );
 }

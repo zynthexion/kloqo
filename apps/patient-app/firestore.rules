@@ -51,6 +51,11 @@ service cloud.firestore {
       allow update: if isOwner(userId);
       // Clinic admins can delete users
       allow delete: if isClinicAdmin();
+      
+      // User Notifications Subcollection
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId);
+      }
     }
     
     // Clinics collection - Public read, clinic admin write

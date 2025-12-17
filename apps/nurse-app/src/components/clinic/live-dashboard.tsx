@@ -172,105 +172,121 @@ export default function LiveDashboard() {
     previousConsultationStatusRef.current = consultationStatus;
   }, [consultationStatus, appointments, toast]);
 
-  const handleUpdateStatus = useCallback(async (id: string, status: 'completed' | 'Cancelled' | 'No-show' | 'Skipped' | 'Confirmed') => {
-    const appointmentRef = doc(db, 'appointments', id);
-    const appointment = appointments.find(a => a.id === id);
+  const handleUpdateStatus = useCallback((id: string, status: 'completed' | 'Cancelled' | 'No-show' | 'Skipped') => {
+    startTransition(async () => {
+      try {
+        const appointmentRef = doc(db, 'appointments', id);
+        const appointment = appointments.find(a => a.id === id);
+        const now = new Date();
 
-    let updateData: any = { status: status.charAt(0).toUpperCase() + status.slice(1) };
+        let updateData: any = { status: status.charAt(0).toUpperCase() + status.slice(1) };
+        if (status === 'completed') {
+          updateData.completedAt = serverTimestamp();
 
-    if (status === 'completed') {
-      updateData.completedAt = serverTimestamp();
-
-      // Increment consultation counter
-      if (appointment && currentDoctor && appointment.sessionIndex !== undefined) {
-        try {
-          const { incrementConsultationCounter } = await import('@kloqo/shared-core');
-          await incrementConsultationCounter(
-            appointment.clinicId,
-            currentDoctor.id,
-            appointment.date,
-            appointment.sessionIndex
-          );
-        } catch (counterError) {
-          console.error('Error incrementing consultation counter:', counterError);
-          // Don't fail the status update if counter update fails
+          // Increment consultation counter
+          if (appointment && selectedDoctor && appointment.sessionIndex !== undefined) {
+            try {
+              const { incrementConsultationCounter } = await import('@kloqo/shared-core');
+              await incrementConsultationCounter(
+                appointment.clinicId,
+                selectedDoctor,
+                appointment.date,
+                appointment.sessionIndex
+              );
+            } catch (counterError) {
+              console.error('Error incrementing consultation counter:', counterError);
+            }
+          }
         }
-      }
-    }
+        if (status === 'Skipped') {
+          updateData.skippedAt = serverTimestamp();
+        }
 
-    if (status === 'Skipped') {
-      updateData = {
-        status: 'Skipped',
-        skippedAt: serverTimestamp()
-      };
+        await updateDoc(appointmentRef, updateData);
 
-      // Update local state to move skipped to end (same as clinic app)
-      setAppointments(prev => {
-        const updated = prev.map(a => a.id === id ? { ...a, status: 'Skipped' as const } : a);
-        return [
-          ...updated.filter(a => a.status !== 'Skipped'),
-          ...updated.filter(a => a.status === 'Skipped'),
-        ] as Appointment[];
-      });
-    }
+        // Send notifications to next patients when appointment is completed
+        if (status === 'completed' && appointment) {
+          try {
+            const { notifyNextPatientsWhenCompleted } = await import('@kloqo/shared-core');
+            const clinicDocRef = doc(db, 'clinics', appointment.clinicId);
+            const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
+            const clinicName = clinicDoc?.data()?.name || 'The clinic';
 
-    try {
-      await updateDoc(appointmentRef, updateData);
+            await notifyNextPatientsWhenCompleted({
+              firestore: db,
+              completedAppointmentId: appointment.id,
+              completedAppointment: appointment,
+              clinicName,
+            });
+            console.log('Notifications sent to next patients in queue');
+          } catch (notifError) {
+            console.error('Failed to send notifications to next patients:', notifError);
+          }
+        }
 
-      // Send notifications to next patients when appointment is completed
-      if (status === 'completed' && appointment) {
-        try {
-          const { notifyNextPatientsWhenCompleted } = await import('@kloqo/shared-core');
-          const { getDoc } = await import('firebase/firestore');
-          const clinicDocRef = doc(db, 'clinics', appointment.clinicId);
-          const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
-          const clinicName = clinicDoc?.data()?.name || 'The clinic';
+        // Send cancellation notification when appointment is cancelled
+        if (status === 'Cancelled') {
+          try {
+            // Fetch full appointment document from Firestore to ensure we have all fields
+            const appointmentDoc = await getDoc(appointmentRef);
+            const fullAppointmentData = appointmentDoc.exists() ? appointmentDoc.data() : null;
+            const appointmentToUse = fullAppointmentData || appointment;
 
-          await notifyNextPatientsWhenCompleted({
-            firestore: db,
-            completedAppointmentId: appointment.id,
-            completedAppointment: appointment,
-            clinicName,
+
+            if (appointmentToUse && appointmentToUse.patientId) {
+              const { sendAppointmentCancelledNotification } = await import('@kloqo/shared-core');
+
+              // Get clinic name
+              let clinicName = 'The clinic';
+              if (appointmentToUse.clinicId) {
+                const clinicDocRef = doc(db, 'clinics', appointmentToUse.clinicId);
+                const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
+                clinicName = clinicDoc?.data()?.name || clinicName;
+              }
+
+              await sendAppointmentCancelledNotification({
+                firestore: db,
+                patientId: appointmentToUse.patientId,
+                appointmentId: id,
+                doctorName: appointmentToUse.doctor || '',
+                clinicName,
+                date: appointmentToUse.date || '',
+                time: appointmentToUse.time || '',
+                arriveByTime: appointmentToUse.arriveByTime,
+                cancelledBy: 'clinic',
+              });
+            }
+          } catch (notifError) {
+            console.error('Failed to send cancellation notification:', notifError);
+          }
+        }
+
+        // Update local state for skipped appointments
+        if (status === 'Skipped') {
+          setAppointments(prev => {
+            const updated = prev.map(a => a.id === id ? { ...a, status: 'Skipped' as const } : a);
+            return [
+              ...updated.filter(a => a.status !== 'Skipped'),
+              ...updated.filter(a => a.status === 'Skipped'),
+            ] as Appointment[];
           });
-          console.log('Notifications sent to next patients in queue');
-        } catch (notifError) {
-          console.error('Failed to send notifications to next patients:', notifError);
-          // Don't fail the status update if notification fails
         }
-      }
 
-      // Send cancellation notification when appointment is cancelled
-      if (status === 'Cancelled' && appointment) {
-        try {
-          const { sendAppointmentCancelledNotification } = await import('@kloqo/shared-core');
-          const { getDoc } = await import('firebase/firestore');
-          const clinicDocRef = doc(db, 'clinics', appointment.clinicId);
-          const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
-          const clinicName = clinicDoc?.data()?.name || 'The clinic';
-
-          await sendAppointmentCancelledNotification({
-            firestore: db,
-            patientId: appointment.patientId,
-            appointmentId: appointment.id,
-            doctorName: appointment.doctor,
-            clinicName,
-            date: appointment.date,
-            time: appointment.time,
-            arriveByTime: appointment.arriveByTime,
-            cancelledBy: 'clinic',
-          });
-          console.log('Cancellation notification sent to patient');
-        } catch (notifError) {
-          console.error('Failed to send cancellation notification:', notifError);
-          // Don't fail the status update if notification fails
-        }
+        toast({
+          title: "Status Updated",
+          description: `Appointment marked as ${status}.`
+        });
+      } catch (error) {
+        console.error("Error updating appointment status:", error);
+        const permissionError = new FirestorePermissionError({
+          path: doc(db, 'appointments', id).path,
+          operation: 'update',
+          requestResourceData: { status: status.charAt(0).toUpperCase() + status.slice(1) }
+        });
+        errorEmitter.emit('permission-error', permissionError);
       }
-      toast({ title: `Appointment ${status === 'completed' ? 'marked as completed' : status === 'Cancelled' ? 'cancelled' : status === 'No-show' ? 'marked as No-show' : 'skipped'}.` });
-    } catch (error) {
-      console.error(`Error updating appointment status to ${status}:`, error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update appointment status.' });
-    }
-  }, [appointments, currentDoctor, toast]);
+    });
+  }, [selectedDoctor, appointments, toast]);
 
   const handleAddToQueue = (appointment: Appointment) => {
     setAppointmentToAddToQueue(appointment);

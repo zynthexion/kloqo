@@ -83,9 +83,9 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
       <body className="font-body antialiased">
-        <LanguageProvider>
-          <LanguagePrompt />
-          <FirebaseClientProvider>
+        <FirebaseClientProvider>
+          <LanguageProvider>
+            <LanguagePrompt />
             <ErrorBoundaryWithLogging>
               {children}
               <GlobalErrorHandler />
@@ -93,12 +93,12 @@ export default function RootLayout({
               <AppointmentReminderHandler />
               <RoutePrefetcher />
             </ErrorBoundaryWithLogging>
-          </FirebaseClientProvider>
-          <Toaster />
-          <AddToHomeScreenPrompt />
-          <MessagingInitializer />
-          <NotificationOnboard />
-        </LanguageProvider>
+            <Toaster />
+            <AddToHomeScreenPrompt />
+            <MessagingInitializer />
+            <NotificationOnboard />
+          </LanguageProvider>
+        </FirebaseClientProvider>
       </body>
     </html>
   );

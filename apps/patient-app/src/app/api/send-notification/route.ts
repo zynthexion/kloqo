@@ -10,214 +10,230 @@ const app = getAdminApp();
  * This endpoint will be called by the notification service
  */
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 export async function OPTIONS(request: NextRequest) {
-  return new NextResponse(null, {
+  /* console.log('🔔 API DEBUG: OPTIONS Request Received'); */
+  return NextResponse.json({}, {
     status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+    headers: corsHeaders,
   });
 }
 
 export async function POST(request: NextRequest) {
+  let dbSuccess = false;
+  let fcmSuccess = false;
+  let dbError: any = null;
+  let fcmError: any = null;
+  let requestData: any = {};
+
   try {
-    console.log('🔔 API DEBUG: Received notification request');
-    const { fcmToken, title, body, data, userId } = await request.json();
-    console.log('🔔 API DEBUG: Request data:', {
-      hasFCMToken: !!fcmToken,
-      fcmTokenLength: fcmToken?.length,
-      title,
-      body,
-      dataType: data?.type,
-      userId: userId || 'not provided'
-    });
+    /* console.log('🔔 API DEBUG: Received notification request'); */
+    requestData = await request.json();
+    const { fcmToken, title: originalTitle, body: originalBody, data, userId, language } = requestData;
 
-    if (!fcmToken || !title || !body) {
-      console.error('🔔 API DEBUG: Missing required parameters');
-      return NextResponse.json(
-        { error: 'Missing required parameters' },
-        {
-          status: 400,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          }
-        }
-      );
-    }
+    let finalTitle = originalTitle;
+    let finalBody = originalBody;
 
-    // Save to Firestore if userId is provided
-    if (userId) {
-      try {
-        console.log(`🔔 API DEBUG: Saving notification for user ${userId}`);
-        const firestore = getAdminFirestore();
-        await firestore.collection('users').doc(userId).collection('notifications').add({
-          title,
-          body,
-          data: data || {},
-          read: false,
-          createdAt: FieldValue.serverTimestamp(),
-          timestamp: Date.now(), // Fallback/formatting helper
-        });
-        console.log('🔔 API DEBUG: Notification saved to Firestore');
-
-        // Auto-cleanup: Keep only last 50 notifications
-        // We do this asynchronously to not block the main notification flow too much, 
-        // though strictly we wait here to ensure consistency or catch errors. 
-        // Given 50 is small, simple query is fine.
-        const headerNotificationsRef = firestore.collection('users').doc(userId).collection('notifications');
-        const MAX_NOTIFICATIONS = 50;
-
-        // Fetch all notifications sorted by time (newest first)
-        // We fetch fields path only to save bandwidth if possible, but standard SDK gets doc.
-        const snapshot = await headerNotificationsRef.orderBy('createdAt', 'desc').get();
-
-        if (snapshot.size > MAX_NOTIFICATIONS) {
-          console.log(`🔔 API DEBUG: Cleaning up old notifications. Current count: ${snapshot.size}`);
-          const batch = firestore.batch();
-          const docsToDelete = snapshot.docs.slice(MAX_NOTIFICATIONS);
-
-          docsToDelete.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-
-          await batch.commit();
-          console.log(`🔔 API DEBUG: Deleted ${docsToDelete.length} old notifications`);
-        }
-      } catch (dbError) {
-        console.error('🔔 API DEBUG: Error saving to Firestore:', dbError);
-        // Continue to send push notification even if save fails
+    // Handle Malayalam Translation
+    if (language === 'ml') {
+      const mlContent = getMalayalamContent(data?.type, data, originalBody);
+      if (mlContent) {
+        finalTitle = mlContent.title;
+        finalBody = mlContent.body;
       }
     }
 
-    // In production, use Firebase Admin SDK to send notification
-    // For now, we're using the Firebase console or external service
 
-    console.log('🔔 API DEBUG: Notification request:', {
-      fcmToken: fcmToken.substring(0, 20) + '...',
-      title,
-      body,
-      type: data?.type,
-    });
 
-    // Send notification using Firebase Admin SDK
-    let fcmSuccess = false;
-    let fcmError: any = null;
 
-    // Save notification to Firestore if userId is provided
-    try {
-      const { userId } = await request.json().catch(() => ({}));
-      // Re-parse body since we consumed it above - wait, request.json() can only be called once.
-      // We need to parse it once at the top.
-    } catch (e) {
-      // Logic below needs to change to parse once.
+
+    if (!fcmToken) {
+      console.error('Missing required parameters: fcmToken');
+      return NextResponse.json(
+        { error: 'Missing required parameters' },
+        { status: 400, headers: corsHeaders }
+      );
     }
 
+    // 1. Save to Firestore
+    if (userId) {
+      try {
+        console.log(`🔔 [DB-DEBUG] Attempting to save notification for user: ${userId}`);
+        const firestore = getAdminFirestore();
+        const notifRef = firestore.collection('users').doc(userId).collection('notifications');
+        const newDoc = await notifRef.add({
+          title: finalTitle,
+          body: finalBody,
+          data: data || {},
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          timestamp: Date.now(),
+        });
+        console.log(`🔔 [DB-DEBUG] SUCCESS. Document written with ID: ${newDoc.id}`);
+        dbSuccess = true;
 
+        // Cleanup old notifications (non-blocking)
+        const headerNotificationsRef = firestore.collection('users').doc(userId).collection('notifications');
+        const cleanup = async () => {
+          try {
+            const snapshot = await headerNotificationsRef.orderBy('createdAt', 'desc').get();
+            if (snapshot.size > 50) {
+              const batch = firestore.batch();
+              snapshot.docs.slice(50).forEach(doc => batch.delete(doc.ref));
+              await batch.commit();
+            }
+          } catch (e) { console.error('Cleanup error', e); }
+        };
+        cleanup();
+
+      } catch (err) {
+        console.error('🔔 [DB-DEBUG] FAILURE. Error saving to Firestore:', err);
+        if (err instanceof Error) {
+          console.error('🔔 [DB-DEBUG] Error Stack:', err.stack);
+        }
+        dbSuccess = false;
+        dbError = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      console.warn('🔔 [DB-DEBUG] SKIPPED. No userId provided in request.');
+    }
+
+    // 2. Send FCM
     try {
       if (app) {
-        console.log('🔔 API DEBUG: Attempting to send FCM notification');
-        // Support custom notification sound via data.notificationSound
-        // Sound file should be placed in /public/sounds/ directory
+        /* console.log('🔔 API DEBUG: Attempting to send FCM notification'); */
         const message = {
-          notification: { title, body },
+          notification: { title: finalTitle, body: finalBody },
           data: {
             ...(data || {}),
-            // Include notificationSound in data so service worker can access it
-            // The service worker will use this to set the notification sound
             ...(data?.notificationSound && { notificationSound: data.notificationSound }),
           },
           token: fcmToken,
           webpush: {
             notification: {
-              title,
-              body,
+              title: finalTitle,
+              body: finalBody,
               icon: '/icons/icon-192x192.png',
               badge: '/icons/icon-192x192.png',
-              // Note: Sound is handled by service worker, not in webpush config
             },
           },
         };
 
         const messaging = getMessaging(app);
-        console.log('🔔 API DEBUG: Calling messaging.send()');
         const messageId = await messaging.send(message);
-        console.log('🔔 API DEBUG: FCM notification sent successfully:', messageId);
+        /* console.log('🔔 API DEBUG: FCM notification sent successfully:', messageId); */
         fcmSuccess = true;
       } else {
-        console.warn('🔔 API DEBUG: Firebase Admin not initialized');
-        fcmError = { code: 'FIREBASE_NOT_INITIALIZED', message: 'Firebase Admin SDK not properly initialized' };
+        console.warn('Firebase Admin not initialized');
+        fcmError = 'Firebase Admin SDK not properly initialized';
       }
-    } catch (fcmErrorCaught) {
-      fcmError = fcmErrorCaught;
-      console.error('🔔 API DEBUG: FCM send error:', fcmErrorCaught);
-      if (fcmErrorCaught instanceof Error) {
-        console.error('🔔 API DEBUG: FCM error message:', fcmErrorCaught.message);
-        console.error('🔔 API DEBUG: FCM error code:', (fcmErrorCaught as any).code);
-        console.error('🔔 API DEBUG: FCM error stack:', fcmErrorCaught.stack);
-
-        // Log specific FCM error codes
-        const errorCode = (fcmErrorCaught as any).code;
-        if (errorCode === 'messaging/invalid-registration-token' || errorCode === 'messaging/registration-token-not-registered') {
-          console.error('🔔 API DEBUG: ⚠️ INVALID TOKEN - Token is expired or invalid. User needs to refresh their FCM token.');
-        } else if (errorCode === 'messaging/invalid-argument') {
-          console.error('🔔 API DEBUG: ⚠️ INVALID ARGUMENT - Check token format and message structure.');
-        } else if (errorCode === 'messaging/unavailable') {
-          console.error('🔔 API DEBUG: ⚠️ FCM SERVICE UNAVAILABLE - Firebase service is temporarily down.');
-        }
-      }
+    } catch (err) {
+      console.error('FCM send error:', err);
+      fcmSuccess = false;
+      fcmError = err instanceof Error ? err.message : String(err);
     }
 
-    // Return response with FCM status
-    const responseData: any = {
-      success: fcmSuccess,
-      message: fcmSuccess ? 'Notification sent successfully' : 'Failed to send notification',
-    };
+    // 3. Construct Response
+    // We consider it a "success" (200) if either DB write or FCM send worked.
+    // We return 500 only if BOTH failed (when both were attempted).
 
-    // Always include details in response for debugging
-    responseData.details = {
+    const isPartialSuccess = dbSuccess || fcmSuccess;
+    const status = isPartialSuccess ? 200 : 500;
+
+    console.log(`🔔 [API] Notification processing complete. DB Success: ${dbSuccess}, FCM Success: ${fcmSuccess}.`);
+
+    return NextResponse.json({
+      success: isPartialSuccess,
+      dbSuccess,
       fcmSuccess,
-      ...(fcmError && {
-        error: fcmError.message || 'Unknown error',
-        code: (fcmError as any).code || 'UNKNOWN',
-        errorInfo: fcmError,
-      }),
-      fcmToken: fcmToken.substring(0, 20) + '...',
-      title,
-      body,
-    };
-
-    return NextResponse.json(
-      responseData,
-      {
-        status: fcmSuccess ? 200 : 500,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        }
+      message: isPartialSuccess ? 'Notification processed' : 'Failed to process notification',
+      errors: {
+        db: dbError,
+        fcm: fcmError
+      },
+      details: {
+        userId: userId,
+        fcmTokenPrefix: fcmToken?.substring(0, 10)
       }
-    );
+    }, {
+      status,
+      headers: corsHeaders
+    });
+
   } catch (error) {
-    console.error('🔔 API DEBUG: Error sending notification:', error);
-    if (error instanceof Error) {
-      console.error('🔔 API DEBUG: Error message:', error.message);
-      console.error('🔔 API DEBUG: Error stack:', error.stack);
-    }
+    console.error('Top-level error in API:', error);
     return NextResponse.json(
-      { error: 'Failed to send notification' },
+      { error: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) },
       {
         status: 500,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        }
+        headers: corsHeaders
       }
     );
+  }
+}
+
+function getMalayalamContent(type: any, data: any, originalBody: string): { title: string, body: string } | null {
+  if (!data) return null;
+
+  switch (type) {
+    case 'appointment_confirmed':
+      return {
+        title: 'അപ്പോയിന്റ്മെന്റ് സ്ഥിരീകരിച്ചു',
+        body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് ${data.date}, ${data.time}-ന് സ്ഥിരീകരിച്ചു. ടോക്കൺ: ${data.tokenNumber}`
+      };
+    case 'token_called':
+      return {
+        title: 'നിങ്ങളുടെ ഊഴമായി!',
+        body: `${data.clinicName}-ൽ ഡോ. ${data.doctorName}-നെ കാണാനുള്ള ടോക്കൺ ${data.tokenNumber} ഇപ്പോൾ വിളിക്കുന്നു. ദയവായി ക്ലിനിക്കിലേക്ക് നീങ്ങുക.`
+      };
+    case 'appointment_cancelled':
+      const isPatient = data.cancelledBy === 'patient';
+      return {
+        title: 'അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കി',
+        body: isPatient
+          ? `ഡോ. ${data.doctorName}-യുമായുള്ള (തീയതി: ${data.date}, സമയം: ${data.time}) അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കിയിരിക്കുന്നു.`
+          : `${data.clinicName}, ഡോ. ${data.doctorName}-യുമായുള്ള (തീയതി: ${data.date}, സമയം: ${data.time}) നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കി.`
+      };
+    case 'doctor_late':
+      return {
+        title: 'ഡോക്ടർ വൈകുന്നു',
+        body: `${data.clinicName}-ലെ ഡോ. ${data.doctorName} ഏകദേശം ${data.delayMinutes} മിനിറ്റ് വൈകിയാണ് നടക്കുന്നത്.`
+      };
+    case 'appointment_rescheduled':
+      return {
+        title: 'സമയക്രമം മാറ്റി',
+        body: `${data.clinicName}, ഡോ. ${data.doctorName}-യുമായുള്ള അപ്പോയിന്റ്മെന്റ് സമയം മാറ്റിയിരിക്കുന്നു. പുതിയ സമയം: ${data.newTime}.`
+      };
+    case 'appointment_skipped':
+      return {
+        title: 'അപ്പോയിന്റ്മെന്റ് സ്കിപ്പ് ചെയ്തു',
+        body: `കൃത്യസമയത്ത് റിപ്പോർട്ട് ചെയ്യാത്തതിനാൽ ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് (ടോക്കൺ: ${data.tokenNumber}) സ്കിപ്പ് ചെയ്തിരിക്കുന്നു.`
+      };
+    case 'queue_update':
+      const count = data.peopleAhead;
+      const personText = count === 1 ? 'ഒരാൾ' : `${count} പേർ`;
+      if (count === 0) {
+        return {
+          title: 'നിങ്ങളാണ് അടുത്തത്!',
+          body: `നിങ്ങൾക്ക് മുമ്പിൽ 0 ആളുകൾ. ഡോ. ${data.doctorName}-നെ കാണാൻ നിങ്ങൾക്കാണ് അടുത്ത ഊഴം.`
+        };
+      }
+      return {
+        title: `ക്യൂ അപ്‌ഡേറ്റ്: ${count} പേർ മുന്നിലുണ്ട്`,
+        body: `നിങ്ങൾക്ക് മുമ്പിൽ ${personText} ഉണ്ട്. ഡോ. ${data.doctorName}-നെ കാണാനുള്ള നിങ്ങളുടെ ഊഴം അടുത്തു വരുന്നു.`
+      };
+    case 'doctor_consultation_started':
+      return {
+        title: 'കൺസൾട്ടേഷൻ ആരംഭിച്ചു',
+        body: `ഡോ. ${data.doctorName}, ${data.clinicName}-ൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചു. നിങ്ങളുടെ സമയം: ${data.appointmentTime}.`
+      };
+    default:
+      return null;
   }
 }
 

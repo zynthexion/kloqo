@@ -2,6 +2,9 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import translations from '@/translations';
+import { useUser } from '@/firebase/auth/use-user';
+import { useFirebase } from '@/firebase/provider';
+import { doc, updateDoc } from 'firebase/firestore';
 
 type Language = 'en' | 'ml';
 
@@ -16,6 +19,8 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>('en');
   const [isMounted, setIsMounted] = useState(false);
+  const { user } = useUser();
+  const { firestore } = useFirebase();
 
   useEffect(() => {
     // Load saved language from localStorage
@@ -26,9 +31,20 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setIsMounted(true);
   }, []);
 
-  const setLanguage = (lang: Language) => {
+  const setLanguage = async (lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem('app-language', lang);
+
+    // Sync to Firestore if user is logged in
+    if (user && firestore) {
+      try {
+        await updateDoc(doc(firestore, 'users', user.uid), {
+          language: lang
+        });
+      } catch (error) {
+        console.error('Error syncing language preference:', error);
+      }
+    }
   };
 
   // Provide default values until mounted

@@ -118,20 +118,61 @@ export function NotificationHistory() {
     console.log('🔔 [HISTORY-RENDER] Component Rendered. Auth User:', user ? user.uid : 'NULL');
     console.log('🔔 [HISTORY-RENDER] Current Notifications State:', notifications.length);
 
+    const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+
+    // Effect 1: Resolve User ID based on Phone Number
     useEffect(() => {
-        if (!firestore || !user?.uid) {
-            console.log('🔔 [HISTORY-DEBUG] Missing firestore or user', { firestore: !!firestore, userId: user?.uid });
-            return;
-        }
+        const resolveUserId = async () => {
+            if (!firestore || !user?.phoneNumber) {
+                console.log('🔔 [HISTORY-DEBUG] Waiting for firestore or user phone...', {
+                    hasFirestore: !!firestore,
+                    hasUser: !!user,
+                    phone: user?.phoneNumber
+                });
+                return;
+            }
 
-        // Verify we are talking to the right project
-        console.log('🔔 [HISTORY-DEBUG] Firestore Project ID:', firestore.app.options.projectId);
+            try {
+                // Sanitize phone number if needed (ensure format matches DB)
+                // Assuming DB uses +91XXXXXXXXXX format same as Auth
+                const phoneToSearch = user.phoneNumber;
+                console.log(`🔔 [HISTORY-DEBUG] Resolving userId for phone: ${phoneToSearch}`);
 
-        console.log(`🔔 [HISTORY-DEBUG] Listening to users/${user.uid}/notifications`);
-        const notificationsRef = collection(firestore, 'users', user.uid, 'notifications');
+                const usersQuery = query(
+                    collection(firestore, 'users'),
+                    where('phone', '==', phoneToSearch),
+                    where('role', '==', 'patient')
+                );
 
-        // TEMPORARY DEBUG: Removing ordering to rule out index issues
-        // const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(50));
+                const snapshot = await getDocs(usersQuery);
+
+                if (snapshot.empty) {
+                    console.error(`🔔 [HISTORY-DEBUG] No patient user found for phone ${phoneToSearch}`);
+                    setLoading(false);
+                    return;
+                }
+
+                // Use the first matching document
+                const userDoc = snapshot.docs[0];
+                console.log(`🔔 [HISTORY-DEBUG] Resolved userId: ${userDoc.id} (Auth UID: ${user.uid})`);
+                setResolvedUserId(userDoc.id);
+
+            } catch (error) {
+                console.error('🔔 [HISTORY-DEBUG] Error resolving userId:', error);
+                setLoading(false);
+            }
+        };
+
+        resolveUserId();
+    }, [firestore, user?.phoneNumber, user?.uid]);
+
+    // Effect 2: Listen for Notifications using Resolved User ID
+    useEffect(() => {
+        if (!firestore || !resolvedUserId) return;
+
+        console.log(`🔔 [HISTORY-DEBUG] Listening to users/${resolvedUserId}/notifications`);
+        const notificationsRef = collection(firestore, 'users', resolvedUserId, 'notifications');
+
         const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(50));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -150,7 +191,7 @@ export function NotificationHistory() {
                     timestamp: data.timestamp || Date.now()
                 };
             });
-            console.log(`🔔 [HISTORY-DEBUG] Processed ${newNotifications.length} notifications for user ${user.uid}`);
+            console.log(`🔔 [HISTORY-DEBUG] Processed ${newNotifications.length} notifications`);
             setNotifications(newNotifications);
 
 
@@ -158,15 +199,15 @@ export function NotificationHistory() {
             setUnreadCount(unread);
             setLoading(false);
         }, (error) => {
-            console.error("🔔 Error fetching notifications:", error);
+            console.error("🔔 [HISTORY-DEBUG] Error fetching notifications:", error);
             setLoading(false);
         });
 
         return () => unsubscribe();
-    }, [firestore, user?.uid]);
+    }, [firestore, resolvedUserId]);
 
     const markAllAsRead = async () => {
-        if (!firestore || !user?.uid || notifications.length === 0) return;
+        if (!firestore || !resolvedUserId || notifications.length === 0) return;
 
         const batch = writeBatch(firestore);
         const unreadNotes = notifications.filter(n => !n.read);
@@ -174,7 +215,7 @@ export function NotificationHistory() {
         if (unreadNotes.length === 0) return;
 
         unreadNotes.forEach(note => {
-            const ref = doc(firestore, 'users', user.uid, 'notifications', note.id);
+            const ref = doc(firestore, 'users', resolvedUserId, 'notifications', note.id);
             batch.update(ref, { read: true });
         });
 
@@ -186,12 +227,12 @@ export function NotificationHistory() {
     };
 
     const handleConfirmClear = async () => {
-        if (!firestore || !user?.uid) return;
+        if (!firestore || !resolvedUserId) return;
 
         setLoading(true);
         const batch = writeBatch(firestore);
         notifications.forEach(note => {
-            const ref = doc(firestore, 'users', user.uid, 'notifications', note.id);
+            const ref = doc(firestore, 'users', resolvedUserId, 'notifications', note.id);
             batch.delete(ref);
         });
         await batch.commit();
@@ -200,8 +241,8 @@ export function NotificationHistory() {
     };
 
     const handleDeleteOne = async (id: string) => {
-        if (!firestore || !user?.uid) return;
-        await deleteDoc(doc(firestore, 'users', user.uid, 'notifications', id));
+        if (!firestore || !resolvedUserId) return;
+        await deleteDoc(doc(firestore, 'users', resolvedUserId, 'notifications', id));
     };
 
     const handleOpenChange = (isOpen: boolean) => {

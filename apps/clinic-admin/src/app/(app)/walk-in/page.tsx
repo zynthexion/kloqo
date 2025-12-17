@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification } from '@kloqo/shared-core';
 
 import { getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing } from '@kloqo/shared-core';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
@@ -693,8 +693,6 @@ function WalkInRegistrationContent() {
       // Send notification to patient
       console.log('🎯 DEBUG: Starting notification process');
       try {
-        const { sendAppointmentBookedByStaffNotification } = await import('@kloqo/shared-core');
-
         // Get patientId from appointmentToSave
         const patientId = appointmentToSave.patientId;
         console.log('🎯 DEBUG: Patient ID:', patientId);

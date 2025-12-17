@@ -232,6 +232,11 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
         title: 'കൺസൾട്ടേഷൻ ആരംഭിച്ചു',
         body: `ഡോ. ${data.doctorName}, ${data.clinicName}-ൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചു. നിങ്ങളുടെ സമയം: ${data.appointmentTime}.`
       };
+    case 'free_followup_expiry':
+      return {
+        title: 'സൗജന്യ പരിശോധന അവസാനിക്കുന്നു',
+        body: `ഡോ. ${data.doctorName}-നെ സൗജന്യമായി കാണാൻ 3 ദിവസങ്ങൾ കൂടി മാത്രം.`
+      };
     default:
       return null;
   }

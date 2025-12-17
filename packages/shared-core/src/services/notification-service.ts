@@ -3,7 +3,7 @@
  * Sends notifications to patients when appointments are created
  */
 
-import { Firestore, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { Firestore, doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { parse, format, subMinutes } from 'date-fns';
 import { parseTime } from '../utils/break-helpers';
 import type { Appointment } from '@kloqo/shared-types';
@@ -648,5 +648,118 @@ export async function notifyNextPatientsWhenCompleted(params: {
         }
     } catch (error) {
         console.error('Error notifying next patients:', error);
+    }
+}
+
+/**
+ * Send notification for Free Follow-up Expiry
+ */
+export async function sendFreeFollowUpExpiryNotification(params: {
+    firestore: Firestore;
+    patientId: string;
+    doctorName: string;
+    clinicName: string;
+    remainingDays: number;
+}): Promise<boolean> {
+    const { firestore, patientId, doctorName, clinicName, remainingDays } = params;
+
+    return sendNotificationToPatient({
+        firestore,
+        patientId,
+        title: 'Free Follow-up Expiring Soon',
+        body: `You have ${remainingDays} more days to visit Dr. ${doctorName} for free.`,
+        data: {
+            type: 'free_followup_expiry',
+            doctorName,
+            clinicName,
+            remainingDays,
+        },
+    });
+}
+
+/**
+ * Check and send daily reminders for all doctors in a clinic
+ * Intended to be run once per day from the Nurse/Admin App
+ */
+export async function checkAndSendDailyReminders(params: {
+    firestore: Firestore;
+    clinicId: string;
+}): Promise<void> {
+    const { firestore, clinicId } = params;
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+    try {
+        console.log(`[DAILY REMINDER] Starting check for clinic ${clinicId} on ${todayStr}`);
+
+        // 1. Get all doctors for this clinic
+        const doctorsQuery = query(
+            collection(firestore, 'doctors'),
+            where('clinicId', '==', clinicId)
+        );
+        const doctorsSnapshot = await getDocs(doctorsQuery);
+
+        if (doctorsSnapshot.empty) {
+            console.log('[DAILY REMINDER] No doctors found.');
+            return;
+        }
+
+        const doctors = doctorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+
+        // 2. Process each doctor
+        for (const doctor of doctors) {
+            const freeFollowUpDays = doctor.freeFollowUpDays;
+
+            // Skip if not configured or too short (need at least 4 days to give a 3-day warning)
+            if (!freeFollowUpDays || freeFollowUpDays <= 3) continue;
+
+            // Calculate the target "Completed Date"
+            // Formula: CompletedDate = Today - (freeFollowUpDays - 3)
+            const daysAgo = freeFollowUpDays - 3;
+            // Approximate days calculation using 24h * 60m
+            const targetDate = subMinutes(new Date(), daysAgo * 24 * 60);
+            const targetDateStr = format(targetDate, 'yyyy-MM-dd');
+
+            console.log(`[DAILY REMINDER] Dr. ${doctor.name}: Checking appointments from ${targetDateStr} (Free Days: ${freeFollowUpDays})`);
+
+            // 3. Find eligible appointments
+            const appointmentsQuery = query(
+                collection(firestore, 'appointments'),
+                where('doctor', '==', doctor.name),
+                where('clinicId', '==', clinicId),
+                where('date', '==', targetDateStr),
+                where('status', '==', 'Completed')
+            );
+
+            const appointmentsSnapshot = await getDocs(appointmentsQuery);
+
+            for (const appDoc of appointmentsSnapshot.docs) {
+                const appointment = appDoc.data();
+
+                // Check if already sent
+                if (appointment.freeFollowUpNotificationSent) continue;
+
+                console.log(`[DAILY REMINDER] Sending to patient ${appointment.patientId} for appointment ${appDoc.id}`);
+
+                // Send Notification
+                const success = await sendFreeFollowUpExpiryNotification({
+                    firestore,
+                    patientId: appointment.patientId,
+                    doctorName: doctor.name,
+                    clinicName: appointment.clinicName || 'The Clinic',
+                    remainingDays: 3
+                });
+
+                if (success) {
+                    // Mark as sent
+                    await updateDoc(doc(firestore, 'appointments', appDoc.id), {
+                        freeFollowUpNotificationSent: true
+                    });
+                }
+            }
+        }
+        console.log('[DAILY REMINDER] Check complete.');
+
+    } catch (error) {
+        console.error('[DAILY REMINDER] Error:', error);
     }
 }

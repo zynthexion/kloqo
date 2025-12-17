@@ -12,17 +12,20 @@ import { useDoctorStatusUpdater } from '@/hooks/useDoctorStatusUpdater';
 import { useAppointmentStatusUpdater } from '@/hooks/useAppointmentStatusUpdater';
 
 
+import { DailyReminderHandler } from '@/components/daily-reminder-handler';
+
 // Client component wrapper to use hooks
 function LayoutContent({ children }: { children: React.ReactNode }) {
   // Hook to automatically update doctor consultation status based on time
   useDoctorStatusUpdater();
   // Hook to automatically update appointment statuses (Pending → Skipped → No-show)
   useAppointmentStatusUpdater();
-  
+
   return (
     <>
       {children}
       <GlobalErrorHandler />
+      <DailyReminderHandler />
     </>
   );
 }

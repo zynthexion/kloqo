@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification } from '@kloqo/shared-core';
 
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, type BreakInterval } from '@kloqo/shared-core';
@@ -1153,6 +1153,27 @@ function WalkInRegistrationContent() {
       setGeneratedToken(reservation.tokenNumber);
       setIsEstimateModalOpen(false);
       setIsTokenModalOpen(true);
+
+      // Send notification (fire and forget)
+      try {
+        const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
+        const clinicName = clinicDoc.exists() ? clinicDoc.data().name : 'The Clinic';
+
+        sendAppointmentBookedByStaffNotification({
+          firestore: db,
+          patientId: appointmentToSave.patientId!,
+          appointmentId: newDocRef.id,
+          doctorName: doctor.name,
+          clinicName: clinicName,
+          date: appointmentDateStr,
+          time: adjustedTimeStr,
+          tokenNumber: reservation.tokenNumber,
+          bookedBy: 'nurse',
+          arriveByTime: adjustedTimeStr
+        }).catch(err => console.error('Failed to send walk-in notification:', err));
+      } catch (err) {
+        console.error('Error preparing notification:', err);
+      }
 
       setTimeout(() => {
         setIsTokenModalOpen(false);

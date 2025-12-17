@@ -912,6 +912,9 @@ function BookingSummaryPage() {
             const appointmentDateForValidation = parse(baseAppointmentData.date, "d MMMM yyyy", new Date());
             const dayOfWeekForValidation = format(appointmentDateForValidation, 'EEEE');
             const availabilityForDayForValidation = finalDoctor.availabilitySlots?.find(s => s.day === dayOfWeekForValidation);
+
+            let availabilityEndTime: Date | undefined;
+
             if (availabilityForDayForValidation && availabilityForDayForValidation.timeSlots.length > 0) {
                 const dateStr = format(appointmentDateForValidation, 'd MMMM yyyy');
                 const extension = finalDoctor.availabilityExtensions?.[dateStr];
@@ -919,7 +922,7 @@ function BookingSummaryPage() {
                 // Get the last session's end time (original or extended)
                 const lastSession = availabilityForDayForValidation.timeSlots[availabilityForDayForValidation.timeSlots.length - 1];
                 const actualOriginalEndTime = parseTime(lastSession.to, appointmentDateForValidation);
-                let availabilityEndTime = actualOriginalEndTime;
+                availabilityEndTime = actualOriginalEndTime;
 
                 // Only use extension if it's valid
                 if (extension && extension.sessions && Array.isArray(extension.sessions)) {
@@ -949,7 +952,7 @@ function BookingSummaryPage() {
                 }
 
                 // Check if the original slot time is outside availability
-                if (resolvedAppointmentDateTime > availabilityEndTime) {
+                if (availabilityEndTime && resolvedAppointmentDateTime > availabilityEndTime) {
                     toast({
                         variant: 'destructive',
                         title: 'Booking Not Allowed',
@@ -990,7 +993,11 @@ function BookingSummaryPage() {
             }
 
             const cutOffTime = subMinutes(resolvedAppointmentDateTime, 15);
-            const noShowTime = addMinutes(resolvedAppointmentDateTime, 15 + inheritedDelay);
+            let noShowTime = addMinutes(resolvedAppointmentDateTime, 15 + inheritedDelay);
+
+            if (availabilityEndTime && isAfter(noShowTime, availabilityEndTime)) {
+                noShowTime = availabilityEndTime;
+            }
 
             const finalAppointmentData: Appointment = {
                 ...baseAppointmentData,

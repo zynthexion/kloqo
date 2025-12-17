@@ -611,6 +611,7 @@ export default function LiveDashboard() {
                     clinicStatus={consultationStatus}
                     currentTime={currentTime}
                     isInBufferQueue={isInBufferQueue}
+                    showStatusBadge={false}
                   />
                 </div>
 
@@ -628,6 +629,7 @@ export default function LiveDashboard() {
                     showTopRightActions={false}
                     clinicStatus={consultationStatus}
                     currentTime={currentTime}
+                    showStatusBadge={false}
                   />
                 </div>
               </TabsContent>
@@ -639,6 +641,7 @@ export default function LiveDashboard() {
                   onAddToQueue={handleAddToQueue}
                   showTopRightActions={false}
                   clinicStatus={consultationStatus}
+                  showStatusBadge={false}
                 />
               </TabsContent>
             </Tabs>

@@ -2669,7 +2669,10 @@ export default function AppointmentsPage() {
         const adjustedTime = sessionBreakIntervals.length > 0
           ? applySessionBreakOffsets(appointmentTime, sessionBreakIntervals)
           : appointmentTime;
-        return format(adjustedTime, 'hh:mm a');
+
+        // Subtract 15 minutes as requested
+        const finalTime = subMinutes(adjustedTime, 15);
+        return format(finalTime, 'hh:mm a');
       }
 
       // Fallback to old logic if sessionIndex is not available
@@ -2678,11 +2681,17 @@ export default function AppointmentsPage() {
         const adjustedTime = breakIntervals.length > 0
           ? applyBreakOffsets(appointmentTime, breakIntervals)
           : appointmentTime;
-        return format(adjustedTime, 'hh:mm a');
+
+        // Subtract 15 minutes as requested
+        const finalTime = subMinutes(adjustedTime, 15);
+        return format(finalTime, 'hh:mm a');
       }
 
-      return appointment.time;
-    } catch {
+      // Default fallback
+      const finalTime = subMinutes(appointmentTime, 15);
+      return format(finalTime, 'hh:mm a');
+    } catch (error) {
+      console.error("Error formatting time:", error);
       return appointment.time;
     }
   }, [doctors]);
@@ -4363,7 +4372,7 @@ export default function AppointmentsPage() {
                                               </div>
                                             </TableCell>
                                             <TableCell>{appointment.tokenNumber}</TableCell>
-                                            <TableCell>{appointment.time}</TableCell>
+                                            <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
                                             <TableCell className="text-right">
                                               <div className="flex justify-end gap-2">
                                                 {index === 0 && (
@@ -4445,7 +4454,7 @@ export default function AppointmentsPage() {
                                         >
                                           <TableCell className="font-medium">{appointment.patientName}</TableCell>
                                           <TableCell>{appointment.tokenNumber}</TableCell>
-                                          <TableCell>{appointment.time}</TableCell>
+                                          <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
                                           <TableCell className="text-right">
                                             <div className="flex justify-end gap-2">
                                               {shouldShowConfirmArrival(appointment) && (

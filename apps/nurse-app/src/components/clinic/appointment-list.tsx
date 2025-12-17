@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
 import type { Appointment } from '@/lib/types';
-import { parse } from 'date-fns';
+import { parse, subMinutes, format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { User, XCircle, Edit, Check, CheckCircle2, SkipForward } from 'lucide-react';
@@ -39,6 +39,7 @@ type AppointmentListProps = {
   currentTime?: Date;
   isInBufferQueue?: (appointment: Appointment) => boolean;
   enableSwipeCompletion?: boolean;
+  showStatusBadge?: boolean;
 };
 
 // Helper function to parse time
@@ -54,7 +55,7 @@ function parseTime(timeStr: string, referenceDate: Date): Date {
   }
 }
 
-function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true }: AppointmentListProps) {
+function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true, showStatusBadge = true }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
@@ -258,9 +259,21 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             <div className="flex justify-between items-center">
                               <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
                                 {appt.date && `${appt.date} - `}
-                                {appt.time ? appt.time : ''}
+                                {(() => {
+                                  try {
+                                    // Use arriveByTime if available, otherwise time
+                                    const timeStr = appt.arriveByTime || appt.time;
+                                    if (!timeStr) return '';
+
+                                    const date = parse(timeStr, 'hh:mm a', new Date());
+                                    const adjustedTime = subMinutes(date, 15);
+                                    return format(adjustedTime, 'hh:mm a');
+                                  } catch (e) {
+                                    return appt.time || '';
+                                  }
+                                })()}
                               </Badge>
-                              {getStatusBadge(appt)}
+                              {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
                                 <div className="flex items-center gap-2">
                                   {appt.status === 'Pending' && onAddToQueue && shouldShowConfirmArrival(appt) && (

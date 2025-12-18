@@ -153,7 +153,8 @@ function BookAppointmentContent() {
 
                 const availableDaysOfWeek = (currentDoctor.availabilitySlots || []).map(s => s.day);
 
-                const futureDates = Array.from({ length: 30 }, (_, i) => addDays(new Date(), i));
+                const bookingLimit = (currentDoctor as any).advanceBookingDays || 15;
+                const futureDates = Array.from({ length: bookingLimit }, (_, i) => addDays(new Date(), i));
 
                 let availableDates = futureDates.filter(d => {
                     const dayOfWeek = format(d, 'EEEE');

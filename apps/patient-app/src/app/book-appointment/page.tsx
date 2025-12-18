@@ -159,7 +159,8 @@ function BookAppointmentContent() {
     useEffect(() => {
         if (cachedDoctor && !datesInitializedRef.current) {
             const availableDaysOfWeek = (cachedDoctor.availabilitySlots || []).map(s => s.day);
-            const futureDates = Array.from({ length: 30 }, (_, i) => addDays(new Date(), i));
+            const bookingLimit = (cachedDoctor as any).advanceBookingDays || 15;
+            const futureDates = Array.from({ length: bookingLimit }, (_, i) => addDays(new Date(), i));
             const availableDates = futureDates.filter(d => {
                 const dayOfWeek = format(d, 'EEEE');
                 return availableDaysOfWeek.includes(dayOfWeek);
@@ -205,7 +206,8 @@ function BookAppointmentContent() {
                     saveDoctorToCache(doctorId, currentDoctor);
 
                     const availableDaysOfWeek = (currentDoctor.availabilitySlots || []).map(s => s.day);
-                    const futureDates = Array.from({ length: 30 }, (_, i) => addDays(new Date(), i));
+                    const bookingLimit = (currentDoctor as any).advanceBookingDays || 15;
+                    const futureDates = Array.from({ length: bookingLimit }, (_, i) => addDays(new Date(), i));
                     const availableDates = futureDates.filter(d => {
                         const dayOfWeek = format(d, 'EEEE');
                         return availableDaysOfWeek.includes(dayOfWeek);

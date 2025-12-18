@@ -3273,7 +3273,15 @@ export default function AppointmentsPage() {
     const isNotAvailableDay = !availableDaysOfWeek.includes(getDay(date));
     const isOnLeave = leaveDates.some(leaveDate => isSameDay(date, leaveDate));
 
-    if (isPastDate || isNotAvailableDay || isOnLeave) {
+    // Check for advance booking limit
+    const bookingLimit = (selectedDoctor as any).advanceBookingDays || 15;
+    // We want to verify if the date is beyond the allowed range (today + limit)
+    // Example: limit=15. Today=Dec 1. Max allowed=Dec 16 (Dec 1 + 15 days).
+    // Any date AFTER Max allowed should be disabled.
+    const maxDate = addDays(startOfDay(new Date()), bookingLimit);
+    const isBeyondLimit = isAfter(date, maxDate);
+
+    if (isPastDate || isNotAvailableDay || isOnLeave || isBeyondLimit) {
       return true;
     }
 

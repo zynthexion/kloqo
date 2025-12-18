@@ -2076,31 +2076,38 @@ export default function DoctorsPage() {
                                   </h4>
 
                                   <div className="space-y-2">
-                                    {existingBreaks.map((breakPeriod, index) => (
-                                      <div
-                                        key={breakPeriod.id}
-                                        className="flex items-center justify-between p-2 bg-background border rounded"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium">Break {index + 1}:</span>
-                                          <span className="text-sm">
-                                            {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground">
-                                            ({breakPeriod.duration} min)
-                                          </span>
-                                        </div>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => handleCancelBreak(breakPeriod.id)}
-                                          disabled={isSubmittingBreak}
+                                    {existingBreaks
+                                      .filter(bp => {
+                                        if (!isToday(leaveCalDate)) return true;
+                                        const breakEndTimes = bp.slots.map(s => parseISO(s).getTime());
+                                        const lastSlotEnd = addMinutes(new Date(Math.max(...breakEndTimes)), selectedDoctor?.averageConsultingTime || 15);
+                                        return isAfter(lastSlotEnd, new Date());
+                                      })
+                                      .map((breakPeriod, index) => (
+                                        <div
+                                          key={breakPeriod.id}
+                                          className="flex items-center justify-between p-2 bg-background border rounded"
                                         >
-                                          <X className="w-4 h-4 mr-1" />
-                                          Cancel
-                                        </Button>
-                                      </div>
-                                    ))}
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-medium">Break {index + 1}:</span>
+                                            <span className="text-sm">
+                                              {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                              ({breakPeriod.duration} min)
+                                            </span>
+                                          </div>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleCancelBreak(breakPeriod.id)}
+                                            disabled={isSubmittingBreak}
+                                          >
+                                            <X className="w-4 h-4 mr-1" />
+                                            Cancel
+                                          </Button>
+                                        </div>
+                                      ))}
                                   </div>
 
                                   {/* Extension summary */}
@@ -2516,18 +2523,14 @@ export default function DoctorsPage() {
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Extend Availability Time?</AlertDialogTitle>
+            <AlertDialogTitle>Extend availability due to break?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 {extensionOptions ? (
                   extensionOptions.hasOverrun ? (
                     // Bad scenario: tokens outside availability
                     <div className="space-y-3">
-                      <p>Some booked appointments will extend beyond the original availability after applying this break:</p>
                       <ul className="list-disc list-inside space-y-1 text-sm">
-                        <li><strong>Last booked token before break:</strong> {extensionOptions.lastTokenBefore}</li>
-                        <li><strong>Last token after break:</strong> {extensionOptions.lastTokenAfter}</li>
-                        <li><strong>Estimated Finish Time:</strong> {extensionOptions.estimatedFinishTime}</li>
                         <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
                         <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
                       </ul>
@@ -2536,8 +2539,7 @@ export default function DoctorsPage() {
                   ) : (
                     // Safe scenario: all tokens within availability
                     <div className="space-y-2">
-                      <p>Last booked token for this day is at {extensionOptions.lastTokenBefore || 'N/A'}. After applying this break, it will still finish within the original availability (Estimated Finish: {extensionOptions.estimatedFinishTime}, Original End: {extensionOptions.originalEnd}).</p>
-                      <p>Break duration is {extensionOptions.breakDuration} minutes. Do you want to extend the availability to fully compensate the break?</p>
+                      <p>A {extensionOptions.breakDuration}-minute break won’t affect today’s schedule. Do you still want to extend availability?</p>
                     </div>
                   )
                 ) : (
@@ -2546,53 +2548,41 @@ export default function DoctorsPage() {
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="mt-4 flex flex-col space-y-2">
+          <div className="mt-4 flex flex-col space-y-2 sm:flex-col sm:space-x-0">
             {extensionOptions?.hasOverrun ? (
               // Bad scenario: 2 buttons (minimal vs full extension)
               <>
-                <AlertDialogCancel className="w-full justify-start">Cancel</AlertDialogCancel>
-                <AlertDialogAction className="w-full justify-start" onClick={() => {
+                <AlertDialogCancel className="w-full justify-start h-auto py-3 whitespace-normal">Cancel</AlertDialogCancel>
+                <AlertDialogAction className="w-full justify-start h-auto py-3 whitespace-normal" onClick={() => {
                   if (!leaveCalDate || !extensionOptions) return;
                   const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
                   const minimalEndDate = addMinutes(originalEndDate, extensionOptions.minimalExtension);
                   confirmBreakWithExtension(extensionOptions.minimalExtension);
                 }}>
                   <div className="flex flex-col items-start text-left">
-                    <span className="font-semibold flex flex-col items-start text-left">
-                      <span>
-                        Extend to {(() => {
-                          if (!leaveCalDate || !extensionOptions) return '';
-                          const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
-                          const minimalEndDate = addMinutes(originalEndDate, extensionOptions.minimalExtension);
-                          return format(minimalEndDate, 'hh:mm a');
-                        })()}
-                      </span>
-                      <span>(+{extensionOptions?.minimalExtension} min)</span>
-                    </span>
-                    <span className="text-xs font-normal text-muted-foreground">
-                      finish booked patients
+                    <span className="font-semibold">
+                      Finish booked patients → Till {(() => {
+                        if (!leaveCalDate || !extensionOptions) return '';
+                        const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
+                        const minimalEndDate = addMinutes(originalEndDate, extensionOptions.minimalExtension);
+                        return format(minimalEndDate, 'hh:mm a');
+                      })()}
                     </span>
                   </div>
                 </AlertDialogAction>
-                <AlertDialogAction className="w-full justify-start" onClick={() => {
+                <AlertDialogAction className="w-full justify-start h-auto py-3 whitespace-normal" onClick={() => {
                   if (extensionOptions) {
                     confirmBreakWithExtension(extensionOptions.fullExtension);
                   }
                 }}>
                   <div className="flex flex-col items-start text-left">
-                    <span className="font-semibold flex flex-col items-start text-left">
-                      <span>
-                        Extend to {(() => {
-                          if (!leaveCalDate || !extensionOptions) return '';
-                          const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
-                          const fullEndDate = addMinutes(originalEndDate, extensionOptions.fullExtension);
-                          return format(fullEndDate, 'hh:mm a');
-                        })()}
-                      </span>
-                      <span>(+{extensionOptions?.fullExtension} min)</span>
-                    </span>
-                    <span className="text-xs font-normal text-muted-foreground">
-                      fully compensate break
+                    <span className="font-semibold">
+                      Fully compensate break → Till {(() => {
+                        if (!leaveCalDate || !extensionOptions) return '';
+                        const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
+                        const fullEndDate = addMinutes(originalEndDate, extensionOptions.fullExtension);
+                        return format(fullEndDate, 'hh:mm a');
+                      })()}
                     </span>
                   </div>
                 </AlertDialogAction>
@@ -2608,7 +2598,7 @@ export default function DoctorsPage() {
                   } else {
                     confirmBreakWithExtension(null);
                   }
-                }}>Yes, Extend</AlertDialogAction>
+                }}>Yes, Extend {extensionOptions ? `(${extensionOptions.breakDuration} min)` : ''}</AlertDialogAction>
               </>
             )}
           </div>

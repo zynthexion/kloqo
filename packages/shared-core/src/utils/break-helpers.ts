@@ -347,6 +347,9 @@ export function getAvailableBreakSlots(
 
   const slotDuration = doctor.averageConsultingTime || 15;
 
+  // Check if we are generating slots for today
+  const isTodayDate = isSameDay(referenceDate, now);
+
   // Generate slots for current session (from session start, showing all slots)
   const currentBreaks = currentSession.breaks;
   const takenSlots = new Set(currentBreaks.flatMap(b => b.slots));
@@ -356,27 +359,30 @@ export function getAvailableBreakSlots(
   const currentEndTime = currentSession.sessionEnd;
 
   while (currentTime < currentEndTime) {
-    const isoString = currentTime.toISOString();
-    let isTaken = takenSlots.has(isoString);
+    // If it's today, only add slots that start in the future (or now)
+    if (!isTodayDate || isAfter(currentTime, now) || Math.abs(differenceInMinutes(currentTime, now)) < 1) {
+      const isoString = currentTime.toISOString();
+      let isTaken = takenSlots.has(isoString);
 
-    if (!isTaken && appointments) {
-      const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
-      const appointmentAtSlot = appointments.find(apt =>
-        (apt.status === 'Completed') &&
-        (apt.date === referenceDateStr) &&
-        apt.time === format(currentTime, 'hh:mm a')
-      );
-      if (appointmentAtSlot) isTaken = true;
+      if (!isTaken && appointments) {
+        const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
+        const appointmentAtSlot = appointments.find(apt =>
+          (apt.status === 'Completed') &&
+          (apt.date === referenceDateStr) &&
+          apt.time === format(currentTime, 'hh:mm a')
+        );
+        if (appointmentAtSlot) isTaken = true;
+      }
+
+      result.currentSessionSlots.push({
+        time: new Date(currentTime),
+        timeFormatted: format(currentTime, 'hh:mm a'),
+        isoString,
+        isAvailable: !isTaken,
+        isTaken,
+        sessionIndex: currentSession.sessionIndex
+      });
     }
-
-    result.currentSessionSlots.push({
-      time: new Date(currentTime),
-      timeFormatted: format(currentTime, 'hh:mm a'),
-      isoString,
-      isAvailable: !isTaken,
-      isTaken,
-      sessionIndex: currentSession.sessionIndex
-    });
 
     currentTime = addMinutes(currentTime, slotDuration);
   }
@@ -393,33 +399,38 @@ export function getAvailableBreakSlots(
     let slotTime = new Date(sessionStart);
 
     while (slotTime < sessionEnd) {
-      const isoString = slotTime.toISOString();
-      let isTaken = takenSlotsForSession.has(isoString);
+      // If it's today, only add slots that start in the future
+      if (!isTodayDate || isAfter(slotTime, now)) {
+        const isoString = slotTime.toISOString();
+        let isTaken = takenSlotsForSession.has(isoString);
 
-      // Also check against appointments if provided
-      if (!isTaken && appointments) {
-        const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
-        const appointmentAtSlot = appointments.find(apt =>
-          (apt.status === 'Completed') &&
-          (apt.date === referenceDateStr) &&
-          apt.time === format(slotTime, 'hh:mm a')
-        );
-        if (appointmentAtSlot) isTaken = true;
+        // Also check against appointments if provided
+        if (!isTaken && appointments) {
+          const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
+          const appointmentAtSlot = appointments.find(apt =>
+            (apt.status === 'Completed') &&
+            (apt.date === referenceDateStr) &&
+            apt.time === format(slotTime, 'hh:mm a')
+          );
+          if (appointmentAtSlot) isTaken = true;
+        }
+
+        sessionSlots.push({
+          time: new Date(slotTime),
+          timeFormatted: format(slotTime, 'hh:mm a'),
+          isoString,
+          isAvailable: !isTaken,
+          isTaken,
+          sessionIndex: i
+        });
       }
-
-      sessionSlots.push({
-        time: new Date(slotTime),
-        timeFormatted: format(slotTime, 'hh:mm a'),
-        isoString,
-        isAvailable: !isTaken,
-        isTaken,
-        sessionIndex: i
-      });
 
       slotTime = addMinutes(slotTime, slotDuration);
     }
 
-    result.upcomingSessionSlots.set(i, sessionSlots);
+    if (sessionSlots.length > 0) {
+      result.upcomingSessionSlots.set(i, sessionSlots);
+    }
   }
 
   return result;

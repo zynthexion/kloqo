@@ -173,6 +173,13 @@ function PhoneBookingDetailsContent() {
         return () => clearTimeout(debounceTimer);
     }, [phoneNumber, handlePatientSearch]);
 
+    // Sync search phoneNumber with form phone field
+    useEffect(() => {
+        if (phoneNumber.length === 10) {
+            form.setValue('phone', phoneNumber);
+        }
+    }, [phoneNumber, form]);
+
 
     const selectPrimaryPatient = async (patient: Patient) => {
         setPrimaryPatient(patient);
@@ -432,7 +439,7 @@ function PhoneBookingDetailsContent() {
                                     placeholder="Enter 10-digit phone number"
                                     value={phoneNumber}
                                     onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                                    className="flex-1 rounded-l-none"
+                                    className="flex-1 rounded-l-none bg-[#CADEED]"
                                     maxLength={10}
                                 />
                                 {isSearchingPatient ?
@@ -550,23 +557,22 @@ function PhoneBookingDetailsContent() {
                                     />
                                     <FormField
                                         control={form.control}
-                                        name="phone"
+                                        name="sex"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Phone Number</FormLabel>
-                                                <FormControl>
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">+91</span>
-                                                        <Input
-                                                            type="tel"
-                                                            {...field}
-                                                            value={(field.value || '').replace(/^\+91/, '')}
-                                                            className="pl-12 rounded-l-none"
-                                                            placeholder="Enter 10-digit number"
-                                                            readOnly
-                                                        />
-                                                    </div>
-                                                </FormControl>
+                                                <FormLabel>Sex</FormLabel>
+                                                <Select onValueChange={field.onChange} value={field.value ?? undefined}>
+                                                    <FormControl>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select gender" />
+                                                        </SelectTrigger>
+                                                    </FormControl>
+                                                    <SelectContent>
+                                                        <SelectItem value="Male">Male</SelectItem>
+                                                        <SelectItem value="Female">Female</SelectItem>
+                                                        <SelectItem value="Other">Other</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                                 <FormMessage />
                                             </FormItem>
                                         )}
@@ -595,22 +601,24 @@ function PhoneBookingDetailsContent() {
                                     />
                                     <FormField
                                         control={form.control}
-                                        name="sex"
+                                        name="phone"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Sex</FormLabel>
-                                                <Select onValueChange={field.onChange} value={field.value ?? undefined}>
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select gender" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <SelectContent>
-                                                        <SelectItem value="Male">Male</SelectItem>
-                                                        <SelectItem value="Female">Female</SelectItem>
-                                                        <SelectItem value="Other">Other</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
+                                                <FormLabel>Phone Number</FormLabel>
+                                                <FormControl>
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">+91</span>
+                                                        <Input
+                                                            type="tel"
+                                                            {...field}
+                                                            value={(field.value || '').replace(/^\+91/, '')}
+                                                            className="pl-12 rounded-l-none bg-gray-100 text-muted-foreground cursor-not-allowed pointer-events-none"
+                                                            placeholder="Enter 10-digit number"
+                                                            readOnly
+                                                            tabIndex={-1}
+                                                        />
+                                                    </div>
+                                                </FormControl>
                                                 <FormMessage />
                                             </FormItem>
                                         )}

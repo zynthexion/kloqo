@@ -585,19 +585,38 @@ export default function AppointmentsPage() {
     setRelatives([]);
     setBookingFor('member');
     setHasSelectedOption(false);
+
+    const firstDoctor = doctors.length === 1 ? doctors[0] : null;
+
     form.reset({
       patientName: "",
       phone: "",
       age: undefined,
       sex: undefined,
-      doctor: "",
-      department: "",
+      doctor: firstDoctor ? firstDoctor.id : "",
+      department: firstDoctor ? (firstDoctor.department || "") : "",
       date: undefined,
       time: undefined,
       place: "",
       bookedVia: "Advanced Booking",
     });
-  }, [form]);
+
+    if (firstDoctor) {
+      const upcomingDate = getNextAvailableDate(firstDoctor);
+      form.setValue("date", upcomingDate);
+    }
+  }, [form, doctors]);
+
+  // Ensure doctor is auto-selected if only one exists
+  useEffect(() => {
+    if (doctors.length === 1 && !form.getValues('doctor')) {
+      const doc = doctors[0];
+      form.setValue("doctor", doc.id, { shouldValidate: true });
+      form.setValue("department", doc.department || "", { shouldValidate: true });
+      const upcomingDate = getNextAvailableDate(doc);
+      form.setValue("date", upcomingDate, { shouldValidate: true });
+    }
+  }, [doctors, form]);
 
   const watchedDoctorId = useWatch({
     control: form.control,
@@ -1505,7 +1524,6 @@ export default function AppointmentsPage() {
 
 
 
-            setAppointments(prev => [...prev, appointmentData]);
           } catch (error: any) {
 
 
@@ -1976,7 +1994,6 @@ export default function AppointmentsPage() {
 
           // When editing (rescheduling), also send a reschedule notification
           if (isEditing) {
-            setAppointments(prev => prev.map(apt => apt.id === appointmentId ? appointmentData : apt));
             toast({ title: "Appointment Rescheduled", description: `Appointment for ${appointmentData.patientName} has been updated.` });
 
             try {
@@ -2000,7 +2017,6 @@ export default function AppointmentsPage() {
               console.error('Failed to send reschedule notification:', notifError);
             }
           } else {
-            setAppointments(prev => [...prev, appointmentData]);
             toast({ title: "Appointment Booked", description: `Appointment for ${appointmentData.patientName} has been successfully booked.` });
           }
         }
@@ -2175,8 +2191,6 @@ export default function AppointmentsPage() {
       try {
         const appointmentRef = doc(db, "appointments", appointment.id);
         await updateDoc(appointmentRef, { status: 'Cancelled' });
-        const updatedAppointment = { ...appointment, status: 'Cancelled' as const };
-        setAppointments(prev => prev.map(a => a.id === appointment.id ? updatedAppointment : a));
 
         // Note: Bucket count is now calculated on-the-fly from appointments
         // No need to update Firestore - the bucket count will be automatically recalculated
@@ -2244,7 +2258,6 @@ export default function AppointmentsPage() {
           status: 'Completed',
           completedAt: serverTimestamp()
         });
-        setAppointments(prev => prev.map(a => a.id === appointment.id ? { ...a, status: 'Completed' as const } : a));
 
         // Increment consultation counter
         try {
@@ -2330,27 +2343,6 @@ export default function AppointmentsPage() {
           await batch.commit();
         }
 
-        // Step 3: Update local state
-        setAppointments(prev => {
-          const updated = prev.map(a => {
-            if (a.id === appointment.id) {
-              return { ...a, status: 'Skipped' as const };
-            }
-            // Shift subsequent appointments backwards
-            if (a.slotIndex && a.slotIndex > skippedSlotIndex &&
-              a.doctor === appointment.doctor &&
-              a.date === todayStr &&
-              (a.status === 'Pending' || a.status === 'Confirmed')) {
-              return { ...a, slotIndex: (a.slotIndex ?? 0) - 1 };
-            }
-            return a;
-          });
-          return [
-            ...updated.filter(a => a.status !== 'Skipped'),
-            ...updated.filter(a => a.status === 'Skipped'),
-          ] as Appointment[];
-        });
-
         toast({ title: "Appointment Skipped", description: "Subsequent appointments have been shifted backwards to fill the gap." });
       } catch (error) {
         console.error("Error skipping appointment:", error);
@@ -2372,14 +2364,9 @@ export default function AppointmentsPage() {
 
     startTransition(async () => {
       try {
-        const appointmentRef = doc(db, "appointments", appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed'
         });
-
-        setAppointments(prev => prev.map(a =>
-          a.id === appointment.id ? { ...a, status: 'Confirmed' as const } : a
-        ));
 
         toast({
           title: "Patient Added to Queue",
@@ -2494,20 +2481,6 @@ export default function AppointmentsPage() {
           updatedAt: serverTimestamp()
         });
 
-        // Update local state
-        setAppointments(prev => {
-          return prev.map(a => {
-            if (a.id === appointment.id) {
-              return {
-                ...a,
-                status: 'Confirmed' as const,
-                time: newTimeString
-              };
-            }
-            return a;
-          });
-        });
-
         toast({
           title: "Patient Re-joined Queue",
           description: `${appointment.patientName} has been added back to the queue at position after ${recurrence} patient(s).`
@@ -2528,7 +2501,6 @@ export default function AppointmentsPage() {
     startTransition(async () => {
       try {
         await deleteDoc(doc(db, "appointments", appointmentId));
-        setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
         toast({ title: "Success", description: "Appointment deleted successfully." });
       } catch (error) {
         console.error("Error deleting appointment: ", error);
@@ -3305,8 +3277,8 @@ export default function AppointmentsPage() {
     if (appointmentType === 'Walk-in') {
       return !watchedPatientName || !walkInEstimate || isCalculatingEstimate;
     }
-    return !form.formState.isValid;
-  }, [isPending, appointmentType, watchedPatientName, walkInEstimate, isCalculatingEstimate, form.formState.isValid]);
+    return !form.formState.isValid || isAdvanceCapacityReached;
+  }, [isPending, appointmentType, watchedPatientName, walkInEstimate, isCalculatingEstimate, form.formState.isValid, isAdvanceCapacityReached]);
 
   return (
     <>
@@ -3992,7 +3964,7 @@ export default function AppointmentsPage() {
                                       <p className="text-lg font-semibold">
                                         {selectedDoctor ? `${selectedDoctor.name} — ${selectedDoctor.specialty}` : 'No doctors available'}
                                       </p>
-                                      <input type="hidden" value={selectedDoctor?.id || ''} {...form.register('doctor')} />
+                                      <input type="hidden" {...form.register('doctor')} />
                                     </div>
                                   )}
                                   <div className="space-y-2">
@@ -4000,7 +3972,7 @@ export default function AppointmentsPage() {
                                     <p className="text-base">
                                       {selectedDoctor?.department || 'Not assigned'}
                                     </p>
-                                    <input type="hidden" value={selectedDoctor?.department || ''} {...form.register('department')} />
+                                    <input type="hidden" {...form.register('department')} />
                                   </div>
                                   {appointmentType === 'Advanced Booking' && selectedDoctor && selectedDate && (
                                     <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
@@ -4071,15 +4043,7 @@ export default function AppointmentsPage() {
                                 {isEditing && <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>}
                                 <Button
                                   type="submit"
-                                  disabled={
-                                    appointmentType === 'Walk-in'
-                                      ? isBookingButtonDisabled
-                                      : (
-                                        isBookingButtonDisabled ||
-                                        !form.formState.isValid ||
-                                        (appointmentType === 'Advanced Booking' && isAdvanceCapacityReached)
-                                      )
-                                  }
+                                  disabled={isBookingButtonDisabled}
                                 >
                                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                   {isEditing ? "Save Changes" : "Book Appointment"}

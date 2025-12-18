@@ -5,7 +5,7 @@ import { collection, doc, getDocs, query, writeBatch, where } from 'firebase/fir
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Doctor, Appointment } from '@/lib/types';
-import { parse, format } from 'date-fns';
+import { parse, format, addMinutes, subMinutes } from 'date-fns';
 
 /**
  * Parses time string to Date object, handling both "hh:mm a" and "HH:mm" formats
@@ -77,13 +77,13 @@ export function useDoctorStatusUpdater() {
         appointmentsSnapshot.docs
           .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Appointment))
           .forEach(appt => {
-          if (appt.doctorId) {
-            pushAppointment(appt.doctorId, appt);
-          } else if (appt.doctor) {
-            pushAppointment(`name:${appt.doctor}`, appt);
-          }
-        });
-        
+            if (appt.doctorId) {
+              pushAppointment(appt.doctorId, appt);
+            } else if (appt.doctor) {
+              pushAppointment(`name:${appt.doctor}`, appt);
+            }
+          });
+
         const batch = writeBatch(db);
         const todayDay = format(now, 'EEEE'); // e.g., 'Monday', 'Tuesday'
 
@@ -94,7 +94,7 @@ export function useDoctorStatusUpdater() {
             continue;
           }
 
-          const todaysAvailability = doctor.availabilitySlots?.find(s => 
+          const todaysAvailability = doctor.availabilitySlots?.find(s =>
             s.day.toLowerCase() === todayDay.toLowerCase()
           );
 
@@ -103,12 +103,44 @@ export function useDoctorStatusUpdater() {
             appointmentsByDoctor.get(`name:${doctor.name}`) ??
             [];
 
-          const hasActiveAppointments = doctorAppointments.some((appointment) => {
+          let hasActiveAppointments = false;
+
+          doctorAppointments.forEach((appointment) => {
             const appointmentDateTime = parseAppointmentDateTime(appointment);
             if (!appointmentDateTime) {
-              return true;
+              // Fallback: if we can't parse time, assume active to be safe
+              hasActiveAppointments = true;
+              return;
             }
-            return appointmentDateTime.getTime() <= now.getTime();
+
+            const oneHourFromNow = addMinutes(now, 60);
+            const twoHoursAgo = subMinutes(now, 120);
+            const isStale = appointmentDateTime.getTime() < twoHoursAgo.getTime();
+
+            if (isStale && appointment.status === 'Confirmed') {
+              // Auto-complete stale appointments
+              const apptRef = doc(db, 'appointments', appointment.id);
+              batch.update(apptRef, {
+                status: 'Completed',
+                updatedAt: new Date(),
+                completedAt: new Date()
+              });
+              batchHasWrites = true;
+              // Treated as inactive since we are completing it
+            } else {
+              // Check if active (starts within next 60 mins)
+              // Note: We deliberately exclude stale appointments (>= 120 mins ago) from being "active"
+              // The 'isStale' check above handles Confirmed ones. 
+              // For other statuses (e.g. Pending) or non-stale Confirmed, we check the time window.
+
+              // Active window: Time <= Now + 60 mins AND Time >= Now - 120 mins
+              // (We re-check the lower bound to filter out stale Pending items if any, though they shouldn't exist ideally)
+              const isNotTooOld = appointmentDateTime.getTime() >= twoHoursAgo.getTime();
+
+              if (appointmentDateTime.getTime() <= oneHourFromNow.getTime() && isNotTooOld) {
+                hasActiveAppointments = true;
+              }
+            }
           });
 
           let isWithinAnySlot = false;
@@ -117,7 +149,12 @@ export function useDoctorStatusUpdater() {
               try {
                 const startTime = parseTime(slot.from, now);
                 const endTime = parseTime(slot.to, now);
-                return now.getTime() >= startTime.getTime() && now.getTime() <= endTime.getTime();
+
+                // Fix: Allow 30-minute buffer before session start
+                // This allows doctors to mark "In" shortly before their shift starts
+                const bufferedStart = subMinutes(startTime, 30);
+
+                return now.getTime() >= bufferedStart.getTime() && now.getTime() <= endTime.getTime();
               } catch (error) {
                 console.error(`Error checking slot for doctor ${doctor.name}:`, error);
                 return false;
@@ -131,7 +168,7 @@ export function useDoctorStatusUpdater() {
           }
 
           const doctorRef = doc(db, 'doctors', doctor.id);
-          batch.update(doctorRef, { 
+          batch.update(doctorRef, {
             consultationStatus: 'Out',
             updatedAt: new Date()
           });

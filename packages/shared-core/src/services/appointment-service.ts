@@ -2108,11 +2108,12 @@ const prepareAdvanceShift = async ({
     });
   }
 
-  // Strategy 4: Trigger if all slots are filled AND (has existing walk-ins OR has cancelled/no-show slots for bucket)
-  // This allows bucket compensation even when there are no walk-ins yet, as long as there are cancelled/no-show slots
-  // FORCE BOOKING: Always trigger Strategy 4 if isForceBooked is true
-  if (isForceBooked || (!scheduleAttempt && allSlotsFilled && (hasExistingWalkIns || firestoreBucketCount > 0) && firestoreBucketCount > 0)) {
-    console.info('[Walk-in Scheduling] DEBUG - ✅ Strategy 4 TRIGGERED - Bucket Compensation Starting');
+  // Strategy 4: Trigger if all slots are filled.
+  // This allows bucket compensation (overtime) even when there are no walk-ins yet.
+  // We allow this even if bucketCount is 0 (Pure Overtime).
+  // FORCE BOOKING: Always trigger Strategy 4 if isForceBooked is true.
+  if (isForceBooked || (!scheduleAttempt && allSlotsFilled)) {
+    console.info('[Walk-in Scheduling] DEBUG - ✅ Strategy 4 TRIGGERED - Bucket Compensation/Overtime Starting');
 
     // CRITICAL: Re-calculate bucket count within transaction to prevent concurrent usage
     // Count walk-ins placed outside availability (they're "using" bucket slots)
@@ -2127,17 +2128,11 @@ const prepareAdvanceShift = async ({
     const usedBucketSlotsInTx = walkInsOutsideAvailabilityInTx.length;
     const effectiveBucketCountInTx = Math.max(0, bucketCount - usedBucketSlotsInTx);
 
-    // If bucket count is now 0, another concurrent request used it - fail and retry
-    // FORCE BOOKING: Bypass this check if force booked
+    // Note: We used to check if effectiveBucketCountInTx <= 0 to prevent concurrency issues when recycling slots.
+    // However, since we now allow "Pure Overtime" (creating new slots at the end), we don't enforced strictly that we use a bucket slot.
+    // But we should still log it.
     if (!isForceBooked && effectiveBucketCountInTx <= 0) {
-      console.warn('[Walk-in Scheduling] Bucket count became 0 during transaction - concurrent request used it', {
-        originalBucketCount: firestoreBucketCount,
-        bucketCountInTx: effectiveBucketCountInTx,
-        usedBucketSlotsInTx,
-      });
-      const bucketError = new Error('Bucket slot was just used by another concurrent request. Retrying...');
-      (bucketError as { code?: string }).code = RESERVATION_CONFLICT_CODE;
-      throw bucketError;
+      console.info('[Walk-in Scheduling] Bucket count is 0. Proceeding with Pure Overtime (creating new slot).');
     }
 
     // All slots in availability are filled - create new slot at end (outside availability)

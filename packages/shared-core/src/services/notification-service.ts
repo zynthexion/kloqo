@@ -23,6 +23,7 @@ export async function sendNotificationToPatient(params: {
         // Get patient document to find primaryUserId
         const patientDoc = await getDoc(doc(firestore, 'patients', patientId));
         if (!patientDoc.exists()) {
+            console.warn(`[Notification] ⚠️ Patient not found: ${patientId}`);
             return false;
         }
 
@@ -60,13 +61,14 @@ export async function sendNotificationToPatient(params: {
         }
 
         if (!userId) {
-            console.warn('Could not resolve userId for patient', patientId);
+            console.warn(`[Notification] ⚠️ Could not resolve userId for patient ${patientId}. isPrimary: ${patientData.isPrimary}, primaryUserId: ${patientData.primaryUserId}, communicationPhone: ${patientData.communicationPhone || patientData.phone}`);
             return false;
         }
 
         // Get user's FCM token
         const userDoc = await getDoc(doc(firestore, 'users', userId));
         if (!userDoc.exists()) {
+            console.warn(`[Notification] ⚠️ User document not found: ${userId}`);
             return false;
         }
 
@@ -74,12 +76,13 @@ export async function sendNotificationToPatient(params: {
 
         if (!userData.notificationsEnabled) {
             // This is expected - user hasn't enabled notifications in patient app
-            // Not an error, just informational
+            console.info(`[Notification] ℹ️ Notifications disabled for user ${userId} (patient: ${patientId}). User needs to enable notifications in app settings.`);
             return false;
         }
 
         const fcmToken = userData.fcmToken;
         if (!fcmToken) {
+            console.warn(`[Notification] ⚠️ No FCM token for user ${userId} (patient: ${patientId}). User may not have granted notification permissions or token failed to sync.`);
             return false;
         }
 
@@ -118,13 +121,14 @@ export async function sendNotificationToPatient(params: {
         });
 
         if (!response.ok) {
-            console.error('Notification API Failed:', response.statusText);
+            console.error(`[Notification] ❌ API Failed for patient ${patientId}:`, response.statusText);
             // Check if token is invalid - this is a recoverable error
             // Return false but don't throw - this allows appointment booking to succeed
             return false;
         }
 
         const responseData = await response.json();
+        console.log(`[Notification] ✅ Successfully sent to patient ${patientId} (user: ${userId}):`, { title, type: data?.type });
         return true;
     } catch (error) {
         console.error('🔔 DEBUG: Error sending notification to patient:', error);

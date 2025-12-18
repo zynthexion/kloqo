@@ -1250,23 +1250,27 @@ function BookingSummaryPage() {
                 updatedAt: serverTimestamp(),
             });
 
-            // Send notification after successful booking
-            if (user?.dbUserId && firestore) {
-                try {
-                    await sendAppointmentConfirmedNotification({
-                        firestore,
-                        userId: user.dbUserId,
-                        appointmentId: appointmentRef.id,
-                        doctorName: finalDoctor.name,
-                        date: finalAppointmentData.date,
-                        time: finalAppointmentData.time,
-                        tokenNumber: finalAppointmentData.tokenNumber,
-                    });
-                    console.log('Appointment confirmed notification sent');
-                } catch (notifError) {
-                    console.error('Failed to send notification:', notifError);
-                }
-            }
+            // REMOVED: Don't send push notification when user books their own appointment
+            // They're actively using the app and see the success screen
+            // Push notifications should ONLY be sent when clinic/nurse books on their behalf
+
+            // if (user?.dbUserId && firestore) {
+            //     try {
+            //         await sendAppointmentConfirmedNotification({
+            //             firestore,
+            //             userId: user.dbUserId,
+            //             appointmentId: appointmentRef.id,
+            //             doctorName: finalDoctor.name,
+            //             date: finalAppointmentData.date,
+            //             time: finalAppointmentData.time,
+            //             tokenNumber: finalAppointmentData.tokenNumber,
+            //         });
+            //         console.log('Appointment confirmed notification sent');
+            //     } catch (notifError) {
+            //         console.error('Failed to send notification:', notifError);
+            //     }
+            // }
+
 
             setStatus('success');
 

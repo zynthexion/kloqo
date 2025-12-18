@@ -664,7 +664,20 @@ function BookAppointmentContent() {
                 return (interval.start < sessionEnd && interval.end > sessionStart);
             });
 
-            let sessionTitle = `Session ${sessionIndex + 1} (${format(parseTime(session.from, selectedDate), 'hh:mm a')} - ${format(parseTime(session.to, selectedDate), 'hh:mm a')})`;
+            // Calculate Arrive By times
+            const sessionStartTime = parseTime(session.from, selectedDate);
+
+            const firstAvailableSlot = allSlotsWithStatus.find(s => s.status === 'available');
+            const startBasis = firstAvailableSlot ? firstAvailableSlot.time : sessionStartTime;
+
+            // Arrive by start: First available slot time (or session start) - 15 mins
+            const arriveByStart = subMinutes(startBasis, 15);
+
+            // Arrive by end: Session end time - 15 mins
+            // Note: endTime variable already includes extensions if valid
+            const arriveByEnd = subMinutes(endTime, 15);
+
+            let sessionTitle = `Session ${sessionIndex + 1} (${format(arriveByStart, 'hh:mm a')} - ${format(arriveByEnd, 'hh:mm a')})`;
             if (sessionBreaks.length > 0) {
                 const breakTexts = sessionBreaks.map(interval => {
                     const breakStart = format(interval.start, 'hh:mm a');
@@ -989,8 +1002,8 @@ function BookAppointmentContent() {
                                                                     { 'line-through': slot.status === 'booked' || slot.status === 'leave' }
                                                                 )}>
                                                                 {slot.status === 'booked' && slot.tokenNumber ? slot.tokenNumber : (() => {
-                                                                    // Display slot time directly without offsets
-                                                                    const displayTime = slot.time;
+                                                                    // Display "Arrive By" time (Slot Time - 15 mins)
+                                                                    const displayTime = subMinutes(slot.time, 15);
                                                                     return format(displayTime, 'hh:mm a');
                                                                 })()}
                                                             </Button>

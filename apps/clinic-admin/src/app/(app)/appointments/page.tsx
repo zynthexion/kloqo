@@ -2965,7 +2965,9 @@ export default function AppointmentsPage() {
       }
 
       // Display session-specific breaks in title (only show breaks that haven't ended yet)
-      let sessionTitle = `Session ${sessionIndex + 1} (${session.from} - ${session.to})`;
+      const displaySessionStart = format(subMinutes(parseDateFns(session.from, 'hh:mm a', selectedDate), 15), 'hh:mm a');
+      const displaySessionEnd = format(subMinutes(parseDateFns(session.to, 'hh:mm a', selectedDate), 15), 'hh:mm a');
+      let sessionTitle = `Session ${sessionIndex + 1} (${displaySessionStart} - ${displaySessionEnd})`;
       if (sessionBreaks.length > 0) {
         // Filter out breaks that have already ended
         const activeBreaks = sessionBreaks.filter(bp => {
@@ -4031,7 +4033,7 @@ export default function AppointmentsPage() {
                                                         try {
                                                           const slotTime = parseDateFns(slot.time, "hh:mm a", selectedDate || new Date());
                                                           // Display slot time directly
-                                                          const displayTime = slotTime;
+                                                          const displayTime = subMinutes(slotTime, 15);
                                                           return format(displayTime, 'hh:mm a');
                                                         } catch {
                                                           return slot.time;

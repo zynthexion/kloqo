@@ -141,7 +141,7 @@ export function Step6Uploads() {
           render={({ field }) => (
             <FileUpload
               field={field}
-              label="Reception / Waiting Area Photo"
+              label="Reception / Waiting Area Photo (only for verification purpose)"
               isRequired={false}
             />
           )}

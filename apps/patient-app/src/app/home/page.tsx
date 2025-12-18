@@ -226,7 +226,7 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
     )
 }
 
-const AppointmentCard = ({ appointment, departments, language, doctors }: { appointment: Appointment, departments: any[], language: 'en' | 'ml', doctors: Doctor[] }) => {
+const AppointmentCard = ({ appointment, departments, language, doctors, t }: { appointment: Appointment, departments: any[], language: 'en' | 'ml', doctors: Doctor[], t: any }) => {
 
     let day, month, dayOfMonth;
     try {
@@ -259,7 +259,7 @@ const AppointmentCard = ({ appointment, departments, language, doctors }: { appo
                         <p className="text-sm font-medium">{day}</p>
                     </div>
                     <div className="border-l border-primary-foreground/20 pl-4">
-                        <p className="text-xs opacity-80">Arrive by: {(() => {
+                        <p className="text-xs opacity-80">{t.home.arriveBy || 'Arrive by'}: {(() => {
                             const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
                             return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
                         })()}</p>
@@ -273,7 +273,7 @@ const AppointmentCard = ({ appointment, departments, language, doctors }: { appo
     );
 };
 
-const AppointmentCarousel = ({ appointments, departments, language, doctors }: { appointments: Appointment[], departments: any[], language: 'en' | 'ml', doctors: Doctor[] }) => {
+const AppointmentCarousel = ({ appointments, departments, language, doctors, t }: { appointments: Appointment[], departments: any[], language: 'en' | 'ml', doctors: Doctor[], t: any }) => {
     if (appointments.length === 0) {
         return null;
     }
@@ -292,7 +292,7 @@ const AppointmentCarousel = ({ appointments, departments, language, doctors }: {
             <CarouselContent className="-ml-4">
                 {appointments.map((appt) => (
                     <CarouselItem key={appt.id} className="basis-auto pl-4">
-                        <AppointmentCard appointment={appt} departments={departments} language={language} doctors={doctorsArray} />
+                        <AppointmentCard appointment={appt} departments={departments} language={language} doctors={doctorsArray} t={t} />
                     </CarouselItem>
                 ))}
             </CarouselContent>
@@ -1403,19 +1403,14 @@ function HomePageContent() {
                     <div className="flex justify-between items-center mb-4">
                         <div>
                             <h1 className="text-2xl font-bold">{t.home.hello}, {user?.name || user?.displayName || t.home.user}</h1>
-                            <div className="flex items-center gap-2 text-sm min-h-[20px]">
-                                <MapPin className="w-4 h-4 flex-shrink-0" />
+                            <div
+                                className="flex items-center gap-2 text-sm min-h-[20px] cursor-pointer hover:opacity-80 transition-opacity select-none"
+                                onClick={!isRefreshingLocation ? refreshLocation : undefined}
+                                role="button"
+                                aria-label={language === 'ml' ? 'സ്ഥലം പുതുക്കുക' : 'Refresh location'}
+                            >
+                                <MapPin className={`w-4 h-4 flex-shrink-0 ${isRefreshingLocation ? 'animate-bounce' : ''}`} />
                                 <span className="min-w-0 flex-1">{location}</span>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary-foreground/20"
-                                    onClick={refreshLocation}
-                                    disabled={isRefreshingLocation}
-                                    aria-label={language === 'ml' ? 'സ്ഥലം പുതുക്കുക' : 'Refresh location'}
-                                >
-                                    <RefreshCw className={`h-4 w-4 ${isRefreshingLocation ? 'animate-spin' : ''}`} />
-                                </Button>
                             </div>
                         </div>
                         <div className="text-primary-foreground">
@@ -1499,7 +1494,7 @@ function HomePageContent() {
                         {upcomingAppointments.length > 0 ? (
                             <div>
                                 <h2 className="text-lg font-semibold text-primary-foreground/90 mb-4 mt-6">{t.home.upcomingAppointments}</h2>
-                                <AppointmentCarousel appointments={upcomingAppointments} departments={departments} language={language} doctors={Array.isArray(effectiveUserDoctors) ? effectiveUserDoctors : []} />
+                                <AppointmentCarousel appointments={upcomingAppointments} departments={departments} language={language} doctors={Array.isArray(effectiveUserDoctors) ? effectiveUserDoctors : []} t={t} />
                             </div>
                         ) : !showAppointmentsSkeleton && !appointmentsLoading && effectiveAppointments.length === 0 ? (
                             // Show subtle empty state when no appointments (prevents empty screen)

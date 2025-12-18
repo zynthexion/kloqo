@@ -16,7 +16,7 @@ export function Step1ClinicProfile() {
   const { toast } = useToast();
   const [isDetecting, setIsDetecting] = useState(false);
   const [locationName, setLocationName] = useState<string | null>(null);
-  
+
   const clinicType = watch('clinicType');
   const latitude = watch('latitude');
 
@@ -125,7 +125,7 @@ export function Step1ClinicProfile() {
       });
     }
   };
-  
+
   return (
     <div>
       <p className="text-sm text-muted-foreground">Step 1/7</p>
@@ -134,7 +134,7 @@ export function Step1ClinicProfile() {
         <strong>Note:</strong> For accurate location, please ensure you are physically present at your clinic when signing up.
       </div>
       <p className="text-muted-foreground mb-6">Provide your clinic's primary information.</p>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <FormField
           control={control}
@@ -155,17 +155,17 @@ export function Step1ClinicProfile() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Clinic Type <span className="text-destructive">*</span></FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select clinic type" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="Single Doctor">Single Doctor</SelectItem>
-                    <SelectItem value="Multi-Doctor">Multi-Doctor</SelectItem>
-                  </SelectContent>
-                </Select>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select clinic type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="Single Doctor">Single Doctor</SelectItem>
+                  <SelectItem value="Multi-Doctor">Multi-Doctor</SelectItem>
+                </SelectContent>
+              </Select>
               <FormMessage />
             </FormItem>
           )}
@@ -196,7 +196,7 @@ export function Step1ClinicProfile() {
             </FormItem>
           )}
         />
-         <FormField
+        <FormField
           control={control}
           name="skippedTokenRecurrence"
           render={({ field }) => (
@@ -205,7 +205,7 @@ export function Step1ClinicProfile() {
               <FormControl>
                 <Input type="number" min="2" placeholder="e.g., 3" {...field} value={field.value ?? ''} />
               </FormControl>
-               <p className="text-xs text-muted-foreground">Call skipped token after these many tokens</p>
+              <p className="text-xs text-muted-foreground">Call skipped token after these many tokens</p>
               <FormMessage />
             </FormItem>
           )}
@@ -219,25 +219,25 @@ export function Step1ClinicProfile() {
               <FormControl>
                 <Input type="number" min="2" placeholder="e.g., 5" {...field} value={field.value ?? ''} />
               </FormControl>
-              <p className="text-xs text-muted-foreground">Allot one walk-in token after every X online tokens</p>
+              <p className="text-xs text-muted-foreground">Allot one walk-in token after every 'X' advanced tokens</p>
               <FormMessage />
             </FormItem>
           )}
         />
         <div className="md:col-span-2">
-            <Button type="button" variant={latitude !== 0 ? "secondary" : "outline"} onClick={handleDetectLocation} className="w-full" disabled={isDetecting}>
-                {isDetecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (latitude !== 0 ? <CheckCircle className="mr-2 h-4 w-4" /> : <MapPin className="mr-2 h-4 w-4" />)}
-                {isDetecting ? 'Detecting...' : (latitude !== 0 ? 'Location Detected' : 'Detect My Location')}
-            </Button>
-            {latitude !== 0 && locationName && (
-                <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-md">
-                    <p className="text-sm text-green-800 text-center">
-                        <MapPin className="inline h-3 w-3 mr-1" />
-                        {locationName}
-                    </p>
-                </div>
-            )}
-            <FormField control={control} name="latitude" render={() => <FormMessage />} />
+          <Button type="button" variant={latitude !== 0 ? "secondary" : "outline"} onClick={handleDetectLocation} className="w-full" disabled={isDetecting}>
+            {isDetecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (latitude !== 0 ? <CheckCircle className="mr-2 h-4 w-4" /> : <MapPin className="mr-2 h-4 w-4" />)}
+            {isDetecting ? 'Detecting...' : (latitude !== 0 ? 'Location Detected' : 'Detect My Location')}
+          </Button>
+          {latitude !== 0 && locationName && (
+            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-md">
+              <p className="text-sm text-green-800 text-center">
+                <MapPin className="inline h-3 w-3 mr-1" />
+                {locationName}
+              </p>
+            </div>
+          )}
+          <FormField control={control} name="latitude" render={() => <FormMessage />} />
         </div>
       </div>
     </div>

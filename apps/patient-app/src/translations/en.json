@@ -142,7 +142,7 @@
     "user": "User",
     "upcomingAppointments": "Upcoming appointments",
     "consultToday": "Consult Today",
-    "searchPlaceholder": "Search Doctors, clinics, specialty...",
+    "searchPlaceholder": "Search Doctors, clinics, department...",
     "availableDoctors": "Available Doctors",
     "nearby": "My Doctors",
     "all": "Nearby Doctors",
@@ -157,7 +157,8 @@
     "exploreClinics": "Explore all clinics and their doctors",
     "viewAllClinics": "View All Clinics",
     "noAppointmentsYet": "You haven't booked any appointments yet.",
-    "bookFirstAppointment": "Book your first appointment to see doctors here."
+    "bookFirstAppointment": "Book your first appointment to see doctors here.",
+    "arriveBy": "Arrive by"
   },
   "language": {
     "title": "Select Language",

@@ -24,7 +24,7 @@ import Link from "next/link";
 
 
 // A new component that correctly forwards the ref for printing.
-const PrintableContent = forwardRef<HTMLDivElement, { 
+const PrintableContent = forwardRef<HTMLDivElement, {
   children: React.ReactNode;
   dateRange: DateRange | undefined;
   selectedDate: Date;
@@ -51,7 +51,7 @@ function DashboardPageContent() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isPrinting, setIsPrinting] = useState(false);
   const [isPrintMode, setIsPrintMode] = useState(false);
-  
+
   const contentToPrintRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = useCallback(() => {
@@ -71,12 +71,12 @@ function DashboardPageContent() {
     console.log("PDF button clicked, setting print mode to true");
     setIsPrinting(true);
     setIsPrintMode(true);
-    
+
     try {
       // Wait for the print mode to render
       console.log("Waiting for print mode to render...");
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       const content = contentToPrintRef.current;
       console.log("Content element:", content);
       if (!content) {
@@ -84,38 +84,38 @@ function DashboardPageContent() {
         return;
       }
 
-      const canvas = await html2canvas(content, { 
+      const canvas = await html2canvas(content, {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff'
       });
-      
+
       const imgData = canvas.toDataURL('image/png', 1.0);
-      
+
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       });
-      
+
       const imgWidth = 210; // A4 width in mm
       const pageHeight = 295; // A4 height in mm
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       let heightLeft = imgHeight;
-      
+
       let position = 0;
-      
+
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
-      
+
       while (heightLeft >= 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
-      
+
       const fileName = `clinic-dashboard-report-${format(dateRange?.from || new Date(), 'yyyy-MM-dd')}-to-${format(dateRange?.to || new Date(), 'yyyy-MM-dd')}.pdf`;
       pdf.save(fileName);
 
@@ -126,7 +126,7 @@ function DashboardPageContent() {
       setIsPrintMode(false);
     }
   }, [dateRange]);
-  
+
   const handleDateSelect = useCallback((date: Date | undefined) => {
     if (date) {
       setSelectedDate(date);
@@ -140,49 +140,37 @@ function DashboardPageContent() {
           <h1 className="text-2xl font-bold">Dashboard</h1>
         </div>
         <div className="flex items-center gap-4">
-           <DateRangePicker 
-              onDateChange={setDateRange}
-              initialDateRange={dateRange}
-           />
-           <div className="flex items-center gap-3">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={isPrinting} 
-                onClick={handlePrint}
-                className="flex items-center gap-2 hover:bg-blue-50 hover:border-blue-300 transition-colors"
-              >
-                  <Printer className="h-4 w-4" />
-                  Print Report
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={isPrinting} 
-                onClick={handleDownloadPdf}
-                className="flex items-center gap-2 hover:bg-green-50 hover:border-green-300 transition-colors"
-              >
-                  {isPrinting ? <Loader2 className="h-4 w-4 animate-spin"/> : <FileDown className="h-4 w-4" />}
-                  {isPrinting ? 'Generating...' : 'Download PDF'}
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="flex items-center gap-2 hidden lg:flex"
-                onClick={() => {
-                  // Helpful console breadcrumbs instead of hard navigation
-                  console.log("[DEBUG DELAY] Opening live-status for diagnostics (delay/cutoff/no-show).");
-                  console.log("[DEBUG DELAY] Check doctor consultationStatus, effective start (after breaks), isWithinBreak, and doctorDelayMinutes in /live-status logs.");
-                  window.open("/live-status", "_blank");
-                }}
-              >
-                Debug Delay
-              </Button>
-           </div>
+          <DateRangePicker
+            onDateChange={setDateRange}
+            initialDateRange={dateRange}
+          />
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isPrinting}
+              onClick={handlePrint}
+              className="flex items-center gap-2 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+            >
+              <Printer className="h-4 w-4" />
+              Print Report
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isPrinting}
+              onClick={handleDownloadPdf}
+              className="flex items-center gap-2 hover:bg-green-50 hover:border-green-300 transition-colors"
+            >
+              {isPrinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+              {isPrinting ? 'Generating...' : 'Download PDF'}
+            </Button>
+
+          </div>
         </div>
       </header>
 
-      <PrintableContent 
+      <PrintableContent
         ref={contentToPrintRef}
         dateRange={dateRange}
         selectedDate={selectedDate}
@@ -192,33 +180,33 @@ function DashboardPageContent() {
           <OverviewStats dateRange={dateRange} />
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-3">
-                <AppointmentStatusChart dateRange={dateRange} />
+              <AppointmentStatusChart dateRange={dateRange} />
             </div>
             <div className="lg:col-span-6">
-                <PatientsVsAppointmentsChart dateRange={dateRange} />
+              <PatientsVsAppointmentsChart dateRange={dateRange} />
             </div>
             <div className="lg:col-span-3">
-               <Card className="h-full flex flex-col bg-[#dcf2eb] overflow-hidden">
-                  <CardContent className="flex-grow flex items-center justify-center">
-                      <Calendar
-                          mode="single"
-                          selected={selectedDate}
-                          onSelect={handleDateSelect}
-                          className="w-full border-0 shadow-none bg-transparent [&_button]:text-base [&_caption]:text-lg"
-                      />
-                  </CardContent>
-                </Card>
+              <Card className="h-full flex flex-col bg-[#dcf2eb] overflow-hidden">
+                <CardContent className="flex-grow flex items-center justify-center">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={handleDateSelect}
+                    className="w-full border-0 shadow-none bg-transparent [&_button]:text-base [&_caption]:text-lg"
+                  />
+                </CardContent>
+              </Card>
             </div>
           </div>
-           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-             <div className="lg:col-span-1">
-                <PeakHoursChart dateRange={dateRange} />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <PeakHoursChart dateRange={dateRange} />
             </div>
             <div className="lg:col-span-1">
-                <TodaysAppointments selectedDate={selectedDate} />
+              <TodaysAppointments selectedDate={selectedDate} />
             </div>
             <div className="lg:col-span-1">
-                <DoctorAvailability selectedDate={selectedDate} />
+              <DoctorAvailability selectedDate={selectedDate} />
             </div>
           </div>
         </div>

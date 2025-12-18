@@ -31,10 +31,10 @@ export function Step3ClinicLocation() {
             `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`
           );
           const data = await response.json();
-          
+
           if (data && data.address) {
             const { road, house_number, neighbourhood, suburb, city, town, village, county, state_district, state, postcode } = data.address;
-            
+
             const line1Parts = [house_number, road].filter(Boolean);
             const line2Parts = [neighbourhood, suburb].filter(Boolean);
 
@@ -44,7 +44,7 @@ export function Step3ClinicLocation() {
             setValue('district', state_district || county || '', { shouldValidate: true });
             setValue('state', state || '', { shouldValidate: true });
             setValue('pincode', postcode || '', { shouldValidate: true });
-            
+
             setLocationAutoFilled(true);
             toast({
               title: 'Location Auto-filled',
@@ -66,7 +66,7 @@ export function Step3ClinicLocation() {
 
     // Run this effect only once if conditions are met
     autoFillFromLocation();
-    
+
   }, [latitude, longitude, setValue, toast, locationAutoFilled]);
 
   return (
@@ -163,19 +163,6 @@ export function Step3ClinicLocation() {
               <FormLabel>Pincode <span className="text-destructive">*</span></FormLabel>
               <FormControl>
                 <Input placeholder="e.g., 682016" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={control}
-          name="mapsLink"
-          render={({ field }) => (
-            <FormItem className="md:col-span-2">
-              <FormLabel>Google Maps Link (Optional)</FormLabel>
-              <FormControl>
-                <Input placeholder="https://maps.app.goo.gl/..." {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

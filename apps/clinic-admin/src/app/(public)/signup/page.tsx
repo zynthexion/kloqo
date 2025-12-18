@@ -42,12 +42,12 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
 const fileSchema = z.any()
-    .refine((file) => file instanceof File, "File is required.")
-    .refine((file) => file?.size <= MAX_FILE_SIZE, `Max file size is 5MB.`)
-    .refine(
-      (file) => ACCEPTED_IMAGE_TYPES.includes(file?.type),
-      ".jpg, .jpeg, .png and .webp files are accepted."
-    );
+  .refine((file) => file instanceof File, "File is required.")
+  .refine((file) => file?.size <= MAX_FILE_SIZE, `Max file size is 5MB.`)
+  .refine(
+    (file) => ACCEPTED_IMAGE_TYPES.includes(file?.type),
+    ".jpg, .jpeg, .png and .webp files are accepted."
+  );
 
 const signupSchema = z.object({
   // Step 1
@@ -75,16 +75,16 @@ const signupSchema = z.object({
   emailAddress: z.string().email({ message: "Please enter a valid email address." }),
   password: z.string().min(6, "Password must be at least 6 characters.")
     .refine((data) => /[A-Z]/.test(data), {
-        message: "Password must contain at least one uppercase letter.",
+      message: "Password must contain at least one uppercase letter.",
     })
     .refine((data) => /[a-z]/.test(data), {
-        message: "Password must contain at least one lowercase letter.",
+      message: "Password must contain at least one lowercase letter.",
     })
     .refine((data) => /[0-9]/.test(data), {
-        message: "Password must contain at least one number.",
+      message: "Password must contain at least one number.",
     })
     .refine((data) => /[^a-zA-Z0-9]/.test(data), {
-        message: "Password must contain at least one special character.",
+      message: "Password must contain at least one special character.",
     }),
 
   // Step 3
@@ -94,12 +94,11 @@ const signupSchema = z.object({
   district: z.string().optional(),
   state: z.string().min(2, { message: "State is required." }),
   pincode: z.string().regex(/^\d{6}$/, "A valid 6-digit pincode is required."),
-  mapsLink: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
 
   // Step 4
   hours: z.array(hoursSchema),
   avgPatientsPerDay: z.coerce.number().min(1, "Value must be at least 1."),
-  
+
   // Step 5
   plan: z.enum(['Free Plan (Beta)'], { required_error: "Please select a plan." }),
   promoCode: z.string().optional(),
@@ -114,13 +113,13 @@ const signupSchema = z.object({
   agreeTerms: z.boolean().refine(val => val === true, { message: "You must agree to the terms." }),
   isAuthorized: z.boolean().refine(val => val === true, { message: "You must confirm authorization." }),
 }).refine(data => {
-    if (data.clinicType === 'Multi-Doctor') {
-        return data.numDoctors >= 2 && data.numDoctors <= 15;
-    }
-    return true;
+  if (data.clinicType === 'Multi-Doctor') {
+    return data.numDoctors >= 2 && data.numDoctors <= 15;
+  }
+  return true;
 }, {
-    message: "For a multi-doctor clinic, please enter between 2 and 15 doctors.",
-    path: ["numDoctors"],
+  message: "For a multi-doctor clinic, please enter between 2 and 15 doctors.",
+  path: ["numDoctors"],
 });
 
 export type SignUpFormData = z.infer<typeof signupSchema>;
@@ -134,21 +133,20 @@ const defaultFormData: SignUpFormData = {
   longitude: 0,
   skippedTokenRecurrence: 3,
   walkInTokenAllotment: 5,
-  
+
   ownerName: "",
   designation: 'Doctor',
   mobileNumber: "",
   emailAddress: "",
   password: "",
-  
+
   addressLine1: '',
   addressLine2: '',
   city: '',
   district: '',
   state: '',
   pincode: '',
-  mapsLink: '',
-  
+
   hours: [
     { day: 'Monday', timeSlots: [{ open: '09:00', close: '17:00' }], isClosed: true },
     { day: 'Tuesday', timeSlots: [{ open: '09:00', close: '17:00' }], isClosed: true },
@@ -159,11 +157,11 @@ const defaultFormData: SignUpFormData = {
     { day: 'Sunday', timeSlots: [], isClosed: true },
   ],
   avgPatientsPerDay: 1,
-  
+
   plan: 'Free Plan (Beta)',
   promoCode: '',
   paymentMethod: undefined,
-  
+
   logo: null,
   license: null,
   receptionPhoto: null,
@@ -173,13 +171,13 @@ const defaultFormData: SignUpFormData = {
 };
 
 const stepFields: (keyof SignUpFormData)[][] = [
-    ['clinicName', 'clinicType', 'numDoctors', 'skippedTokenRecurrence', 'walkInTokenAllotment'], // Step 1, latitude/longitude are special
-    ['ownerName', 'designation', 'mobileNumber', 'emailAddress', 'password'], // Step 2
-    ['addressLine1', 'city', 'state', 'pincode'], // Step 3
-    ['hours', 'avgPatientsPerDay'], // Step 4
-    ['plan'], // Step 5
-    ['license'], // Step 6
-    ['agreeTerms', 'isAuthorized'], // Step 7
+  ['clinicName', 'clinicType', 'numDoctors', 'skippedTokenRecurrence', 'walkInTokenAllotment'], // Step 1, latitude/longitude are special
+  ['ownerName', 'designation', 'mobileNumber', 'emailAddress', 'password'], // Step 2
+  ['addressLine1', 'city', 'state', 'pincode'], // Step 3
+  ['hours', 'avgPatientsPerDay'], // Step 4
+  ['plan'], // Step 5
+  ['license'], // Step 6
+  ['agreeTerms', 'isAuthorized'], // Step 7
 ]
 
 export default function SignupPage() {
@@ -194,7 +192,7 @@ export default function SignupPage() {
     defaultValues: defaultFormData,
     mode: "onChange"
   });
-  
+
   const { formState, watch, getValues, trigger } = methods;
 
   const isStepValidNow = useCallback(() => {
@@ -202,35 +200,35 @@ export default function SignupPage() {
     const currentStepFields = stepFields[currentStep - 1];
 
     for (const field of currentStepFields) {
-        if (formState.errors[field]) {
-            return false;
+      if (formState.errors[field]) {
+        return false;
+      }
+      const value = values[field as keyof SignUpFormData];
+      if (field === 'license' && !value) {
+        return false;
+      }
+      if (typeof value === 'string' && !value.trim()) {
+        if (field !== 'clinicRegNumber') {
+          return false;
         }
-        const value = values[field as keyof SignUpFormData];
-        if (field === 'license' && !value) {
-            return false;
-        }
-        if (typeof value === 'string' && !value.trim()) {
-            if(field !== 'clinicRegNumber' && field !== 'mapsLink') {
-                return false;
-            }
-        }
+      }
     }
 
     if (currentStep === 1 && values.latitude === 0) {
-        return false;
+      return false;
     }
 
     if (currentStep === 2 && !isPhoneVerified) {
-        return false;
+      return false;
     }
-    
+
     if (currentStep === 7 && (!values.agreeTerms || !values.isAuthorized)) {
-        return false;
+      return false;
     }
 
     return true;
   }, [currentStep, getValues, formState.errors, isPhoneVerified]);
-  
+
   const [isStepValid, setIsStepValid] = useState(false);
 
   useEffect(() => {
@@ -240,7 +238,7 @@ export default function SignupPage() {
     return () => subscription.unsubscribe();
   }, [watch, isStepValidNow]);
 
-   useEffect(() => {
+  useEffect(() => {
     setIsStepValid(isStepValidNow());
   }, [currentStep, isPhoneVerified, isStepValidNow]);
 
@@ -254,30 +252,30 @@ export default function SignupPage() {
     { number: 6, title: 'Uploads', description: 'Add trust and branding' },
     { number: 7, title: 'Confirmation', description: 'Review and finish' },
   ];
-  
+
   const handleNext = async () => {
     const fieldsToValidate = stepFields[currentStep - 1] as (keyof SignUpFormData)[] | undefined;
     if (!fieldsToValidate) return;
 
     if (currentStep === 1) {
-        fieldsToValidate.push('latitude');
+      fieldsToValidate.push('latitude');
     }
 
     const isValid = await trigger(fieldsToValidate);
 
     if (!isValid || !isStepValidNow()) {
-        toast({
-            variant: "destructive",
-            title: "Incomplete Step",
-            description: "Please fill out all required fields correctly before continuing.",
-        });
-        return;
+      toast({
+        variant: "destructive",
+        title: "Incomplete Step",
+        description: "Please fill out all required fields correctly before continuing.",
+      });
+      return;
     }
 
     if (currentStep < steps.length) {
       setCurrentStep(currentStep + 1);
     } else {
-        await methods.handleSubmit(onSubmit)();
+      await methods.handleSubmit(onSubmit)();
     }
   };
 
@@ -285,17 +283,17 @@ export default function SignupPage() {
     setIsSubmitting(true);
     let userCredential;
     try {
-        userCredential = await createUserWithEmailAndPassword(auth, formData.emailAddress, formData.password);
+      userCredential = await createUserWithEmailAndPassword(auth, formData.emailAddress, formData.password);
     } catch (error: any) {
-        setIsSubmitting(false);
-        toast({
-            variant: "destructive",
-            title: "Authentication Failed",
-            description: error.code === 'auth/email-already-in-use' 
-                ? "This email is already registered. Please login or use a different email."
-                : error.message || "An unexpected authentication error occurred.",
-        });
-        return;
+      setIsSubmitting(false);
+      toast({
+        variant: "destructive",
+        title: "Authentication Failed",
+        description: error.code === 'auth/email-already-in-use'
+          ? "This email is already registered. Please login or use a different email."
+          : error.message || "An unexpected authentication error occurred.",
+      });
+      return;
     }
 
     const user = userCredential.user;
@@ -303,7 +301,7 @@ export default function SignupPage() {
     // Upload files via server-side API route to bypass CORS issues
     const uploadFileViaAPI = async (file: File | null, documentType: string): Promise<string | null> => {
       if (!file) return null;
-      
+
       try {
         const uploadFormData = new FormData();
         uploadFormData.append('file', file);
@@ -332,7 +330,7 @@ export default function SignupPage() {
     let logoUrl: string | null = null;
     let licenseUrl: string | null = null;
     let receptionPhotoUrl: string | null = null;
-    
+
     try {
       logoUrl = await uploadFileViaAPI(formData.logo, 'logo');
       licenseUrl = await uploadFileViaAPI(formData.license, 'license');
@@ -360,84 +358,84 @@ export default function SignupPage() {
     ].filter(Boolean).join(', ');
 
     const clinicData = {
-        id: clinicId,
-        ownerId: user.uid,
-        name: formData.clinicName,
-        type: formData.clinicType,
-        address: fullAddress,
-        addressDetails: {
-          line1: formData.addressLine1,
-          line2: formData.addressLine2,
-          city: formData.city,
-          district: formData.district,
-          state: formData.state,
-          pincode: formData.pincode,
-        },
-        operatingHours: formData.hours,
-        plan: formData.plan,
-        ownerEmail: formData.emailAddress,
-        latitude: formData.latitude,
-        longitude: formData.longitude,
-        skippedTokenRecurrence: formData.skippedTokenRecurrence,
-        walkInTokenAllotment: formData.walkInTokenAllotment,
-        numDoctors: formData.numDoctors,
-        currentDoctorCount: 0,
-        clinicRegNumber: formData.clinicRegNumber,
-        mapsLink: formData.mapsLink,
-        logoUrl,
-        licenseUrl,
-        receptionPhotoUrl,
-        planStartDate: new Date().toISOString(),
-        registrationStatus: "Pending",
-        onboardingStatus: "Pending",
-        departments: [],
+      id: clinicId,
+      ownerId: user.uid,
+      name: formData.clinicName,
+      type: formData.clinicType,
+      address: fullAddress,
+      addressDetails: {
+        line1: formData.addressLine1,
+        line2: formData.addressLine2,
+        city: formData.city,
+        district: formData.district,
+        state: formData.state,
+        pincode: formData.pincode,
+      },
+      operatingHours: formData.hours,
+      plan: formData.plan,
+      ownerEmail: formData.emailAddress,
+      latitude: formData.latitude,
+      longitude: formData.longitude,
+      skippedTokenRecurrence: formData.skippedTokenRecurrence,
+      walkInTokenAllotment: formData.walkInTokenAllotment,
+      numDoctors: formData.numDoctors,
+      currentDoctorCount: 0,
+      clinicRegNumber: formData.clinicRegNumber,
+      mapsLink: "",
+      logoUrl,
+      licenseUrl,
+      receptionPhotoUrl,
+      planStartDate: new Date().toISOString(),
+      registrationStatus: "Pending",
+      onboardingStatus: "Pending",
+      departments: [],
     };
 
     const userRef = doc(db, "users", user.uid);
     const userData = {
-        uid: user.uid,
-        clinicId: clinicId,
-        email: formData.emailAddress,
-        name: formData.ownerName,
-        phone: `+91${formData.mobileNumber}`,
-        designation: formData.designation,
-        onboarded: false,
-        role: 'clinicAdmin' as const,
+      uid: user.uid,
+      clinicId: clinicId,
+      email: formData.emailAddress,
+      name: formData.ownerName,
+      phone: `+91${formData.mobileNumber}`,
+      designation: formData.designation,
+      onboarded: false,
+      role: 'clinicAdmin' as const,
     };
 
     const batch = writeBatch(db);
     batch.set(clinicRef, clinicData);
     batch.set(userRef, userData);
-    
+
     batch.commit()
-    .catch(async (serverError) => {
+      .catch(async (serverError) => {
         setIsSubmitting(false);
         const errorContexts = [
-            { path: clinicRef.path, data: clinicData },
-            { path: userRef.path, data: userData }
+          { path: clinicRef.path, data: clinicData },
+          { path: userRef.path, data: userData }
         ];
 
         for (const context of errorContexts) {
-            const permissionError = new FirestorePermissionError({
-                path: context.path,
-                operation: 'create',
-                requestResourceData: context.data,
-            });
-            errorEmitter.emit('permission-error', permissionError);
+          const permissionError = new FirestorePermissionError({
+            path: context.path,
+            operation: 'create',
+            requestResourceData: context.data,
+          });
+          errorEmitter.emit('permission-error', permissionError);
         }
-    })
-    .then(() => {
+      })
+      .then(() => {
         if (typeof window !== 'undefined') {
           localStorage.setItem('signupEmail', formData.emailAddress);
         }
 
         toast({
-            title: "Registration Successful!",
-            description: "Your clinic has been created. Redirecting...",
+          title: "Registration Successful!",
+          description: "Your clinic has been created. Redirecting...",
         });
 
         router.push('/dashboard');
-    })
+      })
 
   }
 
@@ -446,7 +444,7 @@ export default function SignupPage() {
       setCurrentStep(currentStep - 1);
     }
   };
-  
+
   const currentStepComponent = useCallback(() => {
     switch (currentStep) {
       case 1:
@@ -474,10 +472,10 @@ export default function SignupPage() {
         <aside className="w-1/4 bg-slate-100 p-8 flex flex-col justify-between">
           <div className="flex-grow flex flex-col overflow-hidden">
             <Link href="/" className="flex items-center gap-2 mb-12 flex-shrink-0">
-               <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full.png?alt=media&token=2f9b97ad-29ae-4812-b189-ba7291a1f005" alt="Kloqo Logo" width={120} height={30} />
+              <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full.png?alt=media&token=2f9b97ad-29ae-4812-b189-ba7291a1f005" alt="Kloqo Logo" width={120} height={30} />
             </Link>
             <div className="flex-grow overflow-y-auto pr-4">
-                <StepperNav steps={steps} currentStep={currentStep} />
+              <StepperNav steps={steps} currentStep={currentStep} />
             </div>
           </div>
         </aside>
@@ -499,16 +497,16 @@ export default function SignupPage() {
               </div>
 
               <footer className="flex justify-between items-center mt-8 pt-6 border-t">
-                 {currentStep > 1 ? (
+                {currentStep > 1 ? (
                   <Button type="button" variant="outline" onClick={handleBack}>
                     Back
                   </Button>
                 ) : <div />}
-                <Button 
-                    type="button" 
-                    size="lg" 
-                    onClick={handleNext}
-                    disabled={!isStepValid || isSubmitting}
+                <Button
+                  type="button"
+                  size="lg"
+                  onClick={handleNext}
+                  disabled={!isStepValid || isSubmitting}
                 >
                   {isSubmitting && currentStep === steps.length ? (
                     <>

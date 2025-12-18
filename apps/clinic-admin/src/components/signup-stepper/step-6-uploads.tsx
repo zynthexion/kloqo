@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, Edit, Trash2 } from 'lucide-react';
 import type { SignUpFormData } from '@/app/(public)/signup/page';
 import Image from 'next/image';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { FormControl, FormField, FormItem, FormMessage } from '../ui/form';
 import { Input } from '@/components/ui/input';
 
@@ -23,14 +23,19 @@ const FileUpload = ({
   const [preview, setPreview] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    field.onChange(file);
-    if (file) {
-      setPreview(URL.createObjectURL(file));
+  useEffect(() => {
+    if (field.value instanceof File && field.value.type.startsWith('image/')) {
+      const objectUrl = URL.createObjectURL(field.value);
+      setPreview(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
     } else {
       setPreview(null);
     }
+  }, [field.value]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    field.onChange(file);
   };
 
   const handleEdit = () => {
@@ -39,7 +44,6 @@ const FileUpload = ({
 
   const handleDelete = () => {
     field.onChange(null);
-    setPreview(null);
     if (inputRef.current) {
       inputRef.current.value = '';
     }

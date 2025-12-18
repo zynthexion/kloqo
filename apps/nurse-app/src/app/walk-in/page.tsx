@@ -6,9 +6,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, CheckCircle2, Clock, Users, Calendar, X, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Loader2, CheckCircle2, Clock, Users, Calendar, X, AlertTriangle, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
@@ -16,7 +15,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppFrameLayout from '@/components/layout/app-frame';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, updateDoc, arrayUnion, increment, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
@@ -32,6 +30,7 @@ import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmen
 
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, type BreakInterval } from '@kloqo/shared-core';
+import { AddRelativeDialog } from '@/components/patients/add-relative-dialog';
 
 const formSchema = z
   .object({
@@ -129,10 +128,8 @@ function WalkInRegistrationContent() {
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState('manual');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clinicId, setClinicId] = useState<string | null>(null);
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
 
   const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
@@ -150,6 +147,8 @@ function WalkInRegistrationContent() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSearchingPatient, setIsSearchingPatient] = useState(false);
   const [searchedPatients, setSearchedPatients] = useState<Patient[]>([]);
+  const [primaryPatient, setPrimaryPatient] = useState<Patient | null>(null);
+  const [isAddRelativeDialogOpen, setIsAddRelativeDialogOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -168,9 +167,7 @@ function WalkInRegistrationContent() {
       return;
     }
     setClinicId(id);
-    const baseUrl = window.location.origin;
-    const url = `${baseUrl}/patient-form?clinicId=${id}`;
-    setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(url)}`);
+    setClinicId(id);
 
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
@@ -182,6 +179,7 @@ function WalkInRegistrationContent() {
       setShowForm(false);
       setSelectedPatientId(null);
       setSelectedPatient(null);
+      setPrimaryPatient(null);
       setIsPhoneDisabled(false);
       form.reset({ patientName: '', age: undefined, place: '', sex: '', phone: '', phoneDisabled: false });
       return;
@@ -190,6 +188,7 @@ function WalkInRegistrationContent() {
     setShowForm(false);
     setSelectedPatientId(null);
     setSelectedPatient(null);
+    setPrimaryPatient(null);
     setIsPhoneDisabled(false);
     form.reset({ patientName: '', age: undefined, place: '', sex: '', phone: '', phoneDisabled: false });
     form.clearErrors();
@@ -211,6 +210,7 @@ function WalkInRegistrationContent() {
         form.setValue('phoneDisabled', false);
         form.setValue('phone', phone);
         setPhoneNumber(phone);
+        setPrimaryPatient(null);
         return;
       }
 
@@ -231,6 +231,7 @@ function WalkInRegistrationContent() {
         allRelatedPatients = [...allRelatedPatients, ...relatedPatients];
       }
 
+      setPrimaryPatient(primaryPatient);
       setSearchedPatients(allRelatedPatients);
 
     } catch (error) {
@@ -292,6 +293,11 @@ function WalkInRegistrationContent() {
     }
 
     setShowForm(true);
+  };
+
+  const onRelativeAdded = (newRelative: Patient) => {
+    setSearchedPatients(prev => [...prev, newRelative]);
+    selectPatient(newRelative);
   };
 
 
@@ -1256,136 +1262,154 @@ function WalkInRegistrationContent() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 bg-muted/20">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="qr">Scan QR Code</TabsTrigger>
-              <TabsTrigger value="manual">Enter Manually</TabsTrigger>
-            </TabsList>
-            <TabsContent value="qr">
-              <Card className="w-full text-center shadow-lg mt-4">
-                <CardHeader>
-                  <CardTitle className="text-2xl">Scan to Register</CardTitle>
-                  <CardDescription>Scan the QR code with a phone to register.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col items-center justify-center">
-                  {qrCodeUrl ? (
-                    <div className="p-4 bg-white rounded-lg border">
-                      <Image
-                        src={qrCodeUrl}
-                        alt="QR Code for appointment booking"
-                        width={250}
-                        height={250}
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-[250px] h-[250px] bg-gray-200 flex items-center justify-center rounded-lg">
-                      <p className="text-muted-foreground">QR Code not available</p>
-                    </div>
-                  )}
-                  <p className="text-sm text-muted-foreground mt-4">Follow the instructions on your phone.</p>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="manual">
-              <Card className="w-full shadow-lg mt-4">
-                <CardHeader>
-                  <CardTitle className="text-2xl">Manual Registration</CardTitle>
-                  <CardDescription>Enter patient's phone number to begin.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="relative flex-1 flex items-center">
-                      <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm h-10">
-                        +91
-                      </span>
-                      <Input
-                        type="tel"
-                        placeholder="Enter 10-digit phone number"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                        className="flex-1 rounded-l-none"
-                        maxLength={10}
-                      />
-                      {isSearchingPatient && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin h-4 w-4 text-muted-foreground" />}
-                    </div>
+          <Card className="w-full shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-2xl">Manual Registration</CardTitle>
+              <CardDescription>Enter patient's phone number to begin.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="relative flex-1 flex items-center">
+                  <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm h-10">
+                    +91
+                  </span>
+                  <Input
+                    type="tel"
+                    placeholder="Enter 10-digit phone number"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className="flex-1 rounded-l-none"
+                    maxLength={10}
+                  />
+                  {isSearchingPatient && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin h-4 w-4 text-muted-foreground" />}
+                </div>
 
-                    {searchedPatients.length > 0 && (
-                      <PatientSearchResults
-                        patients={searchedPatients}
-                        onSelectPatient={selectPatient}
-                        selectedPatientId={selectedPatientId}
-                      />
-                    )}
+                {searchedPatients.length > 0 && (
+                  <PatientSearchResults
+                    patients={primaryPatient ? [primaryPatient] : searchedPatients}
+                    onSelectPatient={selectPatient}
+                    selectedPatientId={selectedPatientId}
+                  />
+                )}
 
-                    {showForm && (
-                      <div className="pt-4 border-t">
-                        <h3 className="mb-4 font-semibold text-lg">{selectedPatientId ? 'Confirm Details' : 'New Patient Form'}</h3>
-                        <Form {...form}>
-                          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                            <FormField control={form.control} name="phone" render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Phone Number</FormLabel>
-                                <FormControl>
-                                  <div className="relative flex items-center">
-                                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm h-10">
-                                      +91
-                                    </span>
-                                    <Input
-                                      type="tel"
-                                      placeholder={isPhoneDisabled ? 'Phone not available' : 'Enter 10-digit phone number'}
-                                      {...field}
-                                      value={field.value ?? ''}
-                                      onChange={(e) => {
-                                        if (isPhoneDisabled) {
-                                          return;
-                                        }
-                                        const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                        field.onChange(cleaned);
-                                        setPhoneNumber(cleaned);
-                                      }}
-                                      className="flex-1 rounded-l-none"
-                                      maxLength={10}
-                                      disabled={isPhoneDisabled}
-                                    />
-                                  </div>
-                                </FormControl>
-                                {!isPhoneDisabled && <FormMessage />}
-                              </FormItem>
-                            )} />
-                            <FormField control={form.control} name="patientName" render={({ field }) => (
-                              <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Enter patient name" {...field} /></FormControl><FormMessage /></FormItem>
-                            )} />
-                            <div className="grid grid-cols-2 gap-4">
-                              <FormField control={form.control} name="age" render={({ field }) => (
-                                <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="Enter the age" {...field} value={field.value === 0 ? '' : (field.value ?? '')} className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" /></FormControl><FormMessage /></FormItem>
-                              )} />
-                              <FormField control={form.control} name="sex" render={({ field }) => (
-                                <FormItem><FormLabel>Sex</FormLabel>
-                                  <Select onValueChange={field.onChange} value={field.value || ""}><FormControl><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger></FormControl>
-                                    <SelectContent>
-                                      <SelectItem value="Male">Male</SelectItem>
-                                      <SelectItem value="Female">Female</SelectItem>
-                                      <SelectItem value="Other">Other</SelectItem>
-                                    </SelectContent>
-                                  </Select><FormMessage />
-                                </FormItem>
-                              )} />
-                            </div>
-                            <FormField control={form.control} name="place" render={({ field }) => (
-                              <FormItem><FormLabel>Place</FormLabel><FormControl><Input placeholder="Enter place" {...field} /></FormControl><FormMessage /></FormItem>
-                            )} />
-                            <Button type="submit" className="w-full mt-6 bg-[#f38d17] hover:bg-[#f38d17]/90" disabled={isSubmitting || !doctor}>
-                              {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking Queue...</> : 'Get Token'}
-                            </Button>
-                          </form>
-                        </Form>
-                      </div>
-                    )}
+                {primaryPatient && (
+                  <Card className="mb-4">
+                    <CardHeader className="py-4">
+                      <CardTitle className="text-lg">Booking For Family</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-0">
+                      <p className="text-sm text-muted-foreground">
+                        You are booking for the family of <strong>{primaryPatient.name}</strong>.
+                      </p>
+
+                      {searchedPatients.filter(p => p.id !== primaryPatient?.id).length > 0 && (
+                        <div className="space-y-2 border-t pt-4">
+                          <p className="text-xs text-muted-foreground">Select a family member:</p>
+                          {searchedPatients
+                            .filter(p => p.id !== primaryPatient?.id)
+                            .map(p => (
+                              <div
+                                key={p.id}
+                                className={cn(
+                                  "w-full text-left p-2 rounded-md hover:bg-muted/80 flex justify-between items-center transition-colors",
+                                  selectedPatientId === p.id && "bg-muted"
+                                )}
+                              >
+                                <div>
+                                  <p className="font-semibold">{p.name || 'Unnamed Patient'}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {p.age ? `${p.age} yrs, ` : ''}
+                                    {p.place}
+                                  </p>
+                                </div>
+                                <Button size="sm" variant="outline" onClick={() => selectPatient(p)}>
+                                  Select
+                                </Button>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full active:translate-y-0.5"
+                        onClick={() => setIsAddRelativeDialogOpen(true)}
+                      >
+                        <UserPlus className="mr-2 h-4 w-4" />
+                        Add & Book for New Relative
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {showForm && (
+                  <div className="pt-4 border-t">
+                    <h3 className="mb-4 font-semibold text-lg">{selectedPatientId ? 'Confirm Details' : 'New Patient Form'}</h3>
+                    <Form {...form}>
+                      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                        <FormField control={form.control} name="phone" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Phone Number</FormLabel>
+                            <FormControl>
+                              <div className="relative flex items-center">
+                                <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm h-10">
+                                  +91
+                                </span>
+                                <Input
+                                  type="tel"
+                                  placeholder={isPhoneDisabled ? 'Phone not available' : 'Enter 10-digit phone number'}
+                                  {...field}
+                                  value={field.value ?? ''}
+                                  onChange={(e) => {
+                                    if (isPhoneDisabled) {
+                                      return;
+                                    }
+                                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                    field.onChange(cleaned);
+                                    setPhoneNumber(cleaned);
+                                  }}
+                                  className="flex-1 rounded-l-none"
+                                  maxLength={10}
+                                  disabled={isPhoneDisabled}
+                                />
+                              </div>
+                            </FormControl>
+                            {!isPhoneDisabled && <FormMessage />}
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="patientName" render={({ field }) => (
+                          <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Enter patient name" {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField control={form.control} name="age" render={({ field }) => (
+                            <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="Enter the age" {...field} value={field.value === 0 ? '' : (field.value ?? '')} className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" /></FormControl><FormMessage /></FormItem>
+                          )} />
+                          <FormField control={form.control} name="sex" render={({ field }) => (
+                            <FormItem><FormLabel>Sex</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ""}><FormControl><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                  <SelectItem value="Male">Male</SelectItem>
+                                  <SelectItem value="Female">Female</SelectItem>
+                                  <SelectItem value="Other">Other</SelectItem>
+                                </SelectContent>
+                              </Select><FormMessage />
+                            </FormItem>
+                          )} />
+                        </div>
+                        <FormField control={form.control} name="place" render={({ field }) => (
+                          <FormItem><FormLabel>Place</FormLabel><FormControl><Input placeholder="Enter place" {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                        <Button type="submit" className="w-full mt-6 bg-[#f38d17] hover:bg-[#f38d17]/90" disabled={isSubmitting || !doctor}>
+                          {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking Queue...</> : 'Get Token'}
+                        </Button>
+                      </form>
+                    </Form>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <Dialog open={isEstimateModalOpen} onOpenChange={setIsEstimateModalOpen}>
@@ -1524,6 +1548,16 @@ function WalkInRegistrationContent() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {primaryPatient && (
+          <AddRelativeDialog
+            isOpen={isAddRelativeDialogOpen}
+            setIsOpen={setIsAddRelativeDialogOpen}
+            primaryPatientPhone={primaryPatient.phone?.replace('+91', '') || ''}
+            clinicId={clinicId}
+            onRelativeAdded={onRelativeAdded}
+          />
+        )}
 
         {/* Force Book Confirmation Dialog */}
         <AlertDialog open={showForceBookDialog} onOpenChange={setShowForceBookDialog}>

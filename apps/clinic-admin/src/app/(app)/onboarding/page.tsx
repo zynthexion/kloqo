@@ -31,7 +31,7 @@ export default function OnboardingPage() {
     setIsAddDoctorOpen(true);
   }, []);
 
-  const handleSaveDoctor = async (doctorData: Omit<Doctor, 'id' | 'avatar' | 'schedule' | 'preferences' | 'historicalData' | 'clinicId'> & { photo?: File; id?: string }) => {
+  const handleSaveDoctor = async (doctor: Doctor) => {
     if (!auth.currentUser) {
       toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in." });
       return;
@@ -44,37 +44,9 @@ export default function OnboardingPage() {
       return;
     }
 
-    let photoUrl = `https://picsum.photos/seed/new-doc-${Date.now()}/100/100`;
-    if (doctorData.photo instanceof File) {
-      const storageRef = ref(storage, `doctor_avatars/${Date.now()}_${doctorData.photo.name}`);
-      await uploadBytes(storageRef, doctorData.photo);
-      photoUrl = await getDownloadURL(storageRef);
-    }
-
-    const docId = `doc-${Date.now()}`;
-    const newDoctor: Doctor = {
-      id: docId,
-      clinicId: clinicId,
-      name: doctorData.name,
-      specialty: doctorData.specialty,
-      avatar: photoUrl,
-      schedule: 'Not set',
-      preferences: 'Not set',
-      historicalData: 'No data',
-      department: doctorData.department,
-      availability: 'Available',
-      bio: doctorData.bio,
-      averageConsultingTime: doctorData.averageConsultingTime,
-      availabilitySlots: doctorData.availabilitySlots,
-      experience: doctorData.experience,
-      consultationFee: doctorData.consultationFee,
-    };
-
-    const docRef = doc(db, "doctors", docId);
     const clinicRef = doc(db, 'clinics', clinicId);
 
     try {
-      await setDoc(docRef, newDoctor);
       await updateDoc(clinicRef, { onboardingStatus: "Completed" });
 
       toast({
@@ -86,12 +58,12 @@ export default function OnboardingPage() {
       router.push('/dashboard');
 
     } catch (serverError) {
-      const permissionError = new FirestorePermissionError({
-        path: docRef.path,
-        operation: 'create',
-        requestResourceData: newDoctor,
+      console.error("Error finalizing onboarding:", serverError);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Doctor was added, but failed to complete onboarding status. Please contact support.",
       });
-      errorEmitter.emit('permission-error', permissionError);
     }
   };
 

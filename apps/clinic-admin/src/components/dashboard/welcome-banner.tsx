@@ -15,16 +15,6 @@ export default function WelcomeBanner() {
             progress 70%.
           </p>
         </div>
-        <div className="relative w-48 h-48 hidden md:block">
-            <Image
-                src="https://picsum.photos/seed/welcome-woman/200/200"
-                alt="Welcome"
-                width={200}
-                height={200}
-                className="rounded-full object-cover"
-                data-ai-hint="woman holding tablet"
-            />
-        </div>
       </CardContent>
     </Card>
   );

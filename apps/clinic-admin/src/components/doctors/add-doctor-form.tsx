@@ -116,11 +116,14 @@ const generateTimeOptions = (startTime: string, endTime: string, interval: numbe
   return options;
 };
 
-const defaultDoctorImage = "https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/doctor.jpg?alt=media&token=1cee71fb-ab82-4392-ab24-0e0aecd8de84";
+const MALE_AVATAR = "https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/doctor_male.webp?alt=media&token=b19d8fb5-1812-4eb5-a879-d48739eaa87e";
+const FEMALE_AVATAR = "https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/doctor_female.webp?alt=media&token=0726d154-7371-4db7-9006-0a82fc47f9fa";
+const defaultDoctorImage = MALE_AVATAR;
 
 
 export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, updateDepartments }: AddDoctorFormProps) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [defaultAvatar, setDefaultAvatar] = useState(MALE_AVATAR);
   const { toast } = useToast();
   const isEditMode = !!doctor;
   const auth = useAuth();
@@ -218,7 +221,8 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
         freeFollowUpDays: doctor.freeFollowUpDays || 7,
         advanceBookingDays: doctor.advanceBookingDays || 30,
       });
-      setPhotoPreview(doctor.avatar || defaultDoctorImage);
+      setPhotoPreview(doctor.avatar || MALE_AVATAR);
+      setDefaultAvatar(doctor.avatar === FEMALE_AVATAR ? FEMALE_AVATAR : MALE_AVATAR);
       if (availabilitySlots.length > 0) {
         setSharedTimeSlots(availabilitySlots[0].timeSlots);
       }
@@ -236,7 +240,8 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
         freeFollowUpDays: 7,
         advanceBookingDays: 30,
       });
-      setPhotoPreview(defaultDoctorImage);
+      setPhotoPreview(MALE_AVATAR);
+      setDefaultAvatar(MALE_AVATAR);
       setSharedTimeSlots([{ from: "09:00", to: "17:00" }]);
     }
   }, [doctor, form, isOpen]);
@@ -387,12 +392,12 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
         }
 
         // Handle photo URL: for edit mode, preserve existing; for new doctors, only set if photo uploaded
-        let photoUrl: string = defaultDoctorImage; // Always initialize with default
+        let photoUrl: string = photoPreview || MALE_AVATAR;
         const photoFile = form.getValues('photo');
 
         if (isEditMode) {
-          // In edit mode, preserve existing avatar or use default
-          photoUrl = doctor?.avatar || defaultDoctorImage;
+          // In edit mode, preserve existing avatar or use current preview if no new file is being uploaded
+          photoUrl = photoPreview || doctor?.avatar || MALE_AVATAR;
         }
 
         if (photoFile instanceof File) {
@@ -569,7 +574,7 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
 
   const handlePhotoDelete = () => {
     form.setValue('photo', null);
-    setPhotoPreview(defaultDoctorImage);
+    setPhotoPreview(defaultAvatar);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -620,9 +625,9 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
                           )}
                         </div>
                         <div className="flex flex-col gap-2">
-                          <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                          <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} size="sm">
                             <Edit className="mr-2 h-4 w-4" />
-                            Change
+                            Upload
                           </Button>
                           <Button type="button" variant="destructive" size="sm" onClick={handlePhotoDelete}>
                             <Trash2 className="mr-2 h-4 w-4" />
@@ -632,6 +637,36 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
                         <FormControl>
                           <Input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" id="photo-upload" ref={fileInputRef} />
                         </FormControl>
+                      </div>
+                      <div className="mt-4">
+                        <Label className="text-xs text-muted-foreground mb-2 block">Choose default avatar</Label>
+                        <ToggleGroup
+                          type="single"
+                          value={defaultAvatar}
+                          onValueChange={(value) => {
+                            if (value) {
+                              setDefaultAvatar(value);
+                              // Only update preview if no custom photo is currently selected/uploaded
+                              if (!form.getValues('photo')) {
+                                setPhotoPreview(value);
+                              }
+                            }
+                          }}
+                          className="justify-start"
+                        >
+                          <ToggleGroupItem value={MALE_AVATAR} aria-label="Male Avatar" className="flex items-center gap-2 px-3 py-1 h-auto">
+                            <div className="w-6 h-6 rounded-full overflow-hidden border">
+                              <Image src={MALE_AVATAR} alt="Male" width={24} height={24} />
+                            </div>
+                            <span className="text-xs">Male</span>
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value={FEMALE_AVATAR} aria-label="Female Avatar" className="flex items-center gap-2 px-3 py-1 h-auto">
+                            <div className="w-6 h-6 rounded-full overflow-hidden border">
+                              <Image src={FEMALE_AVATAR} alt="Female" width={24} height={24} />
+                            </div>
+                            <span className="text-xs">Female</span>
+                          </ToggleGroupItem>
+                        </ToggleGroup>
                       </div>
                       <FormMessage />
                     </FormItem>

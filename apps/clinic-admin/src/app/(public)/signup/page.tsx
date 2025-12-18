@@ -222,6 +222,13 @@ export default function SignupPage() {
       return false;
     }
 
+    if (currentStep === 4) {
+      const atLeastOneDayOpen = values.hours.some(h => !h.isClosed);
+      if (!atLeastOneDayOpen) {
+        return false;
+      }
+    }
+
     if (currentStep === 7 && (!values.agreeTerms || !values.isAuthorized)) {
       return false;
     }

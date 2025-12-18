@@ -35,7 +35,12 @@ import { AddRelativeDialog } from '@/components/patients/add-relative-dialog';
 const formSchema = z
   .object({
     patientName: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
-    age: z.coerce.number().int().positive({ message: 'Age must be a positive number.' }),
+    age: z.preprocess(
+      (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+      z.number({ required_error: "Age is required.", invalid_type_error: "Age is required." })
+        .int()
+        .positive({ message: 'Age must be a positive number.' })
+    ),
     place: z.string().min(2, { message: 'Place is required.' }),
     sex: z.string().min(1, { message: 'Sex is required.' }),
     phone: z.string().optional(),
@@ -1383,7 +1388,22 @@ function WalkInRegistrationContent() {
                         )} />
                         <div className="grid grid-cols-2 gap-4">
                           <FormField control={form.control} name="age" render={({ field }) => (
-                            <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="Enter the age" {...field} value={field.value === 0 ? '' : (field.value ?? '')} className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" /></FormControl><FormMessage /></FormItem>
+                            <FormItem><FormLabel>Age</FormLabel><FormControl>
+                              <Input
+                                type="text"
+                                inputMode="numeric"
+                                placeholder="Enter the age"
+                                {...field}
+                                value={field.value?.toString() ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === '' || /^\d+$/.test(val)) {
+                                    field.onChange(val);
+                                    form.trigger('age');
+                                  }
+                                }}
+                                className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                              /></FormControl><FormMessage /></FormItem>
                           )} />
                           <FormField control={form.control} name="sex" render={({ field }) => (
                             <FormItem><FormLabel>Sex</FormLabel>

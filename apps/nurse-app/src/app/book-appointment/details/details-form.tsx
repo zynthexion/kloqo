@@ -82,7 +82,12 @@ function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date
 
 const formSchema = z.object({
     patientName: z.string().min(2, { message: "Name must be at least 2 characters." }),
-    age: z.coerce.number().int().positive({ message: "Age must be a positive number." }).min(1, { message: "Please enter a valid age." }),
+    age: z.preprocess(
+        (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+        z.number({ required_error: "Age is required.", invalid_type_error: "Age is required." })
+            .min(1, { message: "Age must be a positive number." })
+            .max(120, { message: "Age must be less than 120." })
+    ),
     phone: z.string()
         .refine((val) => {
             if (!val || val.length === 0) return false; // Phone is required
@@ -945,13 +950,17 @@ function AppointmentDetailsFormContent() {
                                     <FormLabel>Age</FormLabel>
                                     <FormControl>
                                         <Input
-                                            type="number"
+                                            type="text"
+                                            inputMode="numeric"
                                             placeholder="Enter the age"
                                             {...field}
-                                            value={field.value === 0 ? '' : (field.value ?? '')}
+                                            value={field.value?.toString() ?? ''}
                                             onChange={(e) => {
-                                                const value = e.target.value === '' ? undefined : Number(e.target.value);
-                                                field.onChange(value);
+                                                const val = e.target.value;
+                                                if (val === '' || /^\d+$/.test(val)) {
+                                                    field.onChange(val);
+                                                    form.trigger('age');
+                                                }
                                             }}
                                             className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                                         />

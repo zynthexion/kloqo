@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirestore } from '@/firebase';
 import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import type { Appointment } from '@/lib/types';
+import { useLanguage } from '@/contexts/language-context';
 
 interface ReviewPromptProps {
     appointment: Appointment;
@@ -22,13 +23,14 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const firestore = useFirestore();
     const { toast } = useToast();
+    const { t } = useLanguage();
 
     const handleSubmit = async (): Promise<void> => {
         if (rating === 0) {
             toast({
                 variant: 'destructive',
-                title: 'Rating Required',
-                description: 'Please select a rating before submitting.',
+                title: t.reviews.ratingRequired,
+                description: t.reviews.ratingRequiredDesc,
             });
             return;
         }
@@ -36,8 +38,8 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
         if (!firestore || !appointment.doctorId) {
             toast({
                 variant: 'destructive',
-                title: 'Error',
-                description: 'Unable to submit review. Please try again.',
+                title: t.reviews.error,
+                description: t.reviews.submitError,
             });
             return;
         }
@@ -68,7 +70,7 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
             // Update doctor's reviewList
             const doctorRef = doc(firestore, 'doctors', appointment.doctorId);
             const doctorDoc = await getDoc(doctorRef);
-            
+
             if (doctorDoc.exists()) {
                 const doctorData = doctorDoc.data();
                 const existingReviews = doctorData.reviewList || [];
@@ -97,8 +99,8 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
                 });
             }
             toast({
-                title: 'Thank you!',
-                description: 'Your review has been submitted successfully.',
+                title: t.reviews.thankYou,
+                description: t.reviews.successDesc,
             });
 
             onClose(false);
@@ -106,8 +108,8 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
             console.error('Error submitting review:', error);
             toast({
                 variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to submit review. Please try again.',
+                title: t.reviews.error,
+                description: t.reviews.failedError,
             });
         } finally {
             setIsSubmitting(false);
@@ -118,15 +120,12 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <Card className="w-full max-w-md">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle>Rate Your Experience</CardTitle>
-                    <Button variant="ghost" size="icon" onClick={() => onClose(false)}>
-                        <X className="h-4 w-4" />
-                    </Button>
+                    <CardTitle>{t.reviews.title}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div>
                         <p className="text-sm text-muted-foreground mb-2">
-                            How would you rate Dr. {appointment.doctor}?
+                            {t.reviews.howWasDoctor.replace('{doctor}', appointment.doctor)}
                         </p>
                         <div className="flex gap-2">
                             {[1, 2, 3, 4, 5].map((star) => (
@@ -158,31 +157,23 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
 
                     <div>
                         <label className="text-sm font-medium mb-2 block">
-                            Share your feedback (optional)
+                            {t.reviews.feedbackLabel}
                         </label>
                         <Textarea
-                            placeholder="Tell us about your experience..."
+                            placeholder={t.reviews.feedbackPlaceholder}
                             value={feedback}
                             onChange={(e) => setFeedback(e.target.value)}
                             rows={4}
                             maxLength={500}
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                            {feedback.length}/500 characters
+                            {feedback.length}/500 {t.reviews.characters}
                         </p>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex pt-2">
                         <Button
-                            variant="outline"
-                            className="flex-1"
-                            onClick={() => onClose(true)}
-                            disabled={isSubmitting}
-                        >
-                            Skip
-                        </Button>
-                        <Button
-                            className="flex-1"
+                            className="w-full"
                             onClick={() => {
                                 handleSubmit().then(() => {
                                     onClose(false);
@@ -193,11 +184,11 @@ export function ReviewPrompt({ appointment, onClose }: ReviewPromptProps) {
                             disabled={isSubmitting || rating === 0}
                         >
                             {isSubmitting ? (
-                                'Submitting...'
+                                t.reviews.submitting
                             ) : (
                                 <>
                                     <Send className="mr-2 h-4 w-4" />
-                                    Submit
+                                    {t.reviews.submit}
                                 </>
                             )}
                         </Button>

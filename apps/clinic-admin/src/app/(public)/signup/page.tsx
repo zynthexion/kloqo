@@ -41,11 +41,12 @@ const hoursSchema = z.object({
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
-const fileSchema = z.any()
-  .refine((file) => file instanceof File, "File is required.")
-  .refine((file) => file?.size <= MAX_FILE_SIZE, `Max file size is 5MB.`)
+const fileSchema = z.instanceof(File)
+  .nullable()
+  .refine((file) => file !== null, "File is required.")
+  .refine((file) => !file || file.size <= MAX_FILE_SIZE, `Max file size is 5MB.`)
   .refine(
-    (file) => ACCEPTED_IMAGE_TYPES.includes(file?.type),
+    (file) => !file || ACCEPTED_IMAGE_TYPES.includes(file.type),
     ".jpg, .jpeg, .png and .webp files are accepted."
   );
 
@@ -105,9 +106,9 @@ const signupSchema = z.object({
   paymentMethod: z.enum(['Card', 'UPI', 'NetBanking']).optional(),
 
   // Step 6
-  logo: z.any().optional(),
+  logo: z.instanceof(File).nullable().optional(),
   license: fileSchema,
-  receptionPhoto: z.any().optional(),
+  receptionPhoto: z.instanceof(File).nullable().optional(),
 
   // Step 7
   agreeTerms: z.boolean().refine(val => val === true, { message: "You must agree to the terms." }),
@@ -162,9 +163,9 @@ const defaultFormData: SignUpFormData = {
   promoCode: '',
   paymentMethod: undefined,
 
-  logo: null,
-  license: null,
-  receptionPhoto: null,
+  logo: null as unknown as File,
+  license: null as unknown as File,
+  receptionPhoto: null as unknown as File,
 
   agreeTerms: false,
   isAuthorized: false,
@@ -339,9 +340,9 @@ export default function SignupPage() {
     let receptionPhotoUrl: string | null = null;
 
     try {
-      logoUrl = await uploadFileViaAPI(formData.logo, 'logo');
+      logoUrl = await uploadFileViaAPI(formData.logo ?? null, 'logo');
       licenseUrl = await uploadFileViaAPI(formData.license, 'license');
-      receptionPhotoUrl = await uploadFileViaAPI(formData.receptionPhoto, 'reception_photo');
+      receptionPhotoUrl = await uploadFileViaAPI(formData.receptionPhoto ?? null, 'reception_photo');
     } catch (uploadError: any) {
       setIsSubmitting(false);
       toast({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -38,9 +38,20 @@ const createFormSchema = (t: any) => z.object({
         .refine(name => !name.startsWith(' ') && !name.endsWith(' ') && !name.includes('  '), {
             message: t.patientForm.nameSpaces
         }),
-    age: z.coerce.number()
-        .min(1, { message: t.patientForm.agePositive })
-        .max(120, { message: t.patientForm.ageMax }),
+    age: z.preprocess(
+        (val) => {
+            if (val === "" || val === undefined || val === null) return undefined;
+            const num = parseInt(val.toString(), 10);
+            if (isNaN(num)) return undefined;
+            return num;
+        },
+        z.number({
+            required_error: t.patientForm.ageRequired,
+            invalid_type_error: t.patientForm.ageRequired
+        })
+            .min(1, { message: t.patientForm.agePositive })
+            .max(120, { message: t.patientForm.ageMax })
+    ),
     sex: z.enum(['Male', 'Female', 'Other'], { required_error: t.patientForm.genderRequired }),
     place: z.string().min(2, { message: t.patientForm.placeRequired }),
     phone: z.string()
@@ -79,6 +90,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
     const [relatedPatients, setRelatedPatients] = useState<Patient[]>([]);
     const [walkInData, setWalkInData] = useState<any>(null); // To store data before confirmation
     const [hasRecalculated, setHasRecalculated] = useState(false); // Track if we've recalculated before confirmation
+    const lastResetIdRef = useRef<string | null>(null);
 
     const { user } = useUser();
     const firestore = useFirestore();
@@ -265,7 +277,10 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
     const showDetailsForm = addNewPatient || !!selectedPatientId;
 
     useEffect(() => {
-        if (addNewPatient || selectedPatientId === 'new') {
+        const currentId = addNewPatient ? 'new' : selectedPatientId;
+        if (!currentId || currentId === lastResetIdRef.current) return;
+
+        if (currentId === 'new') {
             form.reset({
                 selectedPatient: 'new',
                 name: '',
@@ -277,8 +292,9 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                 keepDefaultValues: false,
                 keepValues: false,
             });
-        } else if (selectedPatientId && selectedPatientId !== 'new') {
-            const patient = displayedPatients.find(p => p.id === selectedPatientId);
+            lastResetIdRef.current = 'new';
+        } else {
+            const patient = displayedPatients.find(p => p.id === currentId);
             if (patient) {
                 // Extract only the 10 digits from phone (remove +91 prefix if present)
                 let displayPhone = '';
@@ -296,6 +312,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                     phone: displayPhone || (patient.isPrimary ? (user?.phoneNumber?.replace(/^\+91/, '') || '') : ''),
                     selectedPatient: patient.id,
                 });
+                lastResetIdRef.current = currentId;
             }
         }
     }, [addNewPatient, selectedPatientId, displayedPatients, form, user?.phoneNumber, primaryPatient]);
@@ -1168,7 +1185,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                     </div>
 
                     {showDetailsForm && (
-                        <div className="space-y-6 animate-in fade-in-50">
+                        <div key={selectedPatientId || (addNewPatient ? 'new' : 'none')} className="space-y-6 animate-in fade-in-50">
                             <h2 className="text-lg font-semibold">{addNewPatient && !primaryPatient ? t.patientForm.yourDetails : (addNewPatient ? t.patientForm.newPatientDetails : t.bookAppointment.patientDetails)}</h2>
                             <FormField control={form.control} name="name" render={({ field }) => (
                                 <FormItem>
@@ -1194,15 +1211,20 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                                         <FormLabel>{t.patientForm.age}</FormLabel>
                                         <FormControl>
                                             <Input
-                                                type="number"
+                                                type="text"
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
                                                 placeholder={t.patientForm.enterAge}
                                                 {...field}
-                                                value={field.value === 0 ? '' : (field.value ?? '')}
+                                                value={field.value?.toString() ?? ''}
                                                 onBlur={field.onBlur}
                                                 onChange={(e) => {
-                                                    const value = e.target.value === '' ? undefined : Number(e.target.value);
-                                                    field.onChange(value);
-                                                    form.trigger('age');
+                                                    const val = e.target.value;
+                                                    // Only allow digits and handle empty string
+                                                    if (val === '' || /^\d+$/.test(val)) {
+                                                        field.onChange(val);
+                                                        form.trigger('age');
+                                                    }
                                                 }}
                                                 className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                                             />
@@ -1253,7 +1275,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                             )} />
                             <FormField control={form.control} name="phone" render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>{t.common.phone}</FormLabel>
+                                    <FormLabel>{t.common.phone} ({t.patientForm.phoneOptional})</FormLabel>
                                     <FormControl>
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm font-medium text-foreground">+91</span>

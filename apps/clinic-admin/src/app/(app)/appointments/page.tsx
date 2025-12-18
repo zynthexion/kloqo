@@ -106,9 +106,12 @@ const formSchema = z.object({
     }, {
       message: "Phone number must be exactly 10 digits."
     }),
-  age: z.coerce.number()
-    .min(1, { message: "Age must be a positive number above zero." })
-    .max(120, { message: "Age must be less than 120." }),
+  age: z.preprocess(
+    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+    z.number({ required_error: "Age is required.", invalid_type_error: "Age is required." })
+      .min(1, { message: "Age must be a positive number above zero." })
+      .max(120, { message: "Age must be less than 120." })
+  ),
   doctor: z.string().min(1, { message: "Please select a doctor." }),
   department: z.string().min(1, { message: "Department is required." }),
   date: z.date().optional(),
@@ -3539,15 +3542,18 @@ export default function AppointmentsPage() {
                                         <FormLabel>Age</FormLabel>
                                         <FormControl>
                                           <Input
-                                            type="number"
+                                            type="text"
+                                            inputMode="numeric"
                                             placeholder="Enter the age"
                                             {...field}
-                                            value={field.value === 0 ? '' : (field.value ?? '')}
+                                            value={field.value?.toString() ?? ''}
                                             onBlur={field.onBlur}
                                             onChange={(e) => {
-                                              const value = e.target.value === '' ? undefined : Number(e.target.value);
-                                              field.onChange(value);
-                                              form.trigger('age');
+                                              const val = e.target.value;
+                                              if (val === '' || /^\d+$/.test(val)) {
+                                                field.onChange(val);
+                                                form.trigger('age');
+                                              }
                                             }}
                                             className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                                           />

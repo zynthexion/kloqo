@@ -34,9 +34,12 @@ const formSchema = z.object({
         .refine(name => !name.startsWith(' ') && !name.endsWith(' ') && !name.includes('  '), {
             message: "Spaces are only allowed between letters, not at the start, end, or multiple consecutive spaces."
         }),
-    age: z.coerce.number()
-        .min(1, { message: "Age must be a positive number above zero." })
-        .max(120, { message: "Age must be less than 120." }),
+    age: z.preprocess(
+        (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+        z.number({ required_error: "Age is required.", invalid_type_error: "Age is required." })
+            .min(1, { message: "Age must be a positive number above zero." })
+            .max(120, { message: "Age must be less than 120." })
+    ),
     phone: z.string()
         .refine((val) => {
             if (!val || val.length === 0) return false; // Phone is required
@@ -538,15 +541,18 @@ function PhoneBookingDetailsContent() {
                                                 <FormLabel>Age</FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        type="number"
+                                                        type="text"
+                                                        inputMode="numeric"
                                                         placeholder="Enter the age"
                                                         {...field}
-                                                        value={field.value === 0 ? '' : (field.value ?? '')}
+                                                        value={field.value?.toString() ?? ''}
                                                         onBlur={field.onBlur}
                                                         onChange={(e) => {
-                                                            const value = e.target.value === '' ? undefined : Number(e.target.value);
-                                                            field.onChange(value);
-                                                            form.trigger('age');
+                                                            const val = e.target.value;
+                                                            if (val === '' || /^\d+$/.test(val)) {
+                                                                field.onChange(val);
+                                                                form.trigger('age');
+                                                            }
                                                         }}
                                                         className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                                                     />

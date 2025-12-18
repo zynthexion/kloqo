@@ -11,7 +11,8 @@
     "phone": "Phone",
     "location": "Location",
     "select": "Select",
-    "error": "Error"
+    "error": "Error",
+    "optional": "optional"
   },
   "login": {
     "title": "Welcome to Kloqo",
@@ -351,6 +352,7 @@
     "other": "Other",
     "place": "Place",
     "phone": "Phone Number",
+    "phoneOptional": "phone number is optional",
     "phonePlaceholder": "Enter 10 digits",
     "nameRequired": "Name is required",
     "nameMinLength": "Name must be at least 3 characters",
@@ -391,5 +393,21 @@
     "tokenGenerated": "Token Generated!",
     "pleaseArriveOnTime": "Please arrive on time and show this token at the front desk.",
     "yourTokenNumber": "Your token number"
+  },
+  "reviews": {
+    "title": "Rate Your Experience",
+    "howWasDoctor": "How would you rate Dr. {doctor}?",
+    "feedbackLabel": "Share your feedback (optional)",
+    "feedbackPlaceholder": "Tell us about your experience...",
+    "characters": "characters",
+    "submit": "Submit",
+    "submitting": "Submitting...",
+    "ratingRequired": "Rating Required",
+    "ratingRequiredDesc": "Please select a rating before submitting.",
+    "thankYou": "Thank you!",
+    "successDesc": "Your review has been submitted successfully.",
+    "error": "Error",
+    "submitError": "Unable to submit review. Please try again.",
+    "failedError": "Failed to submit review. Please try again."
   }
 }

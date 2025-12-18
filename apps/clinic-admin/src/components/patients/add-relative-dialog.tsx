@@ -35,12 +35,15 @@ const formSchema = z.object({
   name: z.string()
     .min(3, { message: "Name must be at least 3 characters." })
     .regex(/^[a-zA-Z\s]+$/, { message: "Name must contain only alphabets and spaces." })
-    .refine(name => !name.startsWith(' ') && !name.endsWith(' ') && !name.includes('  '), { 
+    .refine(name => !name.startsWith(' ') && !name.endsWith(' ') && !name.includes('  '), {
       message: "Spaces are only allowed between letters, not at the start, end, or multiple consecutive spaces."
     }),
-  age: z.coerce.number()
-    .min(1, { message: "Age must be a positive number above zero." })
-    .max(120, { message: "Age must be less than 120." }),
+  age: z.preprocess(
+    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+    z.number({ required_error: "Age is required.", invalid_type_error: "Age is required." })
+      .min(1, { message: "Age must be a positive number above zero." })
+      .max(120, { message: "Age must be less than 120." })
+  ),
   sex: z.enum(["Male", "Female", "Other"], { required_error: "Please select a gender." }),
   phone: z.string()
     .optional()
@@ -52,7 +55,7 @@ const formSchema = z.object({
       if (cleaned.length < 10) return false; // Less than 10 digits is invalid
       if (cleaned.length > 10) return false; // More than 10 digits is invalid
       return /^\d{10}$/.test(cleaned);
-    }, { 
+    }, {
       message: "Phone number must be exactly 10 digits."
     }),
   place: z.string().min(2, { message: "Location is required." }),
@@ -98,8 +101,8 @@ export function AddRelativeDialog({
 
         const primaryMemberSnap = await getDoc(primaryMemberRef);
         if (!primaryMemberSnap.exists()) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Primary member not found.'});
-            return;
+          toast({ variant: 'destructive', title: 'Error', description: 'Primary member not found.' });
+          return;
         }
         const primaryMemberData = primaryMemberSnap.data() as Patient;
         const primaryMemberPhone = primaryMemberData.communicationPhone || primaryMemberData.phone;
@@ -112,11 +115,11 @@ export function AddRelativeDialog({
             relativePhone = `+91${cleaned}`; // Add +91 prefix when saving
           }
         }
-        
+
         // Check if the phone number matches primary patient's phone (duplicate check)
         const primaryPhone = primaryMemberData.phone || primaryMemberData.communicationPhone;
-        const isDuplicatePhone = relativePhone && primaryPhone && 
-            relativePhone.replace(/^\+91/, '') === primaryPhone.replace(/^\+91/, '');
+        const isDuplicatePhone = relativePhone && primaryPhone &&
+          relativePhone.replace(/^\+91/, '') === primaryPhone.replace(/^\+91/, '');
 
         let newRelativeData: Patient;
 
@@ -149,7 +152,7 @@ export function AddRelativeDialog({
             });
             return;
           }
-          
+
           const newUserRef = doc(collection(db, 'users'));
           const newUserData: User = {
             uid: newUserRef.id,
@@ -175,7 +178,7 @@ export function AddRelativeDialog({
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           } as any;
-          
+
           // Only add age and sex if they have values (Firestore doesn't allow undefined)
           if (values.age !== undefined && values.age !== null) {
             newRelativeData.age = values.age;
@@ -185,30 +188,30 @@ export function AddRelativeDialog({
           }
 
         } else {
-            // Case 2: Relative does NOT have a phone number OR phone matches primary (duplicate)
-            // If no phone provided or duplicate, leave 'phone' field empty and use primary's phone for communicationPhone
-            newRelativeData = {
-              id: newRelativePatientRef.id,
-              name: values.name,
-              phone: "", // Phone field is explicitly empty when no phone entered
-              communicationPhone: primaryMemberPhone, // Use primary patient's communicationPhone (already prioritized communicationPhone || phone on line 84)
-              place: values.place,
-              isPrimary: false,
-              totalAppointments: 0,
-              visitHistory: [],
-              // Relatives should NOT have relatedPatientIds - only primary patients have this field
-              clinicIds: primaryMemberData.clinicIds || [],
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            } as any;
-            
-            // Only add age and sex if they have values (Firestore doesn't allow undefined)
-            if (values.age !== undefined && values.age !== null) {
-              newRelativeData.age = values.age;
-            }
-            if (values.sex) {
-              newRelativeData.sex = values.sex;
-            }
+          // Case 2: Relative does NOT have a phone number OR phone matches primary (duplicate)
+          // If no phone provided or duplicate, leave 'phone' field empty and use primary's phone for communicationPhone
+          newRelativeData = {
+            id: newRelativePatientRef.id,
+            name: values.name,
+            phone: "", // Phone field is explicitly empty when no phone entered
+            communicationPhone: primaryMemberPhone, // Use primary patient's communicationPhone (already prioritized communicationPhone || phone on line 84)
+            place: values.place,
+            isPrimary: false,
+            totalAppointments: 0,
+            visitHistory: [],
+            // Relatives should NOT have relatedPatientIds - only primary patients have this field
+            clinicIds: primaryMemberData.clinicIds || [],
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          } as any;
+
+          // Only add age and sex if they have values (Firestore doesn't allow undefined)
+          if (values.age !== undefined && values.age !== null) {
+            newRelativeData.age = values.age;
+          }
+          if (values.sex) {
+            newRelativeData.sex = values.sex;
+          }
         }
 
         // Remove undefined values - Firestore doesn't allow undefined
@@ -216,7 +219,7 @@ export function AddRelativeDialog({
           Object.entries(newRelativeData).filter(([_, v]) => v !== undefined)
         );
         batch.set(newRelativePatientRef, cleanedRelativeData);
-        
+
         // Always add to primary's relatedPatientIds, regardless of whether relative has a phone
         // Even if relative has a unique phone and becomes isPrimary: true, they are still a relative of the primary patient
         batch.update(primaryMemberRef, {
@@ -224,7 +227,7 @@ export function AddRelativeDialog({
         });
 
         await batch.commit();
-        
+
         onRelativeAdded(newRelativeData);
 
         toast({
@@ -253,7 +256,7 @@ export function AddRelativeDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent 
+      <DialogContent
         onInteractOutside={(e) => {
           e.preventDefault(); // Prevent closing when clicking outside
         }}
@@ -276,9 +279,9 @@ export function AddRelativeDialog({
                 <FormItem>
                   <FormLabel>Full Name</FormLabel>
                   <FormControl>
-                    <Input 
-                      placeholder="Enter full name" 
-                      {...field} 
+                    <Input
+                      placeholder="Enter full name"
+                      {...field}
                       value={field.value || ''}
                       onBlur={field.onBlur}
                       onChange={(e) => {
@@ -291,54 +294,57 @@ export function AddRelativeDialog({
                 </FormItem>
               )}
             />
-             <div className="grid grid-cols-2 gap-4">
-                <FormField
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
                 control={form.control}
                 name="age"
                 render={({ field }) => (
-                    <FormItem>
+                  <FormItem>
                     <FormLabel>Age</FormLabel>
                     <FormControl>
-                        <Input 
-                          type="number" 
-                          placeholder="Enter the age" 
-                          {...field} 
-                          value={field.value === 0 ? '' : (field.value ?? '')}
-                          onBlur={field.onBlur}
-                          onChange={(e) => {
-                            const value = e.target.value === '' ? undefined : Number(e.target.value);
-                            field.onChange(value);
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Enter the age"
+                        {...field}
+                        value={field.value?.toString() ?? ''}
+                        onBlur={field.onBlur}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '' || /^\d+$/.test(val)) {
+                            field.onChange(val);
                             form.trigger('age');
-                          }}
-                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                        />
+                          }
+                        }}
+                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                      />
                     </FormControl>
                     <FormMessage />
-                    </FormItem>
+                  </FormItem>
                 )}
-                />
-                <FormField
+              />
+              <FormField
                 control={form.control}
                 name="sex"
                 render={({ field }) => (
-                    <FormItem>
+                  <FormItem>
                     <FormLabel>Gender</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value || ""}>
-                        <FormControl>
+                      <FormControl>
                         <SelectTrigger>
-                            <SelectValue placeholder="Select gender" />
+                          <SelectValue placeholder="Select gender" />
                         </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
+                      </FormControl>
+                      <SelectContent>
                         <SelectItem value="Male">Male</SelectItem>
                         <SelectItem value="Female">Female</SelectItem>
                         <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
+                      </SelectContent>
                     </Select>
                     <FormMessage />
-                    </FormItem>
+                  </FormItem>
                 )}
-                />
+              />
             </div>
             <FormField
               control={form.control}
@@ -349,10 +355,10 @@ export function AddRelativeDialog({
                   <FormControl>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">+91</span>
-                      <Input 
-                        type="tel" 
-                        {...field} 
-                        value={field.value || ''} 
+                      <Input
+                        type="tel"
+                        {...field}
+                        value={field.value || ''}
                         className="pl-12"
                         placeholder="Enter 10-digit number"
                         onChange={(e) => {
@@ -380,9 +386,9 @@ export function AddRelativeDialog({
                 <FormItem>
                   <FormLabel>Place</FormLabel>
                   <FormControl>
-                    <Input 
-                      placeholder="Enter city or town" 
-                      {...field} 
+                    <Input
+                      placeholder="Enter city or town"
+                      {...field}
                       value={field.value || ''}
                       onBlur={field.onBlur}
                       onChange={(e) => {

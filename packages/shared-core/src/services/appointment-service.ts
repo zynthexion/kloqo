@@ -564,6 +564,7 @@ export async function generateNextTokenAndReserveSlot(
     slotIndex?: number;
     doctorId?: string;
     existingAppointmentId?: string;
+    isForceBooked?: boolean;
     [key: string]: unknown;
   }
 ): Promise<{
@@ -786,6 +787,7 @@ export async function generateNextTokenAndReserveSlot(
             effectiveAppointments,
             totalSlots,
             newWalkInNumericToken: nextWalkInNumericToken,
+            isForceBooked: !!appointmentData.isForceBooked,
           });
 
           numericToken = nextWalkInNumericToken;
@@ -1351,6 +1353,7 @@ const prepareAdvanceShift = async ({
   effectiveAppointments,
   totalSlots,
   newWalkInNumericToken,
+  isForceBooked = false,
 }: {
   firestore: Firestore;
   transaction: Transaction;
@@ -1364,6 +1367,7 @@ const prepareAdvanceShift = async ({
   effectiveAppointments: Appointment[];
   totalSlots: number;
   newWalkInNumericToken: number;
+  isForceBooked?: boolean;
 }): Promise<{
   newAssignment: { slotIndex: number; slotTime: Date; sessionIndex: number } | null;
   reservationDeletes: DocumentReference[];
@@ -2106,7 +2110,8 @@ const prepareAdvanceShift = async ({
 
   // Strategy 4: Trigger if all slots are filled AND (has existing walk-ins OR has cancelled/no-show slots for bucket)
   // This allows bucket compensation even when there are no walk-ins yet, as long as there are cancelled/no-show slots
-  if (!scheduleAttempt && allSlotsFilled && (hasExistingWalkIns || firestoreBucketCount > 0) && firestoreBucketCount > 0) {
+  // FORCE BOOKING: Always trigger Strategy 4 if isForceBooked is true
+  if (isForceBooked || (!scheduleAttempt && allSlotsFilled && (hasExistingWalkIns || firestoreBucketCount > 0) && firestoreBucketCount > 0)) {
     console.info('[Walk-in Scheduling] DEBUG - ✅ Strategy 4 TRIGGERED - Bucket Compensation Starting');
 
     // CRITICAL: Re-calculate bucket count within transaction to prevent concurrent usage
@@ -2123,7 +2128,8 @@ const prepareAdvanceShift = async ({
     const effectiveBucketCountInTx = Math.max(0, bucketCount - usedBucketSlotsInTx);
 
     // If bucket count is now 0, another concurrent request used it - fail and retry
-    if (effectiveBucketCountInTx <= 0) {
+    // FORCE BOOKING: Bypass this check if force booked
+    if (!isForceBooked && effectiveBucketCountInTx <= 0) {
       console.warn('[Walk-in Scheduling] Bucket count became 0 during transaction - concurrent request used it', {
         originalBucketCount: firestoreBucketCount,
         bucketCountInTx: effectiveBucketCountInTx,

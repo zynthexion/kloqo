@@ -615,6 +615,7 @@ function WalkInRegistrationContent() {
           time: format(recalculatedDetails.estimatedTime, "hh:mm a"),
           slotIndex: recalculatedDetails.slotIndex,
           doctorId: doctor.id,
+          isForceBooked: appointmentToSave?.isForceBooked,
         }
       );
 
@@ -631,7 +632,8 @@ function WalkInRegistrationContent() {
 
       // Validate that appointment end time (adjustedAppointmentTime + consultationTime) doesn't exceed session end
       const sessionEffectiveEnd = getSessionEnd(doctor, appointmentDate, sessionIndex);
-      if (sessionEffectiveEnd) {
+      // Only check availability end if NOT force booked
+      if (sessionEffectiveEnd && !appointmentToSave?.isForceBooked) {
         const consultationTime = doctor.averageConsultingTime || 15;
         const appointmentEndTime = addMinutes(adjustedAppointmentTime, consultationTime);
         if (isAfter(appointmentEndTime, sessionEffectiveEnd)) {

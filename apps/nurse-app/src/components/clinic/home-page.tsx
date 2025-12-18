@@ -40,6 +40,7 @@ export default function HomePage() {
   const { toast } = useToast();
   const [clinicId, setClinicId] = useState<string | null>(null);
   const [isWalkInAvailable, setIsWalkInAvailable] = useState(false);
+  const [isNearClosing, setIsNearClosing] = useState(false);
 
 
   useEffect(() => {
@@ -172,6 +173,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!currentDoctor) {
       setIsWalkInAvailable(false);
+      setIsNearClosing(false);
       return;
     };
 
@@ -180,6 +182,7 @@ export default function HomePage() {
 
     if (!todaysAvailability || todaysAvailability.timeSlots.length === 0) {
       setIsWalkInAvailable(false);
+      setIsNearClosing(false);
       return;
     }
 
@@ -216,8 +219,15 @@ export default function HomePage() {
 
     const walkInEnd = addMinutes(subMinutes(lastSessionEnd, 15), breakMinutesInLastSession);
 
+    // Check if we're within the normal walk-in window
     const available = isWithinInterval(currentTime, { start: walkInStart, end: walkInEnd });
+
+    // Check if we're in the last 15 minutes (between walkInEnd and actual session end)
+    const actualEnd = addMinutes(lastSessionEnd, breakMinutesInLastSession);
+    const nearClosing = currentTime > walkInEnd && currentTime <= actualEnd;
+
     setIsWalkInAvailable(available);
+    setIsNearClosing(nearClosing);
   }, [currentDoctor, currentTime]);
 
   const handleScheduleBreak = () => {
@@ -234,6 +244,7 @@ export default function HomePage() {
 
   const getWalkInSubtitle = () => {
     if (!selectedDoctor) return 'Select a doctor first';
+    if (isNearClosing) return 'Closing soon - Force booking available';
     if (!isWalkInAvailable) return 'Registration is currently closed';
     return 'Register a new walk-in patient';
   }
@@ -253,8 +264,10 @@ export default function HomePage() {
       title: 'Walk-in',
       subtitle: getWalkInSubtitle(),
       action: () => selectedDoctor && router.push(`/walk-in?doctor=${selectedDoctor}`),
-      disabled: !selectedDoctor || !isWalkInAvailable,
-      colors: "bg-gradient-to-br from-[#FFBA08] to-[#ffd46a] text-black",
+      disabled: !selectedDoctor,
+      colors: isNearClosing
+        ? "bg-gradient-to-br from-red-500 to-red-600 text-white"
+        : "bg-gradient-to-br from-[#FFBA08] to-[#ffd46a] text-black",
       iconContainer: "bg-white/20"
     },
   ];

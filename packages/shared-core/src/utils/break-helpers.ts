@@ -251,8 +251,9 @@ export function getCurrentActiveSession(
     const walkInStart = subMinutes(sessionStart, 30);
     const walkInEnd = subMinutes(effectiveEnd, 15);
 
-    // Check if now is within walk-in window
-    if (now >= walkInStart && now <= walkInEnd) {
+    // Check if now is within walk-in window OR force booking window (last 15 minutes)
+    // Force booking window: between walkInEnd and effectiveEnd
+    if ((now >= walkInStart && now <= walkInEnd) || (now > walkInEnd && now <= effectiveEnd)) {
       return {
         sessionIndex: i,
         session,

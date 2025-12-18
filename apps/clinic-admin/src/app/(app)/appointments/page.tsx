@@ -139,6 +139,7 @@ type WalkInEstimate = {
   slotIndex: number;
   sessionIndex: number;
   delayMinutes?: number;
+  isForceBooked?: boolean;
 } | null;
 
 /**
@@ -358,6 +359,7 @@ export default function AppointmentsPage() {
   // Force booking states
   const [showForceBookDialog, setShowForceBookDialog] = useState(false);
   const [walkInEstimateUnavailable, setWalkInEstimateUnavailable] = useState(false);
+  const [isForceBookedState, setIsForceBookedState] = useState(false);
 
   // Update current time every minute
   useEffect(() => {
@@ -882,7 +884,16 @@ export default function AppointmentsPage() {
 
   useEffect(() => {
     // Run if normal walk-in is available OR if we're in force booking window
+    // CRITICAL: process.env check prevents double invocation if strict mode
     if (appointmentType === 'Walk-in' && selectedDoctor && (isWalkInAvailable || isForceBookWindow)) {
+
+      // If we already have a force booked estimate, DO NOT overwrite it with a normal check
+      // The normal check will fail (because slots are full) and wipe out the force booking
+      if (isForceBookedState) {
+        console.log('[WALK-IN DEBUG] Skipping normal calculation because active estimate is force-booked');
+        return;
+      }
+
       setIsCalculatingEstimate(true);
       const allotment = clinicDetails?.walkInTokenAllotment || 3;
       console.log('[WALK-IN DEBUG] Starting walk-in details calculation', {
@@ -904,6 +915,7 @@ export default function AppointmentsPage() {
           timestamp: new Date().toISOString()
         });
         setWalkInEstimate(details);
+        setIsForceBookedState(false); // Normal booking succeeded
 
         // ✅ FIX: Check if within 15 min of closing even if slots available
         const isNearClosing = isWithin15MinutesOfClosing(selectedDoctor, new Date());
@@ -920,7 +932,10 @@ export default function AppointmentsPage() {
         setIsCalculatingEstimate(false);
       }).catch(err => {
         console.error('[WALK-IN DEBUG] Error calculating walk-in details:', err);
-        setWalkInEstimate(null);
+        // Only clear estimate if we don't have a force booking
+        if (!isForceBookedState) {
+          setWalkInEstimate(null);
+        }
         setIsCalculatingEstimate(false);
         const errorMessage = err.message || "";
         const isSlotUnavailable = errorMessage.includes("Unable to allocate walk-in slot") ||
@@ -942,17 +957,23 @@ export default function AppointmentsPage() {
         }
       });
     } else {
-      setWalkInEstimate(null);
-      setWalkInEstimateUnavailable(false);
+      // Only clear if doctor changed or type changed, not just because availablity flipped momentarily
+      // But here we want to reset if user switches away from Walk-in
+      if (appointmentType !== 'Walk-in' || !selectedDoctor) {
+        setWalkInEstimate(null);
+        setIsForceBookedState(false);
+        setWalkInEstimateUnavailable(false);
+      }
     }
-  }, [appointmentType, selectedDoctor, isWalkInAvailable, isForceBookWindow, clinicDetails, toast]);
+  }, [appointmentType, selectedDoctor, isWalkInAvailable, isForceBookWindow, clinicDetails, toast, isForceBookedState]);
 
   // Handle force booking for walk-in estimate
   const handleForceBookEstimate = useCallback(async () => {
     if (!selectedDoctor || !clinicId) return;
 
     setIsCalculatingEstimate(true);
-    setWalkInEstimateUnavailable(false);
+    // Don't hide the unavailable card yet - we want to show loading state on the button
+    // setWalkInEstimateUnavailable(false); 
 
     try {
       const allotment = clinicDetails?.walkInTokenAllotment || 3;
@@ -972,7 +993,10 @@ export default function AppointmentsPage() {
         isForceBooked: details.isForceBooked,
       });
 
-      setWalkInEstimate(details);
+      setWalkInEstimate({ ...details, isForceBooked: true });
+      setIsForceBookedState(true); // Mark as force booked to prevent overwrite
+      setWalkInEstimateUnavailable(false); // Hide the unavailable card now that we have a valid estimate
+
       toast({
         title: "Force Book Enabled",
         description: `Walk-in will be scheduled outside normal hours at ${format(details.estimatedTime, 'hh:mm a')}`,
@@ -985,6 +1009,8 @@ export default function AppointmentsPage() {
         description: err.message || "Could not create overflow slot.",
       });
       setWalkInEstimate(null);
+      setIsForceBookedState(false);
+      // Keep unavailable card shown so user can try again if it was a transient error
     } finally {
       setIsCalculatingEstimate(false);
     }
@@ -1258,6 +1284,7 @@ export default function AppointmentsPage() {
               time: format(walkInEstimate.estimatedTime, "hh:mm a"),
               slotIndex: walkInEstimate.slotIndex,
               doctorId: selectedDoctor.id,
+              isForceBooked: (walkInEstimate as any)?.isForceBooked,
             }
           );
 
@@ -1278,7 +1305,9 @@ export default function AppointmentsPage() {
           try {
             const sessionEffectiveEnd = getSessionEnd(selectedDoctor, appointmentDate, walkInSessionIndex);
 
-            if (sessionEffectiveEnd) {
+            // Only check availability if NOT force booked
+            const isForceBooked = (walkInEstimate as any)?.isForceBooked;
+            if (sessionEffectiveEnd && !isForceBooked) {
               const appointmentEndTime = addMinutes(adjustedWalkInTime, selectedDoctor.averageConsultingTime || 15);
               console.log('[WALK-IN DEBUG] Availability validation', {
                 doctor: selectedDoctor.name,
@@ -3740,7 +3769,7 @@ export default function AppointmentsPage() {
                                               const appointmentEndTime = addMinutes(adjustedWithBreaks, consultationTime);
                                               const isOutsideFrame = availabilityEnd ? isAfter(appointmentEndTime, availabilityEnd) : false;
 
-                                              if (isOutsideFrame) {
+                                              if (isOutsideFrame && !(walkInEstimate as any)?.isForceBooked) {
                                                 return (
                                                   <>
                                                     <CardTitle className="text-base text-red-700">Walk-in Not Available</CardTitle>
@@ -3831,7 +3860,7 @@ export default function AppointmentsPage() {
                                                 const appointmentEndTime = addMinutes(adjustedWithBreaks, consultationTime);
                                                 const isOutsideFrame = availabilityEnd ? isAfter(appointmentEndTime, availabilityEnd) : false;
 
-                                                if (isOutsideFrame) {
+                                                if (isOutsideFrame && !(walkInEstimate as any)?.isForceBooked) {
                                                   return null; // Already shown in header; avoid duplicate message
                                                 }
 

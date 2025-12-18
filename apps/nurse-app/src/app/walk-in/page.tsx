@@ -311,8 +311,10 @@ function WalkInRegistrationContent() {
     const walkInOpenTime = subMinutes(activeSession.sessionStart, 30);
     const walkInCloseTime = subMinutes(activeSession.effectiveEnd, 15);
 
-    // Check if current time is within walk-in window for this session
-    return currentTime >= walkInOpenTime && currentTime <= walkInCloseTime;
+    // Allow access during normal walk-in window OR during the 15-minute force booking window
+    // Force booking window: between walkInCloseTime and effectiveEnd
+    return (currentTime >= walkInOpenTime && currentTime <= walkInCloseTime) ||
+      (currentTime > walkInCloseTime && currentTime <= activeSession.effectiveEnd);
   }, [doctor, currentTime]);
 
   useEffect(() => {
@@ -856,7 +858,11 @@ function WalkInRegistrationContent() {
         doctor.name,
         bookingDate,
         'W',
-        { slotIndex: appointmentToSave.slotIndex, doctorId: doctor.id }
+        {
+          slotIndex: appointmentToSave.slotIndex,
+          doctorId: doctor.id,
+          isForceBooked: appointmentToSave.isForceBooked
+        }
       );
 
       // Use the time directly from the reservation (already calculated, including for bucket slots)
@@ -889,7 +895,8 @@ function WalkInRegistrationContent() {
 
       // Validate that appointment end time (adjustedAppointmentTime + consultationTime) doesn't exceed session end
       const sessionEffectiveEnd = getSessionEnd(doctor, appointmentDateOnly, sessionIndexForAppointment);
-      if (sessionEffectiveEnd) {
+      // Only check availability end if NOT force booked
+      if (sessionEffectiveEnd && !appointmentToSave?.isForceBooked) {
         const consultationTime = doctor.averageConsultingTime || 15;
         const appointmentEndTime = addMinutes(adjustedAppointmentTime, consultationTime);
         if (isAfter(appointmentEndTime, sessionEffectiveEnd)) {
@@ -1398,7 +1405,9 @@ function WalkInRegistrationContent() {
                 const consultationTime = doctor?.averageConsultingTime || 15;
                 const apptEnd = adjustedTime ? addMinutes(adjustedTime, consultationTime) : null;
                 const availabilityEndLabel = sessionEnd ? format(sessionEnd, 'hh:mm a') : '';
-                const isOutside = apptEnd && sessionEnd ? isAfter(apptEnd, sessionEnd) : false;
+                const isForceBooked = appointmentToSave?.isForceBooked ?? false;
+                // Only check for outside availability if NOT force booked
+                const isOutside = !isForceBooked && apptEnd && sessionEnd ? isAfter(apptEnd, sessionEnd) : false;
 
                 console.log('[NURSE:MODAL] Modal rendering:', {
                   estimatedConsultationTime: estimatedConsultationTime ? format(estimatedConsultationTime, 'hh:mm a') : 'N/A',
@@ -1408,6 +1417,7 @@ function WalkInRegistrationContent() {
                   consultationTime,
                   apptEnd: apptEnd ? format(apptEnd, 'hh:mm a') : 'N/A',
                   isOutside,
+                  isForceBooked
                 });
 
                 if (isOutside) {

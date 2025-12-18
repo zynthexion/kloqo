@@ -174,7 +174,44 @@ export async function managePatient(patientData: PatientInput): Promise<string> 
                 const userDoc = userSnapshot.docs[0];
                 const existingPatientId = userDoc.data().patientId;
                 if (!existingPatientId) {
-                    throw new Error(`Database inconsistency: User ${userDoc.id} exists but has no linked patientId.`);
+                    // User exists (e.g. Admin) but has no patient record.
+                    // Create a new patient record for them and link it.
+                    const newPatientRef = doc(patientsRef);
+
+                    const newPatientData: any = {
+                        id: newPatientRef.id,
+                        primaryUserId: userDoc.id,
+                        name: name || '',
+                        place: place || '',
+                        phone: phone,
+                        communicationPhone: communicationPhone || phone,
+                        email: userDoc.data().email || '',
+                        clinicIds: [clinicId],
+                        totalAppointments: 0,
+                        visitHistory: [],
+                        relatedPatientIds: [],
+                        isPrimary: true,
+                        isKloqoMember: false,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    };
+
+                    if (age !== undefined && age !== null) {
+                        newPatientData.age = age;
+                    }
+                    if (sex !== undefined && sex !== null && sex !== '') {
+                        newPatientData.sex = sex;
+                    }
+
+                    const cleanedPatientData = Object.fromEntries(
+                        Object.entries(newPatientData).filter(([_, v]) => v !== undefined)
+                    );
+
+                    batch.set(newPatientRef, cleanedPatientData);
+                    batch.update(userDoc.ref, { patientId: newPatientRef.id });
+
+                    await batch.commit();
+                    return newPatientRef.id;
                 }
                 const patientRef = doc(db, 'patients', existingPatientId);
                 const updateData: any = {

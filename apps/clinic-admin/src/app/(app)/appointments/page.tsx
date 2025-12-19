@@ -2663,6 +2663,8 @@ export default function AppointmentsPage() {
       const appointmentTime = parseDateFns(appointment.time, "hh:mm a", appointmentDate);
       const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
 
+      const isWalkIn = appointment.tokenNumber?.startsWith('W') || appointment.bookedVia === 'Walk-in';
+
       if (appointmentDoctor && appointment.sessionIndex !== undefined) {
         // Use session-specific breaks for this appointment's session
         const sessionBreakIntervals = getSessionBreakIntervals(
@@ -2674,8 +2676,8 @@ export default function AppointmentsPage() {
           ? applySessionBreakOffsets(appointmentTime, sessionBreakIntervals)
           : appointmentTime;
 
-        // Subtract 15 minutes as requested
-        const finalTime = subMinutes(adjustedTime, 15);
+        // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
+        const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
         return format(finalTime, 'hh:mm a');
       }
 
@@ -2686,13 +2688,13 @@ export default function AppointmentsPage() {
           ? applyBreakOffsets(appointmentTime, breakIntervals)
           : appointmentTime;
 
-        // Subtract 15 minutes as requested
-        const finalTime = subMinutes(adjustedTime, 15);
+        // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
+        const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
         return format(finalTime, 'hh:mm a');
       }
 
       // Default fallback
-      const finalTime = subMinutes(appointmentTime, 15);
+      const finalTime = isWalkIn ? appointmentTime : subMinutes(appointmentTime, 15);
       return format(finalTime, 'hh:mm a');
     } catch (error) {
       console.error("Error formatting time:", error);

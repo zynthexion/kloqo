@@ -23,7 +23,7 @@ import { collection, getDocs, query, where, getDoc, doc } from "firebase/firesto
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/firebase";
 import type { Appointment } from "@/lib/types";
-import { format } from "date-fns";
+import { format, parse, subMinutes } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
@@ -110,7 +110,21 @@ export default function TodaysAppointments({ selectedDate }: { selectedDate: Dat
                 appointments.map((apt) => (
                   <TableRow key={apt.id || apt.tokenNumber}>
                     <TableCell className="font-medium">{apt.patientName}</TableCell>
-                    <TableCell>{apt.time}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        try {
+                          const isWalkIn = apt.tokenNumber?.startsWith('W') || apt.bookedVia === 'Walk-in';
+                          if (isWalkIn) return apt.time;
+
+                          const aptDate = parse(apt.date, "d MMMM yyyy", new Date());
+                          const aptTime = parse(`1970/01/01 ${apt.time}`, "yyyy/MM/dd hh:mm a", new Date());
+                          const finalTime = subMinutes(aptTime, 15);
+                          return format(finalTime, 'hh:mm a');
+                        } catch {
+                          return apt.time;
+                        }
+                      })()}
+                    </TableCell>
                     <TableCell>{apt.doctor}</TableCell>
                     <TableCell>
                       <Badge

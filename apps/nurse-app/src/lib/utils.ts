@@ -2,6 +2,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { format, parse, set, isBefore, subMinutes } from 'date-fns';
+import type { Appointment } from './types';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -74,16 +75,17 @@ export function isTimeBefore(date1: Date, date2: Date): boolean {
 }
 
 /**
- * Get arrive-by time (cutoff time) - appointment time minus 15 minutes
+ * Get display time for appointment - "Arrive by" (-15m) for 'A' tokens, actual time for 'W' tokens
  */
-export function getArriveByTime(timeStr: string, date: Date): string {
+export function getDisplayTime(appt: { time?: string; tokenNumber?: string; bookedVia?: string }): string {
+  if (!appt.time) return '';
   try {
-    const appointmentTime = parseTime(timeStr, date);
-    const arriveByTime = subMinutes(appointmentTime, 15);
-    return format(arriveByTime, 'hh:mm a');
+    const isWalkIn = appt.tokenNumber?.startsWith('W') || appt.bookedVia === 'Walk-in';
+    const date = parse(appt.time, 'hh:mm a', new Date());
+    const adjustedTime = isWalkIn ? date : subMinutes(date, 15);
+    return format(adjustedTime, 'hh:mm a');
   } catch (error) {
-    console.error('Error calculating arrive-by time:', error);
-    return timeStr; // Fallback to original time
+    return appt.time || '';
   }
 }
 

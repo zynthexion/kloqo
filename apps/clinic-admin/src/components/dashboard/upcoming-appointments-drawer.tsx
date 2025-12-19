@@ -6,7 +6,7 @@ import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Appointment, Doctor } from "@/lib/types";
-import { format } from "date-fns";
+import { format, parse, subMinutes } from "date-fns";
 import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
@@ -86,7 +86,20 @@ export default function UpcomingAppointmentsDrawer() {
                                                 <p className="text-xs text-muted-foreground">with {apt.doctor}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-sm font-medium">{apt.time}</p>
+                                                <p className="text-sm font-medium">
+                                                    {(() => {
+                                                        try {
+                                                            const isWalkIn = apt.tokenNumber?.startsWith('W') || apt.bookedVia === 'Walk-in';
+                                                            if (isWalkIn) return apt.time;
+                                                            const aptDate = parse(apt.date, "d MMMM yyyy", new Date());
+                                                            const aptTime = parse(`1970/01/01 ${apt.time}`, "yyyy/MM/dd hh:mm a", new Date());
+                                                            const finalTime = subMinutes(aptTime, 15);
+                                                            return format(finalTime, 'hh:mm a');
+                                                        } catch {
+                                                            return apt.time;
+                                                        }
+                                                    })()}
+                                                </p>
                                                 <p className="text-xs text-muted-foreground">{format(new Date(apt.date), "MMM d")}</p>
                                             </div>
                                         </div>

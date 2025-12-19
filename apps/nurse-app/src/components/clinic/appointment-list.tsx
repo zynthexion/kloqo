@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
 import type { Appointment } from '@/lib/types';
 import { parse, subMinutes, format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, getDisplayTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { User, XCircle, Edit, Check, CheckCircle2, SkipForward } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -259,19 +259,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             <div className="flex justify-between items-center">
                               <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
                                 {appt.date && `${appt.date} - `}
-                                {(() => {
-                                  try {
-                                    // Use arriveByTime if available, otherwise time
-                                    const timeStr = appt.arriveByTime || appt.time;
-                                    if (!timeStr) return '';
-
-                                    const date = parse(timeStr, 'hh:mm a', new Date());
-                                    const adjustedTime = subMinutes(date, 15);
-                                    return format(adjustedTime, 'hh:mm a');
-                                  } catch (e) {
-                                    return appt.time || '';
-                                  }
-                                })()}
+                                {getDisplayTime(appt)}
                               </Badge>
                               {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (

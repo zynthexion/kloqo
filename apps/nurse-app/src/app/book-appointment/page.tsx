@@ -6,7 +6,7 @@ import { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Calendar as CalendarIcon, ArrowLeft, Loader2 } from 'lucide-react';
 import { format, addMinutes, set, parse, isSameDay, startOfDay, addDays, isBefore, isAfter, subMinutes, differenceInMinutes, parseISO } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, buildBreakIntervals, getSessionBreakIntervals, applyBreakOffsets, applySessionBreakOffsets, getSessionEnd, getDisplayTime } from "@/lib/utils";
 import Link from 'next/link';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -1002,11 +1002,7 @@ function BookAppointmentContent() {
                                                                 className={cn(
                                                                     { 'line-through': slot.status === 'booked' || slot.status === 'leave' }
                                                                 )}>
-                                                                {slot.status === 'booked' && slot.tokenNumber ? slot.tokenNumber : (() => {
-                                                                    // Display "Arrive By" time (Slot Time - 15 mins)
-                                                                    const displayTime = subMinutes(slot.time, 15);
-                                                                    return format(displayTime, 'hh:mm a');
-                                                                })()}
+                                                                {slot.status === 'booked' && slot.tokenNumber ? slot.tokenNumber : getDisplayTime({ time: format(slot.time, 'hh:mm a'), bookedVia: 'Advanced Booking' })}
                                                             </Button>
                                                         )
                                                     })}

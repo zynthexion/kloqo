@@ -306,7 +306,20 @@ export default function PDFReport({ dateRange, selectedDate }: PDFReportProps) {
                       <p className="text-sm text-gray-600">{apt.doctor}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-medium text-gray-900">{apt.time}</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {(() => {
+                          try {
+                            const isWalkIn = apt.tokenNumber?.startsWith('W') || apt.bookedVia === 'Walk-in';
+                            if (isWalkIn) return apt.time;
+                            const aptDate = parse(apt.date, "d MMMM yyyy", new Date());
+                            const aptTime = parse(`1970/01/01 ${apt.time}`, "yyyy/MM/dd hh:mm a", new Date());
+                            const finalTime = subMinutes(aptTime, 15);
+                            return format(finalTime, 'hh:mm a');
+                          } catch {
+                            return apt.time;
+                          }
+                        })()}
+                      </p>
                       <Badge
                         variant={apt.status === 'Completed' ? 'default' : apt.status === 'Cancelled' ? 'destructive' : 'secondary'}
                         className="text-xs"

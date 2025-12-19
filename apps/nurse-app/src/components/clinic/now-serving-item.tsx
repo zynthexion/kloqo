@@ -1,8 +1,8 @@
-
 'use client';
 
+import { format, parse, subMinutes } from 'date-fns';
 import type { Appointment } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, getDisplayTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { User, Phone, Coffee, Check, X, AlertTriangle } from 'lucide-react';
@@ -54,51 +54,54 @@ export default function NowServingItem({ appointment: appt, onUpdateStatus }: No
             <p className="text-sm text-muted-foreground">
               {appt.age} yrs, {appt.place}
             </p>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className="text-xs">{appt.time}</Badge>
-              {appt.status !== 'Pending' && <Badge variant={appt.status === 'No-show' ? 'destructive' : 'secondary'}>{appt.status}</Badge>}
-            </div>
+            <Badge variant="outline" className="text-xs">
+              {getDisplayTime(appt)}
+            </Badge>
+            {appt.status !== 'Pending' && <Badge variant={appt.status === 'No-show' ? 'destructive' : 'secondary'}>{appt.status}</Badge>}
           </div>
         </div>
       </div>
-
-      {isActionable && (appt.bookedVia as string) !== 'break' && (
-        <div className="flex items-center justify-end gap-2">
-          {appt.status === 'Pending' && (
-            <>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="text-destructive border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
-                    <X className="mr-2 h-4 w-4" /> Cancel
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Are you sure you want to cancel this appointment for {appt.patientName}? This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Go Back</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => onUpdateStatus(appt.id, 'Cancelled')} className="bg-destructive hover:bg-destructive/90">
-                      Confirm Cancel
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-
-              <Button variant="outline" size="sm" onClick={() => onUpdateStatus(appt.id, 'No-show')}>
-                <AlertTriangle className="mr-2 h-4 w-4" /> No-show
-              </Button>
-            </>
-          )}
-
-          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => onUpdateStatus(appt.id, 'completed')}>
-            <Check className="mr-2 h-4 w-4" /> Complete
-          </Button>
-        </div>
-      )}
     </div>
+
+      {
+    isActionable && (appt.bookedVia as string) !== 'break' && (
+      <div className="flex items-center justify-end gap-2">
+        {appt.status === 'Pending' && (
+          <>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-destructive border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
+                  <X className="mr-2 h-4 w-4" /> Cancel
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to cancel this appointment for {appt.patientName}? This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Go Back</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => onUpdateStatus(appt.id, 'Cancelled')} className="bg-destructive hover:bg-destructive/90">
+                    Confirm Cancel
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <Button variant="outline" size="sm" onClick={() => onUpdateStatus(appt.id, 'No-show')}>
+              <AlertTriangle className="mr-2 h-4 w-4" /> No-show
+            </Button>
+          </>
+        )}
+
+        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => onUpdateStatus(appt.id, 'completed')}>
+          <Check className="mr-2 h-4 w-4" /> Complete
+        </Button>
+      </div>
+    )
+  }
+    </div >
   );
 }

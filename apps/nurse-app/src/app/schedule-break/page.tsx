@@ -5,7 +5,7 @@ import { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, CalendarIcon, Clock, X } from 'lucide-react';
 import { format, addMinutes, subMinutes, differenceInMinutes, startOfDay, parseISO, isBefore, isPast, parse, isAfter, isSameDay, isToday } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, getDisplayTime } from '@/lib/utils';
 import Link from 'next/link';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -1240,7 +1240,9 @@ function ScheduleBreakContent() {
                                                         setSelectedBlockedSlots(newSelection);
                                                     }}
                                                 >
-                                                    <span className="font-semibold text-xs">{appt.time}</span>
+                                                    <span className="font-semibold text-xs">
+                                                        {getDisplayTime(appt)}
+                                                    </span>
                                                     {appt.cancelledByBreak && (
                                                         <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded mt-1">Break Block</span>
                                                     )}

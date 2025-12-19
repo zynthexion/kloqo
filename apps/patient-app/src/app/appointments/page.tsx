@@ -282,8 +282,19 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                             <p className="text-sm">{day}</p>
                         </div>
                         <div className="border-l pl-4">
-                            {!isHistory && <p className="text-xs text-muted-foreground">{t.home.arriveBy}</p>}
-                            <p className="font-semibold">{getArriveByTimeFromAppointment(appointment, doctor)}</p>
+                            {(() => {
+                                const isWalkIn = appointment.tokenNumber?.startsWith('W') || appointment.bookedVia === 'Walk-in';
+                                return (
+                                    <>
+                                        {!isHistory && !isWalkIn && <p className="text-xs text-muted-foreground">{t.home.arriveBy}</p>}
+                                        <p className="font-semibold">
+                                            {isWalkIn
+                                                ? getDisplayTimeFromAppointment(appointment, doctor)
+                                                : getArriveByTimeFromAppointment(appointment, doctor)}
+                                        </p>
+                                    </>
+                                );
+                            })()}
                             {appointment.delay && appointment.delay > 0 && (
                                 <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
                                     ⏱️ Delayed by {appointment.delay} min

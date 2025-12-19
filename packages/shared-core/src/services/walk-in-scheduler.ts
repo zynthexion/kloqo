@@ -156,6 +156,28 @@ export function computeWalkInSchedule({
     return count;
   };
 
+  const countAdvanceBetween = (startPosition: number, endPosition: number): number => {
+    let count = 0;
+    // Calculate range: from max(start + 1, future) to min(end, count)
+    // We count strictly BETWEEN walk-in anchor and candidate position: (anchor, candidate)
+    // So we invoke as countAdvanceBetween(anchorPosition, candidatePosition)
+    // Loop starts at anchor + 1, ends at candidate (exclusive)? 
+    // Wait, spacing is about number of A's *between* W tokens.
+    // So between W1 (anchor) and W2 (candidate), how many As are there?
+    // Iterate from anchor + 1 up to candidate - 1. But candidate position itself might be occupied by A that is being shifted...
+    // Actually, for "filling a gap", the candidate position is currently EMPTY (or A that will move).
+    // If it's empty, we count As up to it.
+
+    const actualStart = Math.max(startPosition + 1, effectiveFirstFuturePosition);
+    for (let pos = actualStart; pos < endPosition; pos += 1) {
+      const occupant = occupancy[pos];
+      if (occupant?.type === 'A' && !occupant.id.startsWith('__blocked_')) {
+        count += 1;
+      }
+    }
+    return count;
+  };
+
   const findNthAdvanceAfter = (anchorPosition: number, nth: number): number => {
     if (nth <= 0) {
       return -1;
@@ -363,9 +385,15 @@ export function computeWalkInSchedule({
       typeof preferredPosition === 'number' ? preferredPosition : Number.POSITIVE_INFINITY;
 
     // Only bubble into 1-hour window if interval logic shouldn't be enforced
-    // This prevents bypassing interval logic when spacing is configured
+    // OR if the interval logic IS satisfied for this specific candidate position
+    // This allows filling "bucket" slots (cancelled gaps) even when global enforcement is active
+    const bucketSpacingSatisfied = earliestWindowPosition !== -1 && (
+      anchorPosition === -1 || // First walk-in of the day - always allowed to take early slot
+      countAdvanceBetween(anchorPosition, earliestWindowPosition) >= spacing
+    );
+
     if (
-      !shouldEnforceInterval &&
+      (!shouldEnforceInterval || bucketSpacingSatisfied) &&
       earliestWindowPosition !== -1 &&
       earliestWindowPosition < preferredThreshold
     ) {

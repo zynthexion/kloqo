@@ -42,6 +42,8 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 
 function ScheduleBreakContent() {
@@ -185,6 +187,8 @@ function ScheduleBreakContent() {
     }, []);
 
     const [cancelPrompt, setCancelPrompt] = useState<{ slots: number[]; breakPeriod: BreakPeriod } | null>(null);
+    const [shouldCancelExtension, setShouldCancelExtension] = useState(true);
+    const [shouldOpenSlots, setShouldOpenSlots] = useState(true);
 
     const performBreakCancellation = useCallback((breakSlotsToCancel: number[], breakToRemove?: BreakPeriod) => {
         if (!doctor || !clinicId || breakSlotsToCancel.length === 0 || !breakToRemove) {
@@ -193,7 +197,6 @@ function ScheduleBreakContent() {
 
         // Safety guard: do not allow manual cancellation once break has started
         const breakStart = new Date(Math.min(...breakSlotsToCancel));
-        // ... (existing date checks are fine, but ensure breakToRemove is used)
         const now = new Date();
         if (now >= breakStart) {
             toast({
@@ -204,10 +207,12 @@ function ScheduleBreakContent() {
             return;
         }
 
+        setShouldCancelExtension(true); // Default to true
+        setShouldOpenSlots(true); // Default to true
         setCancelPrompt({ slots: breakSlotsToCancel, breakPeriod: breakToRemove });
     }, [doctor, clinicId, toast]);
 
-    const handleConfirmCancel = async (shouldConsult: boolean) => {
+    const handleConfirmCancel = async () => {
         if (!cancelPrompt || !doctor || !clinicId) return;
 
         const { slots, breakPeriod } = cancelPrompt;
@@ -218,14 +223,8 @@ function ScheduleBreakContent() {
             const breakStart = parseISO(breakPeriod.startTime);
             const breakEnd = parseISO(breakPeriod.endTime);
 
-            // Logic 1: If User says NO (Do NOT Consult), we must KEEP the slots BLOCKED.
-            // The appointments are already 'Completed' (blocked), so we don't need to do anything.
-            // Just remove the break and leave the appointments as 'Completed'.
-            if (!shouldConsult) {
-                console.log('[BREAK] User chose to keep slots blocked. Appointments will remain as Completed.');
-            } else {
-                // Logic 2: If User says YES (Consult), we must FREE the slots.
-                // Change appointments from 'Completed' to 'Cancelled' to make them bookable.
+            // Logic: If User wants to Open Slots, we must FREE them.
+            if (shouldOpenSlots) {
                 // Also delete slot-reservations for the cancelled appointments.
                 const dateStr = format(selectedDate, 'd MMMM yyyy');
                 const q = query(
@@ -330,10 +329,6 @@ function ScheduleBreakContent() {
                 const totalBreakMinutes = updatedBreaks.reduce((sum, bp) => sum + bp.duration, 0);
                 const sessionIndex = breakPeriod.sessionIndex;
 
-                // We need session info to calculate original end.
-                // Since we are inside the cancellation logic, we might not have 'currentSession' readily available if we are just cancelling based on ID.
-                // However, we can try to find the session from availabilitySlots.
-
                 const dayOfWeek = format(selectedDate, 'EEEE');
                 const availabilityForDay = freshData.availabilitySlots?.find(s => s.day === dayOfWeek);
                 let originalEndStr = '';
@@ -343,23 +338,31 @@ function ScheduleBreakContent() {
                 }
 
                 const existingSessionExtIndex = availabilityExtensions[dateKey].sessions.findIndex((s: any) => s.sessionIndex === sessionIndex);
+                const currentExt = existingSessionExtIndex >= 0 ? availabilityExtensions[dateKey].sessions[existingSessionExtIndex] : null;
+                const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
+
+                const newTotalExtendedBy = shouldCancelExtension
+                    ? totalBreakMinutes
+                    : currentTotalExtendedBy;
 
                 const newSessionExtension = {
                     sessionIndex: sessionIndex,
                     breaks: updatedBreaks,
-                    totalExtendedBy: totalBreakMinutes,
+                    totalExtendedBy: newTotalExtendedBy,
                     originalEndTime: originalEndStr ? format(parseTime(originalEndStr, selectedDate), 'hh:mm a') : '',
                     newEndTime: originalEndStr
-                        ? format(addMinutes(parseTime(originalEndStr, selectedDate), totalBreakMinutes), 'hh:mm a')
+                        ? format(addMinutes(parseTime(originalEndStr, selectedDate), newTotalExtendedBy), 'hh:mm a')
                         : ''
                 };
 
                 if (existingSessionExtIndex >= 0) {
-                    if (updatedBreaks.length === 0) {
+                    if (updatedBreaks.length === 0 && newTotalExtendedBy === 0) {
                         availabilityExtensions[dateKey].sessions.splice(existingSessionExtIndex, 1);
                     } else {
                         availabilityExtensions[dateKey].sessions[existingSessionExtIndex] = newSessionExtension;
                     }
+                } else if (newTotalExtendedBy > 0 || updatedBreaks.length > 0) {
+                    availabilityExtensions[dateKey].sessions.push(newSessionExtension);
                 }
 
                 if (availabilityExtensions[dateKey].sessions.length === 0) {
@@ -372,9 +375,7 @@ function ScheduleBreakContent() {
 
                 toast({
                     title: 'Break Canceled',
-                    description: shouldConsult
-                        ? 'Break removed. Slots are open for booking.'
-                        : 'Break removed. Slots are marked as completed (not bookable).',
+                    description: 'The break has been successfully removed.',
                 });
 
                 // Refresh UI
@@ -1260,26 +1261,53 @@ function ScheduleBreakContent() {
                 </div>
 
                 <AlertDialog open={!!cancelPrompt} onOpenChange={(open) => !open && setCancelPrompt(null)}>
-                    <AlertDialogContent>
+                    <AlertDialogContent className="max-w-md">
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Consult During Break?</AlertDialogTitle>
+                            <AlertDialogTitle>Cancel Break</AlertDialogTitle>
                             <AlertDialogDescription>
-                                Do you want to enable consultation during this break time?
-                                <br /><br />
-                                <strong>Yes:</strong> Slots become open for booking.
-                                <br />
-                                <strong>No:</strong> Slots remain blocked (marked as Completed).
+                                Please choose how to handle the canceled break time.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter className="flex-col space-y-2 sm:space-y-0 sm:flex-row sm:space-x-2">
+
+                        <div className="space-y-6 py-4">
+                            <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+                                <div className="space-y-0.5">
+                                    <Label className="text-base font-semibold">Cancel session extension</Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Remove the extra time added to the session's end for this break.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={shouldCancelExtension}
+                                    onCheckedChange={setShouldCancelExtension}
+                                />
+                            </div>
+
+                            <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+                                <div className="space-y-0.5">
+                                    <Label className="text-base font-semibold">Open slots for booking</Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Make the break time available for new patient appointments.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={shouldOpenSlots}
+                                    onCheckedChange={setShouldOpenSlots}
+                                />
+                            </div>
+                        </div>
+
+                        <AlertDialogFooter>
                             <Button variant="outline" onClick={() => setCancelPrompt(null)}>
-                                Cancel
+                                Close
                             </Button>
-                            <Button variant="secondary" onClick={() => handleConfirmCancel(false)}>
-                                No, Keep Blocked
-                            </Button>
-                            <Button onClick={() => handleConfirmCancel(true)}>
-                                Yes, Open Slots
+                            <Button
+                                variant="destructive"
+                                onClick={() => handleConfirmCancel()}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                Confirm Cancellation
                             </Button>
                         </AlertDialogFooter>
                     </AlertDialogContent>

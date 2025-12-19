@@ -1386,16 +1386,20 @@ export default function DoctorsPage() {
   };
 
   const [cancelBreakPrompt, setCancelBreakPrompt] = useState<{ breakId: string } | null>(null);
+  const [shouldCancelExtension, setShouldCancelExtension] = useState(true);
+  const [shouldOpenSlots, setShouldOpenSlots] = useState(true);
 
   const handleCancelBreak = async (breakId: string) => {
     if (!selectedDoctor || !leaveCalDate || !currentSession) {
       toast({ variant: 'destructive', title: 'Error', description: 'Cannot cancel break.' });
       return;
     }
+    setShouldCancelExtension(true);
+    setShouldOpenSlots(true);
     setCancelBreakPrompt({ breakId });
   };
 
-  const handleConfirmCancelBreak = async (shouldConsult: boolean) => {
+  const handleConfirmCancelBreak = async () => {
     if (!cancelBreakPrompt || !selectedDoctor || !leaveCalDate || !currentSession) return;
     const { breakId } = cancelBreakPrompt;
 
@@ -1410,14 +1414,8 @@ export default function DoctorsPage() {
         return;
       }
 
-      // Logic 1: If User says NO (Do NOT Consult), we must KEEP the slots BLOCKED.
-      // The appointments are already 'Completed' (blocked), so we don't need to do anything.
-      // Just remove the break and leave the appointments as 'Completed'.
-      if (!shouldConsult) {
-        console.log('[BREAK] User chose to keep slots blocked. Appointments will remain as Completed.');
-      } else {
-        // Logic 2: If User says YES (Consult), we must FREE the slots.
-        // Change appointments from 'Completed' to 'Cancelled' to make them bookable.
+      // Logic: If User wants to Open Slots, we must FREE them.
+      if (shouldOpenSlots) {
         // Also delete slot-reservations for the cancelled appointments.
         const dateStr = format(leaveCalDate, 'd MMMM yyyy');
         const breakStart = parseISO(breakToRemove.startTime);
@@ -1498,28 +1496,32 @@ export default function DoctorsPage() {
 
       // Update the session extension entry
       const existingSessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => s.sessionIndex === currentSession.sessionIndex);
+      const currentExt = existingSessionExtIndex >= 0 ? availabilityExtensions[dateStr].sessions[existingSessionExtIndex] : null;
+      const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
+
+      const newTotalExtendedBy = shouldCancelExtension
+        ? totalBreakMinutes
+        : currentTotalExtendedBy;
 
       const newSessionExtension = {
         sessionIndex: currentSession.sessionIndex,
         breaks: remainingBreaks,
-        // If no breaks remain, extension is 0. If breaks remain, we keep the extension as sum of breaks? 
-        // Or strictly speaking, we should probably reset to just the break duration unless user manually extended further?
-        // For simplicity and correctness, let's reset to sum of breaks. 
-        // If they manually extended beyond breaks, that data is lost on cancel, which is probably safer.
-        totalExtendedBy: totalBreakMinutes,
+        totalExtendedBy: newTotalExtendedBy,
         originalEndTime: currentSession.originalEnd ? format(currentSession.originalEnd, 'hh:mm a') : '',
         newEndTime: currentSession.originalEnd
-          ? format(addMinutes(currentSession.originalEnd, totalBreakMinutes), 'hh:mm a')
+          ? format(addMinutes(currentSession.originalEnd, newTotalExtendedBy), 'hh:mm a')
           : ''
       };
 
       if (existingSessionExtIndex >= 0) {
-        if (remainingBreaks.length === 0) {
-          // Remove the extension entry if no breaks
+        if (remainingBreaks.length === 0 && newTotalExtendedBy === 0) {
+          // Remove the extension entry if no breaks and no extension
           availabilityExtensions[dateStr].sessions.splice(existingSessionExtIndex, 1);
         } else {
           availabilityExtensions[dateStr].sessions[existingSessionExtIndex] = newSessionExtension;
         }
+      } else if (newTotalExtendedBy > 0 || remainingBreaks.length > 0) {
+        availabilityExtensions[dateStr].sessions.push(newSessionExtension);
       }
 
       // Cleanup if date entry empty
@@ -1534,9 +1536,7 @@ export default function DoctorsPage() {
 
       toast({
         title: 'Break Cancelled',
-        description: shouldConsult
-          ? 'Break removed. Slots are open for booking.'
-          : 'Break removed. Slots are marked as completed (not bookable).'
+        description: 'The break has been successfully removed.'
       });
 
       // Update local state
@@ -2606,26 +2606,53 @@ export default function DoctorsPage() {
       </AlertDialog>
 
       <AlertDialog open={!!cancelBreakPrompt} onOpenChange={(open) => !open && setCancelBreakPrompt(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Consult During Break?</AlertDialogTitle>
+            <AlertDialogTitle>Cancel Break</AlertDialogTitle>
             <AlertDialogDescription>
-              Do you want to enable consultation during this break time?
-              <br /><br />
-              <strong>Yes:</strong> Slots become open for booking.
-              <br />
-              <strong>No:</strong> Slots remain blocked (marked as Completed).
+              Please choose how to handle the canceled break time.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col space-y-2 sm:space-y-0 sm:flex-row sm:space-x-2">
+
+          <div className="space-y-6 py-4">
+            <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-semibold">Cancel session extension</Label>
+                <p className="text-sm text-muted-foreground">
+                  Remove the extra time added to the session's end for this break.
+                </p>
+              </div>
+              <Switch
+                checked={shouldCancelExtension}
+                onCheckedChange={setShouldCancelExtension}
+              />
+            </div>
+
+            <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-semibold">Open slots for booking</Label>
+                <p className="text-sm text-muted-foreground">
+                  Make the break time available for new patient appointments.
+                </p>
+              </div>
+              <Switch
+                checked={shouldOpenSlots}
+                onCheckedChange={setShouldOpenSlots}
+              />
+            </div>
+          </div>
+
+          <AlertDialogFooter>
             <Button variant="outline" onClick={() => setCancelBreakPrompt(null)}>
-              Cancel
+              Close
             </Button>
-            <Button variant="secondary" onClick={() => handleConfirmCancelBreak(false)}>
-              No, Keep Blocked
-            </Button>
-            <Button onClick={() => handleConfirmCancelBreak(true)}>
-              Yes, Open Slots
+            <Button
+              variant="destructive"
+              onClick={() => handleConfirmCancelBreak()}
+              disabled={isSubmittingBreak}
+            >
+              {isSubmittingBreak ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Confirm Cancellation
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1255,6 +1255,7 @@ export default function AppointmentsPage() {
 
           const duplicateCheckQuery = query(
             collection(db, "appointments"),
+            where("patientId", "==", patientForAppointmentId),
             where("doctor", "==", selectedDoctor.name),
             where("date", "==", appointmentDateStr),
             where("status", "in", ["Pending", "Confirmed", "Skipped"])

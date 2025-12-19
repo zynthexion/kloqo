@@ -88,4 +88,30 @@ export function getDisplayTime(appt: { time?: string; tokenNumber?: string; book
     return appt.time || '';
   }
 }
+/**
+ * Get the actual appointment time accounting for delay
+ * @param appointmentTime - The original appointment time string (e.g., "09:20 AM")
+ * @param appointmentDate - The appointment date
+ * @param delay - Delay in minutes (optional)
+ * @returns Date object with the actual appointment time (original + delay)
+ */
+export const getActualAppointmentTime = (appointmentTime: string, appointmentDate: Date, delay?: number): Date => {
+  const appointmentDateTime = parseTime(appointmentTime, appointmentDate);
+  if (delay && delay > 0) {
+    return addMinutes(appointmentDateTime, delay);
+  }
+  return appointmentDateTime;
+};
 
+/**
+ * Calculate and format the "arrive by" time (actual appointment time - 15 minutes)
+ * @param appointmentTime - The appointment time string (e.g., "09:20 AM")
+ * @param appointmentDate - The appointment date
+ * @param delay - Delay in minutes (optional)
+ * @returns Formatted "arrive by" time string (e.g., "09:05 AM" or "09:15 AM" if delayed)
+ */
+export const getArriveByTime = (appointmentTime: string, appointmentDate: Date, delay?: number): string => {
+  const actualAppointmentDateTime = getActualAppointmentTime(appointmentTime, appointmentDate, delay);
+  const arriveByDateTime = subMinutes(actualAppointmentDateTime, 15);
+  return format(arriveByDateTime, 'hh:mm a');
+};

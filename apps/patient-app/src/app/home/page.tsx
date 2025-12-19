@@ -149,41 +149,6 @@ export const dynamic = 'force-dynamic';
 
 
 const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, departments, language }: { appointment: Appointment, allClinicAppointments: Appointment[], userDoctors: Doctor[], t: any, departments: any[], language: 'en' | 'ml' }) => {
-    const doctor = userDoctors.find(d => d.name === appointment.doctor);
-
-    const doctorAppointmentsToday = useMemo(() => {
-        return allClinicAppointments.filter(apt => apt.doctor === appointment.doctor && apt.status !== 'Cancelled' && apt.status !== 'Completed');
-    }, [allClinicAppointments, appointment.doctor]);
-
-    const currentTokenAppointment = useMemo(() => {
-        const pendingForDoctor = doctorAppointmentsToday
-            .filter(apt => ['Pending', 'Confirmed'].includes(apt.status))
-            .sort((a, b) => (a.slotIndex ?? Infinity) - (b.slotIndex ?? Infinity));
-        return pendingForDoctor[0] || null;
-    }, [doctorAppointmentsToday]);
-
-    const patientsAhead = useMemo(() => {
-        if (!currentTokenAppointment || (appointment.slotIndex === undefined)) return 0;
-
-        const pendingAppointmentsInQueue = doctorAppointmentsToday
-            .filter(a => ['Pending', 'Confirmed'].includes(a.status))
-            .sort((a, b) => (a.slotIndex ?? Infinity) - (b.slotIndex ?? Infinity));
-
-        const yourQueueIndex = pendingAppointmentsInQueue.findIndex(a => a.id === appointment.id);
-        const currentQueueIndex = pendingAppointmentsInQueue.findIndex(a => a.id === currentTokenAppointment.id);
-
-        if (yourQueueIndex === -1 || currentQueueIndex === -1) return 0;
-
-        return Math.max(0, yourQueueIndex - currentQueueIndex);
-
-    }, [appointment, currentTokenAppointment, doctorAppointmentsToday]);
-
-    const estimatedWaitTime = useMemo(() => {
-        if (!doctor) return 0;
-        const avgTime = doctor.averageConsultingTime || 5;
-        return patientsAhead * avgTime;
-    }, [patientsAhead, doctor]);
-
 
     return (
         <Card className="bg-primary-foreground/10 border-primary-foreground/20 shadow-lg text-primary-foreground">
@@ -202,24 +167,19 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
                         <Link href="/live-token">{t.home.viewLiveQueue}</Link>
                     </Button>
                 </div>
-                <div className="mt-4 border-t border-primary-foreground/20 pt-4 grid grid-cols-3 gap-2 text-center">
+                <div className="mt-4 border-t border-primary-foreground/20 pt-4 flex items-start justify-between">
                     <div>
-                        <p className="text-xs opacity-80">{t.home.currentToken}</p>
-                        <p className="font-bold text-lg">{currentTokenAppointment?.tokenNumber || 'N/A'}</p>
+                        <p className="font-bold text-lg">{appointment.doctor}</p>
+                        <p className="text-sm opacity-80">{getLocalizedDepartmentName(appointment.department, language, departments)}</p>
+                        <p className="text-sm text-muted-foreground mt-1">Patient: <span className="font-semibold">{appointment.patientName}</span></p>
                     </div>
-                    <div>
-                        <p className="text-xs opacity-80">{t.home.aheadOfYou}</p>
-                        <p className="font-bold text-lg">{patientsAhead}</p>
+                    <div className="text-right">
+                        <p className="text-xs opacity-80">Time</p>
+                        <p className="font-bold text-lg">{(() => {
+                            const appointmentDoctor = userDoctors.find(d => d.name === appointment.doctor);
+                            return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
+                        })()}</p>
                     </div>
-                    <div>
-                        <p className="text-xs opacity-80">{t.home.estWait}</p>
-                        <p className="font-bold text-lg">{estimatedWaitTime} min</p>
-                    </div>
-                </div>
-                <div className="mt-4 border-t border-primary-foreground/20 pt-4">
-                    <p className="font-bold text-lg">{appointment.doctor}</p>
-                    <p className="text-sm opacity-80">{getLocalizedDepartmentName(appointment.department, language, departments)}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Patient: <span className="font-semibold">{appointment.patientName}</span></p>
                 </div>
             </CardContent>
         </Card>

@@ -22,23 +22,6 @@ import { SplashScreen } from '@/components/splash-screen';
 import { useLanguage } from '@/contexts/language-context';
 
 const WalkInCard = ({ appointment }: { appointment: Appointment }) => {
-    // NOTE: These are placeholders. In a real app, this data would come from a real-time source.
-    const [currentToken, setCurrentToken] = useState(0);
-    const [patientsAhead, setPatientsAhead] = useState(0);
-    const [estimatedWaitTime, setEstimatedWaitTime] = useState(0);
-
-    useEffect(() => {
-        if (appointment?.tokenNumber) {
-            const yourToken = parseInt(appointment.tokenNumber.substring(1));
-            // Simulate the current token being a few behind yours
-            const current = Math.max(0, yourToken - 3);
-            setCurrentToken(current);
-            setPatientsAhead(yourToken - current);
-            setEstimatedWaitTime((yourToken - current) * 5); // 5 mins per patient
-        }
-    }, [appointment]);
-
-
     return (
         <Card className="bg-primary-foreground/10 border-primary-foreground/20 shadow-lg mt-6 text-primary-foreground">
             <CardContent className="p-4">
@@ -55,20 +38,6 @@ const WalkInCard = ({ appointment }: { appointment: Appointment }) => {
                     <Button asChild variant="secondary" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">
                         <Link href="/live-token">View Live Queue</Link>
                     </Button>
-                </div>
-                <div className="mt-4 border-t border-primary-foreground/20 pt-4 grid grid-cols-3 gap-2 text-center">
-                    <div>
-                        <p className="text-xs opacity-80">Current Token</p>
-                        <p className="font-bold text-lg">{`W${currentToken}`}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs opacity-80">Ahead of You</p>
-                        <p className="font-bold text-lg">{patientsAhead}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs opacity-80">Est. Wait</p>
-                        <p className="font-bold text-lg">{estimatedWaitTime} min</p>
-                    </div>
                 </div>
                 <div className="mt-4 border-t border-primary-foreground/20 pt-4">
                     <p className="font-bold text-lg">{appointment.doctor}</p>

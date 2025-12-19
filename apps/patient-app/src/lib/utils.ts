@@ -119,6 +119,8 @@ export const getArriveByTime = (appointmentTime: string, appointmentDate: Date, 
 export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?: Doctor | null): string => {
   try {
     const appointmentDate = parse(appointment.date, "d MMMM yyyy", new Date());
+    const isWalkIn = appointment.tokenNumber?.startsWith('W');
+
     if (appointment.arriveByTime) {
       const arriveDateTime = parse(appointment.arriveByTime, "hh:mm a", appointmentDate);
       // Add break offsets if doctor info is available
@@ -126,7 +128,8 @@ export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?
       const adjustedArriveDateTime = breakIntervals.length > 0
         ? applyBreakOffsets(arriveDateTime, breakIntervals)
         : arriveDateTime;
-      const displayTime = subMinutes(adjustedArriveDateTime, 15);
+      // Don't subtract 15 minutes for walk-in appointments
+      const displayTime = isWalkIn ? adjustedArriveDateTime : subMinutes(adjustedArriveDateTime, 15);
       return format(displayTime, 'hh:mm a');
     }
     // For time field, add break offsets if doctor info is available
@@ -138,7 +141,8 @@ export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?
     const actualTime = appointment.delay && appointment.delay > 0
       ? addMinutes(adjustedAppointmentTime, appointment.delay)
       : adjustedAppointmentTime;
-    const arriveByDateTime = subMinutes(actualTime, 15);
+    // Don't subtract 15 minutes for walk-in appointments
+    const arriveByDateTime = isWalkIn ? actualTime : subMinutes(actualTime, 15);
     return format(arriveByDateTime, 'hh:mm a');
   } catch {
     if (appointment.arriveByTime) {

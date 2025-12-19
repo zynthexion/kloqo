@@ -65,6 +65,8 @@ export async function sendNotificationToPatient(params: {
             return false;
         }
 
+        console.log(`[Notification] 🎯 DEBUG: Resolved userId: ${userId} for patient: ${patientId}`);
+
         // Get user's FCM token
         const userDoc = await getDoc(doc(firestore, 'users', userId));
         if (!userDoc.exists()) {
@@ -86,14 +88,11 @@ export async function sendNotificationToPatient(params: {
             return false;
         }
 
+        console.log(`[Notification] 🎯 DEBUG: Found FCM Token (prefix): ${fcmToken.substring(0, 10)}... for user: ${userId}`);
+
         const language = userData.language || 'en';
 
         // Build API URL
-        // Priority:
-        // 1. NEXT_PUBLIC_BASE_URL env var if set
-        // 2. dynamically determine if on localhost (client-side)
-        // 3. Fallback to production URL
-
         let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
         if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
@@ -104,6 +103,8 @@ export async function sendNotificationToPatient(params: {
         baseUrl = baseUrl || 'https://app.kloqo.com';
 
         const apiUrl = `${baseUrl}/api/send-notification`;
+        console.log(`[Notification] 🎯 DEBUG: Calling API: ${apiUrl} for patient: ${patientId}`);
+
         // Send notification via API
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -121,14 +122,14 @@ export async function sendNotificationToPatient(params: {
         });
 
         if (!response.ok) {
-            console.error(`[Notification] ❌ API Failed for patient ${patientId}:`, response.statusText);
-            // Check if token is invalid - this is a recoverable error
-            // Return false but don't throw - this allows appointment booking to succeed
+            console.error(`[Notification] ❌ API Failed for patient ${patientId}:`, response.statusText, response.status);
+            const errorText = await response.text();
+            console.error(`[Notification] ❌ API Error Body:`, errorText);
             return false;
         }
 
-        const responseData = await response.json();
-        console.log(`[Notification] ✅ Successfully sent to patient ${patientId} (user: ${userId}):`, { title, type: data?.type });
+        const responseData = await response.json() as any;
+        console.log(`[Notification] ✅ Successfully sent to patient ${patientId} (user: ${userId}):`, { title, type: data?.type, message: responseData.message });
         return true;
     } catch (error) {
         console.error('🔔 DEBUG: Error sending notification to patient:', error);

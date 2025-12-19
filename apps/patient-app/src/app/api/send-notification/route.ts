@@ -32,9 +32,16 @@ export async function POST(request: NextRequest) {
   let requestData: any = {};
 
   try {
-    /* console.log('🔔 API DEBUG: Received notification request'); */
     requestData = await request.json();
     const { fcmToken, title: originalTitle, body: originalBody, data, userId, language } = requestData;
+
+    console.log('🔔 [API-DEBUG] Received notification request:', {
+      userId,
+      type: data?.type,
+      hasFcmToken: !!fcmToken,
+      fcmTokenPrefix: fcmToken?.substring(0, 10),
+      language
+    });
 
     let finalTitle = originalTitle;
     let finalBody = originalBody;
@@ -48,12 +55,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-
-
-
-
     if (!fcmToken) {
-      console.error('Missing required parameters: fcmToken');
+      console.error('🔔 [API-DEBUG] FAILURE: Missing fcmToken');
       return NextResponse.json(
         { error: 'Missing required parameters' },
         { status: 400, headers: corsHeaders }
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
     // 2. Send FCM
     try {
       if (app) {
-        /* console.log('🔔 API DEBUG: Attempting to send FCM notification'); */
+        console.log('🔔 [FCM-DEBUG] Attempting to send FCM notification via Admin SDK');
         const messageData = {
           ...(data || {}),
           ...(data?.notificationSound && { notificationSound: data.notificationSound }),
@@ -162,14 +165,14 @@ export async function POST(request: NextRequest) {
 
         const messaging = getMessaging(app);
         const messageId = await messaging.send(message);
-        /* console.log('🔔 API DEBUG: FCM notification sent successfully:', messageId); */
+        console.log('🔔 [FCM-DEBUG] SUCCESS: FCM notification sent, messageId:', messageId);
         fcmSuccess = true;
       } else {
-        console.warn('Firebase Admin not initialized');
+        console.warn('🔔 [FCM-DEBUG] FAILURE: Firebase Admin not initialized');
         fcmError = 'Firebase Admin SDK not properly initialized';
       }
     } catch (err) {
-      console.error('FCM send error:', err);
+      console.error('🔔 [FCM-DEBUG] FAILURE: Error sending FCM:', err);
       fcmSuccess = false;
       fcmError = err instanceof Error ? err.message : String(err);
     }

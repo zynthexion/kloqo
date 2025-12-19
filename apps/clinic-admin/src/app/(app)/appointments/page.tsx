@@ -1975,8 +1975,12 @@ export default function AppointmentsPage() {
           // Send notification for new appointments
           if (!isEditing) {
             try {
-              const clinicName = `The clinic`; // You can fetch from clinic doc if needed
-
+              const clinicName = `The clinic`;
+              console.log('🎯 DEBUG: [APPOINTMENTS PAGE] Triggering sendAppointmentBookedByStaffNotification', {
+                patientId: patientForAppointmentId,
+                appointmentId: appointmentId,
+                tokenNumber: appointmentData.tokenNumber
+              });
               await sendAppointmentBookedByStaffNotification({
                 firestore: db,
                 patientId: patientForAppointmentId,
@@ -1989,8 +1993,9 @@ export default function AppointmentsPage() {
                 tokenNumber: appointmentData.tokenNumber,
                 bookedBy: 'admin',
               });
+              console.log('🎯 DEBUG: [APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification SUCCESS');
             } catch (notifError) {
-              console.error('Failed to send notification:', notifError);
+              console.error('🎯 DEBUG: [APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification FAILED:', notifError);
             }
           }
 

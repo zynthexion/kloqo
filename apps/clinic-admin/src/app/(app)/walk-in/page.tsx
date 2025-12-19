@@ -750,12 +750,12 @@ function WalkInRegistrationContent() {
           tokenNumber: updatedAppointmentData.tokenNumber,
           bookedBy: 'admin',
         });
-        console.log('🎯 DEBUG: Notification sent to patient');
+        console.log('🎯 DEBUG: [WALK-IN PAGE] sendAppointmentBookedByStaffNotification SUCCESS');
       } catch (notifError) {
-        console.error('🎯 DEBUG: Failed to send notification:', notifError);
+        console.error('🎯 DEBUG: [WALK-IN PAGE] sendAppointmentBookedByStaffNotification FAILED:', notifError);
         if (notifError instanceof Error) {
-          console.error('🎯 DEBUG: Error message:', notifError.message);
-          console.error('🎯 DEBUG: Error stack:', notifError.stack);
+          console.error('🎯 DEBUG: [WALK-IN PAGE] Error message:', notifError.message);
+          console.error('🎯 DEBUG: [WALK-IN PAGE] Error stack:', notifError.stack);
         }
         // Don't fail the appointment creation if notification fails
       }

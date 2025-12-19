@@ -61,7 +61,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
+import { cn, parseTime as parseTimeUtil, getDisplayTime } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import PatientsVsAppointmentsChart from "@/components/dashboard/patients-vs-appointments-chart";
 import { DateRange } from "react-day-picker";
@@ -218,6 +218,7 @@ export default function DoctorsPage() {
   const [newFee, setNewFee] = useState<number | string>("");
 
   const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [activeBreakTab, setActiveBreakTab] = useState<'schedule' | 'blocked'>('schedule');
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [newName, setNewName] = useState("");
   const [newBio, setNewBio] = useState("");
@@ -1388,6 +1389,8 @@ export default function DoctorsPage() {
   const [cancelBreakPrompt, setCancelBreakPrompt] = useState<{ breakId: string } | null>(null);
   const [shouldCancelExtension, setShouldCancelExtension] = useState(true);
   const [shouldOpenSlots, setShouldOpenSlots] = useState(true);
+  const [selectedBlockedSlots, setSelectedBlockedSlots] = useState<string[]>([]);
+  const [isOpeningSlots, setIsOpeningSlots] = useState(false);
 
   const handleCancelBreak = async (breakId: string) => {
     if (!selectedDoctor || !leaveCalDate || !currentSession) {
@@ -1398,6 +1401,13 @@ export default function DoctorsPage() {
     setShouldOpenSlots(true);
     setCancelBreakPrompt({ breakId });
   };
+
+  useEffect(() => {
+    setBreakStartSlot(null);
+    setBreakEndSlot(null);
+    setSelectedBlockedSlots([]);
+  }, [activeBreakTab]);
+
 
   const handleConfirmCancelBreak = async () => {
     if (!cancelBreakPrompt || !selectedDoctor || !leaveCalDate || !currentSession) return;
@@ -1557,6 +1567,56 @@ export default function DoctorsPage() {
     }
   };
 
+  const handleOpenBlockedSlots = async () => {
+    if (!selectedDoctor || !selectedDoctor.clinicId || selectedBlockedSlots.length === 0) return;
+
+    setIsOpeningSlots(true);
+    try {
+      const batch = writeBatch(db);
+      const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+
+      selectedBlockedSlots.forEach(apptId => {
+        const appt = appointments.find(a => a.id === apptId);
+        if (appt) {
+          // Update appointment status to Cancelled
+          const apptRef = doc(db, 'appointments', apptId);
+          batch.update(apptRef, { status: 'Cancelled' });
+
+          // Delete slot reservation
+          if (typeof appt.slotIndex === 'number') {
+            const reservationId = `${selectedDoctor.clinicId}_${selectedDoctor.name}_${dateStr}_slot_${appt.slotIndex}`;
+            const reservationRef = doc(db, 'slot-reservations', reservationId);
+            batch.delete(reservationRef);
+          }
+        }
+      });
+
+      await batch.commit();
+      setSelectedBlockedSlots([]);
+      toast({
+        title: 'Slots Opened',
+        description: `Successfully opened ${selectedBlockedSlots.length} slots.`,
+      });
+
+      // Refresh data
+      const dateQueryStr = format(leaveCalDate, 'd MMMM yyyy');
+      const appointmentsQuery = query(collection(db, "appointments"),
+        where("doctor", "==", selectedDoctor.name),
+        where("clinicId", "==", selectedDoctor.clinicId),
+        where("date", "==", dateQueryStr)
+      );
+      const snapshot = await getDocs(appointmentsQuery);
+      const fetchedAppointments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Appointment));
+      setAppointments(fetchedAppointments);
+
+    } catch (error) {
+      console.error("Error opening slots:", error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to open slots.' });
+    } finally {
+      setIsOpeningSlots(false);
+    }
+  };
+
   const todaysAppointmentsCount = useMemo(() => {
     if (!selectedDoctor) return 0;
     const todayStr = format(new Date(), 'd MMMM yyyy');
@@ -1619,7 +1679,7 @@ export default function DoctorsPage() {
         const clinicName = clinicDoc?.data()?.name || 'The clinic';
         const { notifySessionPatientsOfConsultationStart } = await import('@kloqo/shared-core');
         const today = format(new Date(), 'd MMMM yyyy');
-        await notifySessionPatientsOfConsultationStart(db, selectedDoctor, clinicName, today, sessionIndex);
+        await notifySessionPatientsOfConsultationStart({ db, doctor: selectedDoctor, clinicName, today, sessionIndex });
       }
 
       toast({ title: 'Consultation Started', description: 'Your consultation session has begun.' });
@@ -2043,232 +2103,372 @@ export default function DoctorsPage() {
                           )}
                         </Card>
                         <Card>
-                          <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><CalendarIcon className="w-5 h-5" /> Schedule Break</CardTitle>
-                            <CardDescription>Select a date and time range to schedule a break. This will reschedule existing appointments.</CardDescription>
-                          </CardHeader>
-                          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Calendar
-                              mode="single"
-                              selected={leaveCalDate}
-                              onSelect={(d) => {
-                                if (d) {
-                                  setLeaveCalDate(d);
-                                  setBreakStartSlot(null);
-                                  setBreakEndSlot(null);
-                                }
-                              }}
-                              disabled={(date) => (isPast(date) && !isSameDay(date, new Date())) || !selectedDoctor.availabilitySlots?.some(s => s.day === format(date, 'EEEE'))}
-                              initialFocus
-                            />
-                            <div className="p-4 border rounded-md h-full flex flex-col">
-                              <h3 className="font-semibold mb-2">
-                                Slots for {format(leaveCalDate, "MMM d")}
-                              </h3>
+                          <Tabs value={activeBreakTab} onValueChange={(v) => setActiveBreakTab(v as any)}>
+                            <CardHeader className="pb-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <CardTitle className="flex items-center gap-2">
+                                  <CalendarIcon className="w-5 h-5" />
+                                  Break Management
+                                </CardTitle>
+                              </div>
+                              <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="schedule">Schedule Break</TabsTrigger>
+                                <TabsTrigger value="blocked">Open Blocked Slots</TabsTrigger>
+                              </TabsList>
+                            </CardHeader>
 
-                              {/* Display existing breaks for current session */}
-                              {currentSession && existingBreaks.length > 0 && (
-                                <div className="mb-4 p-4 border rounded-md bg-muted/50">
-                                  <h4 className="font-semibold mb-2 flex items-center gap-2">
-                                    <Clock className="w-4 h-4" />
-                                    Current Breaks in Session {currentSession.sessionIndex + 1}
-                                    ({format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')})
-                                  </h4>
+                            <TabsContent value="schedule" className="mt-0">
+                              <CardHeader className="pt-0">
+                                <CardDescription>Select a date and time range to schedule a break. This will reschedule existing appointments.</CardDescription>
+                              </CardHeader>
+                              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Calendar
+                                  mode="single"
+                                  selected={leaveCalDate}
+                                  onSelect={(d) => {
+                                    if (d) {
+                                      setLeaveCalDate(d);
+                                      setBreakStartSlot(null);
+                                      setBreakEndSlot(null);
+                                    }
+                                  }}
+                                  disabled={(date) => (isPast(date) && !isSameDay(date, new Date())) || !selectedDoctor.availabilitySlots?.some(s => s.day === format(date, 'EEEE'))}
+                                  initialFocus
+                                />
+                                <div className="p-4 border rounded-md h-[500px] flex flex-col">
+                                  <h3 className="font-semibold mb-2">
+                                    Slots for {format(leaveCalDate, "MMM d")}
+                                  </h3>
 
-                                  <div className="space-y-2">
-                                    {existingBreaks
-                                      .filter(bp => {
-                                        if (!isToday(leaveCalDate)) return true;
-                                        const breakEndTimes = bp.slots.map(s => parseISO(s).getTime());
-                                        const lastSlotEnd = addMinutes(new Date(Math.max(...breakEndTimes)), selectedDoctor?.averageConsultingTime || 15);
-                                        return isAfter(lastSlotEnd, new Date());
-                                      })
-                                      .map((breakPeriod, index) => (
-                                        <div
-                                          key={breakPeriod.id}
-                                          className="flex items-center justify-between p-2 bg-background border rounded"
-                                        >
-                                          <div className="flex items-center gap-2">
-                                            <span className="font-medium">Break {index + 1}:</span>
-                                            <span className="text-sm">
-                                              {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
-                                            </span>
-                                            <span className="text-xs text-muted-foreground">
-                                              ({breakPeriod.duration} min)
-                                            </span>
-                                          </div>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleCancelBreak(breakPeriod.id)}
-                                            disabled={isSubmittingBreak}
-                                          >
-                                            <X className="w-4 h-4 mr-1" />
-                                            Cancel
-                                          </Button>
+                                  {/* Display existing breaks for current session */}
+                                  {currentSession && existingBreaks.length > 0 && (
+                                    <div className="mb-4 p-4 border rounded-md bg-muted/50">
+                                      <h4 className="font-semibold mb-2 flex items-center gap-2">
+                                        <Clock className="w-4 h-4" />
+                                        Current Breaks in Session {currentSession.sessionIndex + 1}
+                                        ({format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')})
+                                      </h4>
+
+                                      <div className="space-y-2">
+                                        {existingBreaks
+                                          .filter(bp => {
+                                            if (!isToday(leaveCalDate)) return true;
+                                            const breakEndTimes = bp.slots.map(s => parseISO(s).getTime());
+                                            const lastSlotEnd = addMinutes(new Date(Math.max(...breakEndTimes)), selectedDoctor?.averageConsultingTime || 15);
+                                            return isAfter(lastSlotEnd, new Date());
+                                          })
+                                          .map((breakPeriod, index) => (
+                                            <div
+                                              key={breakPeriod.id}
+                                              className="flex items-center justify-between p-2 bg-background border rounded"
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-medium">Break {index + 1}:</span>
+                                                <span className="text-sm">
+                                                  {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
+                                                </span>
+                                                <span className="text-xs text-muted-foreground">
+                                                  ({breakPeriod.duration} min)
+                                                </span>
+                                              </div>
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleCancelBreak(breakPeriod.id)}
+                                                disabled={isSubmittingBreak}
+                                              >
+                                                <X className="w-4 h-4 mr-1" />
+                                                Cancel
+                                              </Button>
+                                            </div>
+                                          ))}
+                                      </div>
+
+                                      {/* Extension summary */}
+                                      <div className="mt-3 pt-3 border-t text-sm">
+                                        <div className="flex justify-between">
+                                          <span className="text-muted-foreground">Total break time:</span>
+                                          <span className="font-medium">{currentSession.totalBreakMinutes} minutes</span>
                                         </div>
-                                      ))}
-                                  </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-muted-foreground">
+                                            {currentSession.effectiveEnd?.getTime() === currentSession.originalEnd?.getTime()
+                                              ? 'Session ends at:'
+                                              : 'Session extended to:'}
+                                          </span>
+                                          <span className="font-medium">{format(currentSession.effectiveEnd, 'hh:mm a')}</span>
+                                        </div>
+                                      </div>
 
-                                  {/* Extension summary */}
-                                  <div className="mt-3 pt-3 border-t text-sm">
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">Total break time:</span>
-                                      <span className="font-medium">{currentSession.totalBreakMinutes} minutes</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">
-                                        {currentSession.effectiveEnd.getTime() === currentSession.originalEnd.getTime()
-                                          ? 'Session ends at:'
-                                          : 'Session extended to:'}
-                                      </span>
-                                      <span className="font-medium">{format(currentSession.effectiveEnd, 'hh:mm a')}</span>
-                                    </div>
-                                  </div>
-
-                                  {existingBreaks.length >= 3 && (
-                                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                                      Maximum 3 breaks per session reached. Cancel a break to add a new one.
+                                      {existingBreaks.length >= 3 && (
+                                        <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                                          Maximum 3 breaks per session reached. Cancel a break to add a new one.
+                                        </div>
+                                      )}
                                     </div>
                                   )}
-                                </div>
-                              )}
 
-                              {/* Slot grid */}
-                              <div className="space-y-4 flex-grow overflow-y-auto">
-                                {currentSession && availableSlots ? (
-                                  <>
-                                    {/* Current Session Slots */}
-                                    <div>
-                                      <h4 className="text-sm font-medium mb-2">
-                                        Session {currentSession.sessionIndex + 1}: {format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')}
-                                      </h4>
-                                      <div className="grid grid-cols-3 gap-2">
-                                        {availableSlots.currentSessionSlots.map((slot) => {
-                                          const slotDate = parseISO(slot.isoString);
-                                          const isSelected = breakStartSlot && breakEndSlot
-                                            ? slotDate >= parseISO(breakStartSlot.isoString) && slotDate <= parseISO(breakEndSlot.isoString)
-                                            : breakStartSlot && slotDate.getTime() === parseISO(breakStartSlot.isoString).getTime();
+                                  {/* Slot grid */}
+                                  <div className="space-y-4 flex-grow overflow-y-auto pr-1">
+                                    {currentSession && availableSlots ? (
+                                      <>
+                                        {/* Current Session Slots */}
+                                        <div>
+                                          <h4 className="text-sm font-medium mb-2">
+                                            Session {currentSession.sessionIndex + 1}: {format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')}
+                                          </h4>
+                                          <div className="grid grid-cols-2 gap-2">
+                                            {availableSlots.currentSessionSlots.map((slot) => {
+                                              const slotDate = parseISO(slot.isoString);
+                                              const isSelected = breakStartSlot && breakEndSlot
+                                                ? slotDate >= parseISO(breakStartSlot.isoString) && slotDate <= parseISO(breakEndSlot.isoString)
+                                                : breakStartSlot && slotDate.getTime() === parseISO(breakStartSlot.isoString).getTime();
+
+                                              return (
+                                                <Button
+                                                  key={slot.isoString}
+                                                  variant={isSelected ? 'default' : 'outline'}
+                                                  className={cn("h-auto py-3 flex-col gap-0.5", {
+                                                    'bg-destructive/80 hover:bg-destructive text-white': isSelected,
+                                                    'bg-gray-200 text-gray-600 border-gray-300 cursor-not-allowed opacity-60': slot.isTaken,
+                                                    'hover:bg-accent': !isSelected && !slot.isTaken,
+                                                  })}
+                                                  onClick={() => handleSlotClick(slot)}
+                                                  disabled={slot.isTaken}
+                                                >
+                                                  <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                                  <span className="text-[10px] opacity-70">to</span>
+                                                  <span className="font-semibold text-xs">{format(addMinutes(parseISO(slot.isoString), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}</span>
+                                                  {slot.isTaken && <span className="text-xs mt-1">Taken</span>}
+                                                </Button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+
+                                        {/* Upcoming Sessions */}
+                                        {Array.from(availableSlots.upcomingSessionSlots.entries()).map(([sessionIndex, slots]) => (
+                                          <div key={sessionIndex}>
+                                            <h4 className="text-sm font-medium mb-2 text-muted-foreground">
+                                              Session {sessionIndex + 1} (Upcoming)
+                                            </h4>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              {slots.map((slot) => {
+                                                const slotDate = parseISO(slot.isoString);
+                                                const isSelected = breakStartSlot && breakEndSlot
+                                                  ? slotDate >= parseISO(breakStartSlot.isoString) && slotDate <= parseISO(breakEndSlot.isoString)
+                                                  : breakStartSlot && slotDate.getTime() === parseISO(breakStartSlot.isoString).getTime();
+
+                                                return (
+                                                  <Button
+                                                    key={slot.isoString}
+                                                    variant={isSelected ? 'default' : 'outline'}
+                                                    className={cn("h-auto py-3 flex-col gap-0.5", {
+                                                      'bg-destructive/80 hover:bg-destructive text-white': isSelected,
+                                                      'bg-gray-200 text-gray-600 border-gray-300 cursor-not-allowed opacity-60': slot.isTaken,
+                                                      'hover:bg-accent': !isSelected && !slot.isTaken,
+                                                    })}
+                                                    onClick={() => handleSlotClick(slot)}
+                                                    disabled={slot.isTaken}
+                                                  >
+                                                    <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                                    <span className="text-[10px] opacity-70">to</span>
+                                                    <span className="font-semibold text-xs">{format(addMinutes(parseISO(slot.isoString), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}</span>
+                                                    {slot.isTaken && <span className="text-xs mt-1">Taken</span>}
+                                                  </Button>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground text-center pt-4">
+                                        {leaveCalDate ? 'No active session for this date.' : 'Select a date to view slots.'}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* Status text */}
+                                  <div className="text-center mt-4 mb-2 text-sm text-muted-foreground">
+                                    {breakStartSlot && breakEndSlot ? (
+                                      <div>
+                                        {(() => {
+                                          try {
+                                            const start = parseISO(breakStartSlot.isoString);
+                                            const end = parseISO(breakEndSlot.isoString);
+                                            const slotDuration = selectedDoctor?.averageConsultingTime || 15;
+                                            const endTime = addMinutes(end, slotDuration);
+                                            const duration = differenceInMinutes(endTime, start);
+
+                                            return (
+                                              <>
+                                                <p className="font-medium text-foreground">
+                                                  New break: {format(start, 'hh:mm a')} to {format(endTime, 'hh:mm a')}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                  {duration} min
+                                                </p>
+                                              </>
+                                            );
+                                          } catch {
+                                            return null;
+                                          }
+                                        })()}
+                                      </div>
+                                    ) : breakStartSlot ? (
+                                      `Start: ${format(parseISO(breakStartSlot.isoString), 'hh:mm a')} - Select end time`
+                                    ) : existingBreaks.length > 0 ? (
+                                      'Select start and end slots to add another break'
+                                    ) : (
+                                      'Select start and end slots for the break'
+                                    )}
+                                  </div>
+
+                                  {/* Confirm button */}
+                                  <Button
+                                    className="w-full"
+                                    variant="destructive"
+                                    disabled={!breakStartSlot || !breakEndSlot || isSubmittingBreak || existingBreaks.length >= 3}
+                                    onClick={handleConfirmBreak}
+                                  >
+                                    {isSubmittingBreak ? (
+                                      <>
+                                        <Loader2 className="animate-spin mr-2" />
+                                        Adding...
+                                      </>
+                                    ) : (
+                                      'Add Break'
+                                    )}
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </TabsContent>
+
+                            <TabsContent value="blocked" className="mt-0">
+                              <CardHeader className="pt-0">
+                                <CardDescription>Select a range of blocked slots (Completed status) to make them available for booking again.</CardDescription>
+                              </CardHeader>
+                              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Calendar
+                                  mode="single"
+                                  selected={leaveCalDate}
+                                  onSelect={(d) => {
+                                    if (d) {
+                                      setLeaveCalDate(d);
+                                      setSelectedBlockedSlots([]);
+                                    }
+                                  }}
+                                  disabled={(date) => (isPast(date) && !isSameDay(date, new Date())) || !selectedDoctor.availabilitySlots?.some(s => s.day === format(date, 'EEEE'))}
+                                  initialFocus
+                                />
+                                <div className="p-4 border rounded-md h-[500px] flex flex-col">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h3 className="font-semibold text-sm">Blocked Slots for {format(leaveCalDate, "MMM d")}</h3>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={handleOpenBlockedSlots}
+                                      disabled={selectedBlockedSlots.length === 0 || isOpeningSlots}
+                                    >
+                                      {isOpeningSlots ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                      Open {selectedBlockedSlots.length} Slots
+                                    </Button>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mb-4">
+                                    Select a start and end slot to define a range.
+                                  </p>
+
+                                  <div className="space-y-4 flex-grow overflow-y-auto pr-1">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {(() => {
+                                        const filteredAppointments = appointments
+                                          .filter(a => a.status === 'Completed' && a.doctor === selectedDoctor?.name)
+                                          .filter(a => {
+                                            const apptTime = parseTimeUtil(a.time, leaveCalDate);
+                                            // Filter out past slots if today
+                                            if (isToday(leaveCalDate) && apptTime < new Date()) {
+                                              return false;
+                                            }
+                                            const coveredByBreak = existingBreaks.some(breakPeriod => {
+                                              const start = parseISO(breakPeriod.startTime);
+                                              const end = parseISO(breakPeriod.endTime);
+                                              return apptTime >= start && apptTime < end;
+                                            });
+                                            return !coveredByBreak;
+                                          })
+                                          .sort((a, b) => {
+                                            const timeA = parseTimeUtil(a.time, leaveCalDate).getTime();
+                                            const timeB = parseTimeUtil(b.time, leaveCalDate).getTime();
+                                            return timeA - timeB;
+                                          });
+
+                                        if (filteredAppointments.length === 0) {
+                                          return (
+                                            <div className="col-span-full text-center py-8 text-muted-foreground text-sm">
+                                              No blocked slots found for this date.
+                                            </div>
+                                          );
+                                        }
+
+                                        return filteredAppointments.map(appt => {
+                                          const isSelected = selectedBlockedSlots.includes(appt.id);
 
                                           return (
                                             <Button
-                                              key={slot.isoString}
+                                              key={appt.id}
                                               variant={isSelected ? 'default' : 'outline'}
-                                              className={cn("h-auto py-3 flex-col gap-0.5", {
-                                                'bg-destructive/80 hover:bg-destructive text-white': isSelected,
-                                                'bg-gray-200 text-gray-600 border-gray-300 cursor-not-allowed opacity-60': slot.isTaken,
-                                                'hover:bg-accent': !isSelected && !slot.isTaken,
-                                              })}
-                                              onClick={() => handleSlotClick(slot)}
-                                              disabled={slot.isTaken}
+                                              className={cn(
+                                                "h-auto py-3 flex-col gap-0.5",
+                                                {
+                                                  'bg-destructive/80 hover:bg-destructive text-white': isSelected,
+                                                  'hover:bg-accent': !isSelected,
+                                                }
+                                              )}
+                                              onClick={() => {
+                                                const sortedBlocked = filteredAppointments;
+                                                let newSelection: string[] = [];
+
+                                                if (selectedBlockedSlots.length === 0 || (selectedBlockedSlots.length > 1 && !selectedBlockedSlots.includes(appt.id))) {
+                                                  newSelection = [appt.id];
+                                                } else if (selectedBlockedSlots.length === 1) {
+                                                  const startId = selectedBlockedSlots[0];
+                                                  if (startId === appt.id) {
+                                                    newSelection = [];
+                                                  } else {
+                                                    const startIndex = sortedBlocked.findIndex(a => a.id === startId);
+                                                    const endIndex = sortedBlocked.findIndex(a => a.id === appt.id);
+                                                    const rangeStart = Math.min(startIndex, endIndex);
+                                                    const rangeEnd = Math.max(startIndex, endIndex);
+                                                    newSelection = sortedBlocked.slice(rangeStart, rangeEnd + 1).map(a => a.id);
+                                                  }
+                                                } else {
+                                                  newSelection = [appt.id];
+                                                }
+                                                setSelectedBlockedSlots(newSelection);
+                                              }}
                                             >
-                                              <span className="font-semibold text-xs">{slot.timeFormatted}</span>
+                                              <span className="font-semibold text-xs">{appt.time}</span>
                                               <span className="text-[10px] opacity-70">to</span>
-                                              <span className="font-semibold text-xs">{format(addMinutes(parseISO(slot.isoString), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}</span>
-                                              {slot.isTaken && <span className="text-xs mt-1">Taken</span>}
+                                              <span className="font-semibold text-xs">
+                                                {format(addMinutes(parseTimeUtil(appt.time, leaveCalDate), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}
+                                              </span>
+                                              {appt.cancelledByBreak && (
+                                                <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded mt-1">Break Block</span>
+                                              )}
+                                              {!appt.cancelledByBreak && (
+                                                <span className="text-[10px] opacity-70 mt-1">Blocked</span>
+                                              )}
                                             </Button>
                                           );
-                                        })}
-                                      </div>
+                                        });
+                                      })()}
                                     </div>
-
-                                    {/* Upcoming Sessions */}
-                                    {Array.from(availableSlots.upcomingSessionSlots.entries()).map(([sessionIndex, slots]) => (
-                                      <div key={sessionIndex}>
-                                        <h4 className="text-sm font-medium mb-2 text-muted-foreground">
-                                          Session {sessionIndex + 1} (Upcoming)
-                                        </h4>
-                                        <div className="grid grid-cols-3 gap-2">
-                                          {slots.map((slot) => {
-                                            const slotDate = parseISO(slot.isoString);
-                                            const isSelected = breakStartSlot && breakEndSlot
-                                              ? slotDate >= parseISO(breakStartSlot.isoString) && slotDate <= parseISO(breakEndSlot.isoString)
-                                              : breakStartSlot && slotDate.getTime() === parseISO(breakStartSlot.isoString).getTime();
-
-                                            return (
-                                              <Button
-                                                key={slot.isoString}
-                                                variant={isSelected ? 'default' : 'outline'}
-                                                className={cn("h-auto py-3 flex-col gap-0.5", {
-                                                  'bg-destructive/80 hover:bg-destructive text-white': isSelected,
-                                                  'bg-gray-200 text-gray-600 border-gray-300 cursor-not-allowed opacity-60': slot.isTaken,
-                                                  'hover:bg-accent': !isSelected && !slot.isTaken,
-                                                })}
-                                                onClick={() => handleSlotClick(slot)}
-                                                disabled={slot.isTaken}
-                                              >
-                                                <span className="font-semibold text-xs">{slot.timeFormatted}</span>
-                                                <span className="text-[10px] opacity-70">to</span>
-                                                <span className="font-semibold text-xs">{format(addMinutes(parseISO(slot.isoString), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}</span>
-                                                {slot.isTaken && <span className="text-xs mt-1">Taken</span>}
-                                              </Button>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </>
-                                ) : (
-                                  <p className="text-sm text-muted-foreground text-center pt-4">
-                                    {leaveCalDate ? 'No active session for this date.' : 'Select a date to view slots.'}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Status text */}
-                              <div className="text-center mt-4 mb-2 text-sm text-muted-foreground">
-                                {breakStartSlot && breakEndSlot ? (
-                                  <div>
-                                    {(() => {
-                                      try {
-                                        const start = parseISO(breakStartSlot.isoString);
-                                        const end = parseISO(breakEndSlot.isoString);
-                                        const slotDuration = selectedDoctor?.averageConsultingTime || 15;
-                                        const endTime = addMinutes(end, slotDuration);
-                                        const duration = differenceInMinutes(endTime, start);
-
-                                        return (
-                                          <>
-                                            <p className="font-medium text-foreground">
-                                              New break: {format(start, 'hh:mm a')} to {format(endTime, 'hh:mm a')}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground">
-                                              {duration} min
-                                            </p>
-                                          </>
-                                        );
-                                      } catch {
-                                        return null;
-                                      }
-                                    })()}
                                   </div>
-                                ) : breakStartSlot ? (
-                                  `Start: ${format(parseISO(breakStartSlot.isoString), 'hh:mm a')} - Select end time`
-                                ) : existingBreaks.length > 0 ? (
-                                  'Select start and end slots to add another break'
-                                ) : (
-                                  'Select start and end slots for the break'
-                                )}
-                              </div>
-
-                              {/* Confirm button */}
-                              <Button
-                                className="w-full"
-                                variant="destructive"
-                                disabled={!breakStartSlot || !breakEndSlot || isSubmittingBreak || existingBreaks.length >= 3}
-                                onClick={handleConfirmBreak}
-                              >
-                                {isSubmittingBreak ? (
-                                  <>
-                                    <Loader2 className="animate-spin mr-2" />
-                                    Adding...
-                                  </>
-                                ) : (
-                                  'Add Break'
-                                )}
-                              </Button>
-                            </div>
-                          </CardContent>
+                                </div>
+                              </CardContent>
+                            </TabsContent>
+                          </Tabs>
                         </Card>
                       </div>
                       <div className="space-y-6">
@@ -2503,7 +2703,7 @@ export default function DoctorsPage() {
             )}
           </div>
         </div>
-      </main>
+      </main >
 
       <AddDoctorForm
         onSave={handleDoctorSaved}

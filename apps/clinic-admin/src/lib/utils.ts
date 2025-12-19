@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { parse, isBefore as isBeforeFns, set } from 'date-fns';
+import { parse, isBefore as isBeforeFns, set, format, subMinutes } from 'date-fns';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -44,4 +44,19 @@ export function parseTime(timeStr: string, baseDate: Date): Date {
 
 export function isTimeBefore(time1: Date, time2: Date): boolean {
   return isBeforeFns(time1, time2);
+}
+
+/**
+ * Get display time for appointment - "Arrive by" (-15m) for 'A' tokens, actual time for 'W' tokens
+ */
+export function getDisplayTime(appt: { time?: string; tokenNumber?: string; bookedVia?: string }): string {
+  if (!appt.time) return '';
+  try {
+    const isWalkIn = appt.tokenNumber?.startsWith('W') || appt.bookedVia === 'Walk-in';
+    const date = parse(appt.time, 'hh:mm a', new Date());
+    const adjustedTime = isWalkIn ? date : subMinutes(date, 15);
+    return format(adjustedTime, 'hh:mm a');
+  } catch (error) {
+    return appt.time || '';
+  }
 }

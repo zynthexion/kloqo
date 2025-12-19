@@ -1164,13 +1164,17 @@ function ScheduleBreakContent() {
                                     Select a start and end slot to define a range of blocked slots to open.
                                 </p>
 
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     {(() => {
                                         // New logic: Filter out completed appointments that are covered by an active break
                                         const filteredAppointments = appointments
                                             .filter(a => a.status === 'Completed')
                                             .filter(a => {
                                                 const apptTime = parseTime(a.time, selectedDate);
+                                                // Filter out past slots if today
+                                                if (isToday(selectedDate) && apptTime < new Date()) {
+                                                    return false;
+                                                }
                                                 // Check if this appointment falls within any existing break
                                                 const coveredByBreak = existingBreaks.some(breakPeriod => {
                                                     const start = parseISO(breakPeriod.startTime);
@@ -1208,9 +1212,10 @@ function ScheduleBreakContent() {
                                                     variant={isSelected ? 'default' : 'outline'}
                                                     className={cn(
                                                         "h-auto py-3 flex-col gap-0.5",
-                                                        isSelected && 'bg-destructive/80 hover:bg-destructive text-white',
-                                                        !isSelected && 'hover:bg-accent',
-                                                        // Add specific styling for start/end if needed, or rely on isSelected
+                                                        {
+                                                            'bg-destructive/80 hover:bg-destructive text-white': isSelected,
+                                                            'hover:bg-accent': !isSelected,
+                                                        }
                                                     )}
                                                     onClick={() => {
                                                         // Use the filtered list for range selection logic too!
@@ -1241,8 +1246,10 @@ function ScheduleBreakContent() {
                                                         setSelectedBlockedSlots(newSelection);
                                                     }}
                                                 >
+                                                    <span className="font-semibold text-xs">{appt.time}</span>
+                                                    <span className="text-[10px] opacity-70">to</span>
                                                     <span className="font-semibold text-xs">
-                                                        {getDisplayTime(appt)}
+                                                        {format(addMinutes(parseTime(appt.time, selectedDate), doctor.averageConsultingTime || 15), 'hh:mm a')}
                                                     </span>
                                                     {appt.cancelledByBreak && (
                                                         <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded mt-1">Break Block</span>

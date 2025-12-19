@@ -282,7 +282,7 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                             <p className="text-sm">{day}</p>
                         </div>
                         <div className="border-l pl-4">
-                            <p className="text-xs text-muted-foreground">Arrive by</p>
+                            {!isHistory && <p className="text-xs text-muted-foreground">{t.home.arriveBy}</p>}
                             <p className="font-semibold">{getArriveByTimeFromAppointment(appointment, doctor)}</p>
                             {appointment.delay && appointment.delay > 0 && (
                                 <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
@@ -294,7 +294,23 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                             <p className="text-sm text-muted-foreground mt-1">{t.appointments.token}: <span className="font-semibold">{appointment.tokenNumber}</span></p>
                         </div>
                     </div>
-                    <p className="text-sm font-semibold">{appointment.patientName}</p>
+                    <div className="flex flex-col items-end gap-2">
+                        <p className="text-sm font-semibold">{appointment.patientName}</p>
+                        <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                            appointment.status === 'Confirmed' ? "bg-green-100 text-green-800" :
+                                appointment.status === 'Pending' ? "bg-yellow-100 text-yellow-800" :
+                                    appointment.status === 'Completed' ? "bg-blue-100 text-blue-800" :
+                                        appointment.status === 'Cancelled' ? "bg-red-100 text-red-800" :
+                                            "bg-gray-100 text-gray-800"
+                        )}>
+                            {appointment.status === 'Confirmed' ? t.appointments.confirmed :
+                                appointment.status === 'Pending' ? t.appointments.pending :
+                                    appointment.status === 'Completed' ? t.appointments.completed :
+                                        appointment.status === 'Cancelled' ? t.appointments.cancelled :
+                                            appointment.status}
+                        </span>
+                    </div>
                 </div>
                 {!isHistory && appointment.status !== 'Cancelled' && (
                     <div className="flex justify-end gap-2 mt-4">
@@ -633,7 +649,7 @@ function AppointmentsPage() {
                 </div>
             )}
 
-            <main className="flex-grow p-4 space-y-6">
+            <main className="flex-grow p-4 pb-32 space-y-6">
                 <Tabs defaultValue="upcoming">
                     <TabsList className="grid w-full grid-cols-2 bg-transparent p-0">
                         <TabsTrigger value="upcoming" className="data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none">{t.appointments.upcoming}</TabsTrigger>

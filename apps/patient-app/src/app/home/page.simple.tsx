@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase/auth/use-user';
 import { SplashScreen } from '@/components/splash-screen';
+import { useLanguage } from '@/contexts/language-context';
 
 const WalkInCard = ({ appointment }: { appointment: Appointment }) => {
     // NOTE: These are placeholders. In a real app, this data would come from a real-time source.
@@ -27,16 +28,16 @@ const WalkInCard = ({ appointment }: { appointment: Appointment }) => {
     const [estimatedWaitTime, setEstimatedWaitTime] = useState(0);
 
     useEffect(() => {
-        if(appointment?.tokenNumber) {
+        if (appointment?.tokenNumber) {
             const yourToken = parseInt(appointment.tokenNumber.substring(1));
             // Simulate the current token being a few behind yours
-            const current = Math.max(0, yourToken - 3); 
+            const current = Math.max(0, yourToken - 3);
             setCurrentToken(current);
             setPatientsAhead(yourToken - current);
             setEstimatedWaitTime((yourToken - current) * 5); // 5 mins per patient
         }
     }, [appointment]);
-    
+
 
     return (
         <Card className="bg-primary-foreground/10 border-primary-foreground/20 shadow-lg mt-6 text-primary-foreground">
@@ -44,19 +45,19 @@ const WalkInCard = ({ appointment }: { appointment: Appointment }) => {
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="bg-primary-foreground/20 p-3 rounded-lg">
-                           <Ticket className="h-8 w-8" />
+                            <Ticket className="h-8 w-8" />
                         </div>
                         <div>
                             <p className="font-bold text-lg">Your Walk-in Token</p>
                             <p className="text-3xl font-bold">{appointment.tokenNumber}</p>
                         </div>
                     </div>
-                     <Button asChild variant="secondary" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">
+                    <Button asChild variant="secondary" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">
                         <Link href="/live-token">View Live Queue</Link>
                     </Button>
                 </div>
-                 <div className="mt-4 border-t border-primary-foreground/20 pt-4 grid grid-cols-3 gap-2 text-center">
-                     <div>
+                <div className="mt-4 border-t border-primary-foreground/20 pt-4 grid grid-cols-3 gap-2 text-center">
+                    <div>
                         <p className="text-xs opacity-80">Current Token</p>
                         <p className="font-bold text-lg">{`W${currentToken}`}</p>
                     </div>
@@ -78,20 +79,20 @@ const WalkInCard = ({ appointment }: { appointment: Appointment }) => {
     )
 }
 
-const AppointmentCard = ({ appointment }: { appointment: Appointment }) => {
-    
+const AppointmentCard = ({ appointment, t }: { appointment: Appointment, t: any }) => {
+
     let day, month, dayOfMonth;
     try {
         const dateObj = parse(appointment.date, "d MMMM yyyy", new Date());
         day = format(dateObj, 'EEE');
         month = format(dateObj, 'MMM');
         dayOfMonth = format(dateObj, 'dd');
-    } catch(e) {
+    } catch (e) {
         // fallback for different date formats
         const parts = appointment.date.split(' ');
         month = parts[0];
         dayOfMonth = parts[1];
-        day = new Date(appointment.date).toLocaleDateString('en-US', { weekday: 'short'});
+        day = new Date(appointment.date).toLocaleDateString('en-US', { weekday: 'short' });
     }
 
     return (
@@ -103,7 +104,7 @@ const AppointmentCard = ({ appointment }: { appointment: Appointment }) => {
                     <p className="text-sm font-medium">{day}</p>
                 </div>
                 <div className="border-l border-primary-foreground/20 pl-4">
-                    <p className="text-xs opacity-80">Arrive by: {getArriveByTimeFromAppointment(appointment)}</p>
+                    <p className="text-xs opacity-80">{t.home.arriveBy}: {getArriveByTimeFromAppointment(appointment)}</p>
                     <p className="font-bold text-md mt-1">{appointment.doctor}</p>
                     <p className="text-sm opacity-80">{appointment.department}</p>
                     <p className="text-sm opacity-80">{appointment.patientName}</p>
@@ -113,13 +114,13 @@ const AppointmentCard = ({ appointment }: { appointment: Appointment }) => {
     );
 };
 
-const AppointmentCarousel = ({ appointments }: { appointments: Appointment[] }) => {
+const AppointmentCarousel = ({ appointments, t }: { appointments: Appointment[], t: any }) => {
     if (appointments.length === 0) {
         return null;
     }
 
     return (
-         <Carousel
+        <Carousel
             opts={{
                 align: "start",
                 dragFree: true,
@@ -129,7 +130,7 @@ const AppointmentCarousel = ({ appointments }: { appointments: Appointment[] }) 
             <CarouselContent className="-ml-4">
                 {appointments.map((appt) => (
                     <CarouselItem key={appt.id} className="basis-auto pl-4">
-                        <AppointmentCard appointment={appt} />
+                        <AppointmentCard appointment={appt} t={t} />
                     </CarouselItem>
                 ))}
             </CarouselContent>
@@ -182,10 +183,11 @@ function HomePageContent() {
     const pathname = usePathname();
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { t, language } = useLanguage();
     const [location, setLocation] = useState('Detecting location...');
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<Doctor[]>([]);
-    
+
     const clinicId = useMemo(() => {
         const id = searchParams.get('clinicId');
         return id ? [id.trim()] : null;
@@ -222,7 +224,7 @@ function HomePageContent() {
 
     useEffect(() => {
         if (searchQuery) {
-            const filteredDoctors = doctors.filter(doctor => 
+            const filteredDoctors = doctors.filter(doctor =>
                 doctor.name.toLowerCase().includes(searchQuery.toLowerCase())
             );
             setSearchResults(filteredDoctors);
@@ -245,10 +247,10 @@ function HomePageContent() {
     };
 
     const walkInAppointment = useMemo(() => appointments.find(
-        a => a.tokenNumber?.startsWith('W') && 
-             isAppointmentForToday(a.date) &&
-             a.status !== 'Cancelled' && 
-             a.status !== 'Completed'
+        a => a.tokenNumber?.startsWith('W') &&
+            isAppointmentForToday(a.date) &&
+            a.status !== 'Cancelled' &&
+            a.status !== 'Completed'
     ), [appointments]);
 
     const upcomingAppointments = useMemo(() => appointments.filter(a => {
@@ -258,19 +260,19 @@ function HomePageContent() {
         } catch {
             date = new Date(a.date);
         }
-        return (!isToday(date) || !a.tokenNumber?.startsWith('W')) && 
-               date >= new Date() &&
-               a.status !== 'Cancelled' && 
-               a.status !== 'Completed';
+        return (!isToday(date) || !a.tokenNumber?.startsWith('W')) &&
+            date >= new Date() &&
+            a.status !== 'Cancelled' &&
+            a.status !== 'Completed';
     }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()), [appointments]);
-    
+
     const navItems = [
         { href: '/home', icon: Home, label: 'Home' },
         { href: '/appointments', icon: Calendar, label: 'Appointments' },
         { href: '/live-token', icon: Radio, label: 'Status' },
         { href: '/profile', icon: User, label: 'Profile' },
     ];
-    
+
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setSearchQuery(e.target.value);
     };
@@ -285,7 +287,7 @@ function HomePageContent() {
     return (
         <div className="flex min-h-screen w-full flex-col font-body">
             <div className="flex-grow bg-card">
-                 {/* Header Section */}
+                {/* Header Section */}
                 <div className="bg-primary text-primary-foreground p-6 rounded-b-[2rem] pb-24">
                     <div className="flex justify-between items-center mb-4">
                         <div>
@@ -302,22 +304,22 @@ function HomePageContent() {
                     </div>
                     <div className="relative mt-4">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                        <Input 
-                            placeholder="Search Doctors, clinics, specialty..." 
+                        <Input
+                            placeholder="Search Doctors, clinics, specialty..."
                             className="pl-10 h-12 bg-primary-foreground/20 placeholder:text-primary-foreground/70 border-0 focus-visible:ring-primary-foreground"
                             value={searchQuery}
                             onChange={handleSearchChange}
                         />
-                         {searchQuery && (
+                        {searchQuery && (
                             <Button variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground" onClick={() => setSearchQuery('')}>
                                 <X className="h-4 w-4" />
                             </Button>
                         )}
                         {searchResults.length > 0 && (
-                             <Card className="absolute top-full mt-2 w-full z-10 max-h-60 overflow-y-auto">
+                            <Card className="absolute top-full mt-2 w-full z-10 max-h-60 overflow-y-auto">
                                 <CardContent className="p-0">
                                     {searchResults.map(doctor => (
-                                        <div 
+                                        <div
                                             key={doctor.id}
                                             className="flex items-center gap-4 p-3 border-b last:border-b-0 cursor-pointer hover:bg-muted"
                                             onClick={() => handleSuggestionClick(doctor.id)}
@@ -336,17 +338,17 @@ function HomePageContent() {
                             </Card>
                         )}
                     </div>
-                    
+
                     {appointmentsLoading ? (
                         <Skeleton className="h-40 w-full bg-primary/20 mt-6" />
                     ) : walkInAppointment ? (
                         <WalkInCard appointment={walkInAppointment} />
                     ) : (
-                         <>
+                        <>
                             {upcomingAppointments.length > 0 && (
                                 <div className="mt-6">
                                     <h2 className="text-lg font-semibold text-primary-foreground/90 mb-4">Upcoming appointments</h2>
-                                    <AppointmentCarousel appointments={upcomingAppointments} />
+                                    <AppointmentCarousel appointments={upcomingAppointments} t={t} />
                                 </div>
                             )}
                         </>
@@ -355,13 +357,13 @@ function HomePageContent() {
 
                 {/* Main Content */}
                 <main className="p-6 space-y-8 bg-background rounded-t-[2rem] -mt-16 pt-8">
-                     {/* Clinics/Doctors Section */}
+                    {/* Clinics/Doctors Section */}
                     <section>
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold">Available Doctors</h2>
                         </div>
                         <div className="space-y-4 pt-4">
-                           {doctorsLoading ? (
+                            {doctorsLoading ? (
                                 <>
                                     <DoctorSkeleton />
                                     <DoctorSkeleton />
@@ -375,7 +377,7 @@ function HomePageContent() {
                             )}
                         </div>
                     </section>
-                    
+
                     <Card className="bg-accent/20 border-accent/50">
                         <CardContent className="p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
                             <div>
@@ -402,7 +404,7 @@ function HomePageContent() {
                             <div className={cn("p-3 rounded-xl", pathname.startsWith(item.href) ? "bg-primary text-primary-foreground" : "")}>
                                 <item.icon className="h-6 w-6" />
                             </div>
-                           {!pathname.startsWith(item.href) && <span className="text-xs mt-1">{item.label}</span>}
+                            {!pathname.startsWith(item.href) && <span className="text-xs mt-1">{item.label}</span>}
                         </Link>
                     ))}
                 </nav>
@@ -414,7 +416,7 @@ function HomePageContent() {
 export default function HomePage() {
     const router = useRouter();
     const { user, loading: userLoading } = useUser();
-    
+
     useEffect(() => {
         if (!userLoading && !user) {
             const params = new URLSearchParams(window.location.search);
@@ -432,8 +434,7 @@ export default function HomePage() {
     if (userLoading || !user) {
         return <SplashScreen />;
     }
-    
+
     return <HomePageContent />;
 }
 
-    

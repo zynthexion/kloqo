@@ -21,6 +21,7 @@ import type { Appointment, Clinic, Doctor } from '@/lib/types';
 import { BottomNav } from '@/components/bottom-nav';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthGuard } from '@/components/auth-guard';
+import { useLanguage } from '@/contexts/language-context';
 
 // Calculate distance between two coordinates in meters
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -180,6 +181,7 @@ function ConfirmArrivalPage() {
   const firestore = useFirestore();
   const { user, loading: userLoading } = useUser();
   const { toast } = useToast();
+  const { t, language } = useLanguage();
 
   // Accept both 'clinic' and 'clinicId' parameters for flexibility
   const clinicId = searchParams.get('clinic') || searchParams.get('clinicId');
@@ -942,7 +944,7 @@ function ConfirmArrivalPage() {
                                 </p>
                                 <p className="text-sm">
                                   <Clock className="inline h-4 w-4 mr-1" />
-                                  Arrive by: {(() => {
+                                  {t.home.arriveBy}: {(() => {
                                     const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
                                     return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
                                   })()}
@@ -1089,7 +1091,7 @@ function ConfirmArrivalPage() {
                                 </p>
                                 <p className="text-sm">
                                   <Clock className="inline h-4 w-4 mr-1" />
-                                  Arrive by: {(() => {
+                                  {t.home.arriveBy}: {(() => {
                                     const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
                                     return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
                                   })()}

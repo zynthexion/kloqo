@@ -305,8 +305,9 @@ function BookingSummaryPage() {
 
                     for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
                         const session = availabilityForDay.timeSlots[i];
-                        let currentTime = parseTime(session.from, appointmentDate);
-                        const endTime = parseTime(session.to, appointmentDate);
+                        const dateObj = parse(appointmentDate, "d MMMM yyyy", new Date());
+                        let currentTime = parseTime(session.from, dateObj);
+                        const endTime = parseTime(session.to, dateObj);
 
                         while (isBefore(currentTime, endTime)) {
                             // CRITICAL RULE 1: Skip ALL past slots (not just for today)
@@ -1322,7 +1323,7 @@ function BookingSummaryPage() {
                                     <div className="flex items-center gap-2">
                                         <Clock className="w-4 h-4 text-muted-foreground" />
                                         <div className="text-center">
-                                            <span className="text-sm text-muted-foreground block">Arrive by</span>
+                                            <span className="text-sm text-muted-foreground block">{t.home.arriveBy}</span>
                                             <p className="text-xl font-bold">
                                                 {(() => {
                                                     try {

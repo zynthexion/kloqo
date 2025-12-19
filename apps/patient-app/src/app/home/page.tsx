@@ -259,7 +259,7 @@ const AppointmentCard = ({ appointment, departments, language, doctors, t }: { a
                         <p className="text-sm font-medium">{day}</p>
                     </div>
                     <div className="border-l border-primary-foreground/20 pl-4">
-                        <p className="text-xs opacity-80">{t.home.arriveBy || 'Arrive by'}: {(() => {
+                        <p className="text-xs opacity-80">{t.home.arriveBy}: {(() => {
                             const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
                             return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
                         })()}</p>

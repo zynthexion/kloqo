@@ -1925,7 +1925,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                                             <div className="text-center">
                                                 {yourAppointment.status !== 'Skipped' && (
                                                     <span className="text-xs text-muted-foreground block">
-                                                        {language === 'ml' ? 'റിപ്പോർട്ട് ചെയ്യേണ്ട സമയം' : 'Arrive by'}
+                                                        {t.home.arriveBy}
                                                     </span>
                                                 )}
                                                 <span className={`font-semibold text-lg ${(breakMinutes > 0 || doctorStatusInfo.isAffected) ? 'text-red-600' : ''}`}>
@@ -1990,7 +1990,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                                 ) : (
                                     <>
                                         <span className="text-xs text-muted-foreground">
-                                            {language === 'ml' ? 'റിപ്പോർട്ട് ചെയ്യേണ്ട സമയം' : 'Arrive by'}
+                                            {t.home.arriveBy}
                                         </span>
                                         <p className="font-semibold text-lg">{getReportByTimeLabel(yourAppointment, yourAppointmentDoctor)}</p>
                                         {yourAppointment.delay && yourAppointment.delay > 0 && (

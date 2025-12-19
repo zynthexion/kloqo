@@ -2615,18 +2615,20 @@ export default function DoctorsPage() {
           </AlertDialogHeader>
 
           <div className="space-y-6 py-4">
-            <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
-              <div className="space-y-0.5">
-                <Label className="text-base font-semibold">Cancel session extension</Label>
-                <p className="text-sm text-muted-foreground">
-                  Remove the extra time added to the session's end for this break.
-                </p>
+            {currentSession && currentSession.effectiveEnd?.getTime() !== currentSession.originalEnd?.getTime() && (
+              <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold">Cancel session extension</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Remove the extra time added to the session's end for this break.
+                  </p>
+                </div>
+                <Switch
+                  checked={shouldCancelExtension}
+                  onCheckedChange={setShouldCancelExtension}
+                />
               </div>
-              <Switch
-                checked={shouldCancelExtension}
-                onCheckedChange={setShouldCancelExtension}
-              />
-            </div>
+            )}
 
             <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
               <div className="space-y-0.5">

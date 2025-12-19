@@ -15,7 +15,8 @@ import {
 } from 'firebase/firestore';
 import { format, parse, addMinutes, subMinutes, differenceInMinutes, isSameDay, parseISO, isAfter } from 'date-fns';
 import { getServerFirebaseApp } from '@kloqo/shared-firebase';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot } from './walk-in.service';
+import { calculateWalkInDetails } from './walk-in.service';
+import { generateNextTokenAndReserveSlot } from './appointment-service';
 
 import type { Doctor } from '@kloqo/shared-types';
 
@@ -150,9 +151,23 @@ export async function handleWalkInBooking(payload: WalkInPayload) {
 
     let lastError: WalkInBookingError | Error | null = null;
 
+    // Fetch walk-in spacing configuration securely
+    let walkInTokenAllotment = 0;
+    try {
+        const clinicDoc = await getDoc(doc(firestore, 'clinics', clinicId));
+        if (clinicDoc.exists()) {
+            const rawSpacing = Number(clinicDoc.data()?.walkInTokenAllotment ?? 0);
+            if (Number.isFinite(rawSpacing) && rawSpacing > 0) {
+                walkInTokenAllotment = Math.floor(rawSpacing);
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to fetch walk-in token allotment in handleWalkInBooking:', e);
+    }
+
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
         try {
-            const walkInDetails = await calculateWalkInDetails(firestore, doctor);
+            const walkInDetails = await calculateWalkInDetails(firestore, doctor, walkInTokenAllotment);
 
             if (
                 !walkInDetails ||
@@ -173,6 +188,7 @@ export async function handleWalkInBooking(payload: WalkInPayload) {
                     time: format(walkInDetails.estimatedTime, 'hh:mm a'),
                     slotIndex: walkInDetails.slotIndex,
                     doctorId: doctor.id,
+                    walkInSpacing: walkInTokenAllotment,
                 }
             );
 

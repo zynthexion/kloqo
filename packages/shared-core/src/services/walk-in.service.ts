@@ -2833,36 +2833,91 @@ export async function calculateWalkInDetails(
   );
   const appointments = await fetchDayAppointments(firestore, doctor.clinicId || '', doctor.name, date);
 
-  // Unified simple placement rule:
-  // - Treat any slot with an ACTIVE status (Pending, Confirmed, Skipped, Completed) as occupied.
-  // - Cancelled or never-used slots are free.
-  // - Choose the earliest free slot in the future; if none, the earliest free today.
-  const occupiedSlots = new Set<number>();
-  appointments.forEach(appt => {
-    if (
-      typeof appt.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appt.status)
-    ) {
-      occupiedSlots.add(appt.slotIndex);
-    }
-  });
-
-  const futureFreeSlots: DailySlot[] = [];
-  const allFreeSlots: DailySlot[] = [];
-  for (const slot of slots) {
-    if (!occupiedSlots.has(slot.index)) {
-      allFreeSlots.push(slot);
-      if (slot.time >= now) {
-        futureFreeSlots.push(slot);
+  if (walkInTokenAllotment === undefined && doctor.clinicId) {
+    try {
+      const clinicSnap = await getDoc(doc(firestore, 'clinics', doctor.clinicId));
+      if (clinicSnap.exists()) {
+        const data = clinicSnap.data();
+        const rawSpacing = Number(data?.walkInTokenAllotment ?? 0);
+        if (Number.isFinite(rawSpacing) && rawSpacing > 0) {
+          walkInTokenAllotment = Math.floor(rawSpacing);
+        }
       }
+    } catch (e) {
+      console.warn('Failed to fetch walk-in token allotment:', e);
     }
   }
 
-  const chosenSlot =
-    futureFreeSlots.sort((a, b) => a.time.getTime() - b.time.getTime())[0] ||
-    allFreeSlots.sort((a, b) => a.time.getTime() - b.time.getTime())[0];
+  // Calculate numeric token first
+  const existingNumericTokens = appointments
+    .filter(appointment => appointment.bookedVia === 'Walk-in')
+    .map(appointment => {
+      if (typeof appointment.numericToken === 'number') {
+        return appointment.numericToken;
+      }
+      const parsed = Number(appointment.numericToken);
+      return Number.isFinite(parsed) ? parsed : 0;
+    })
+    .filter(token => token > 0);
 
-  if (!chosenSlot) {
+  const numericToken =
+    (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
+
+  // Use smart scheduler to find the slot
+  const activeAdvanceAppointments = appointments.filter(appointment => {
+    return (
+      appointment.bookedVia !== 'Walk-in' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+  const activeWalkIns = appointments.filter(appointment => {
+    return (
+      appointment.bookedVia === 'Walk-in' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+  const walkInCandidates = [
+    ...activeWalkIns.map(appointment => ({
+      id: appointment.id,
+      numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : Number(appointment.numericToken) || 0,
+      createdAt: toDate(appointment.createdAt),
+      currentSlotIndex: appointment.slotIndex,
+    })),
+    {
+      id: '__new_walk_in__',
+      numericToken,
+      createdAt: now,
+    }
+  ];
+
+  const schedule = computeWalkInSchedule({
+    slots,
+    now,
+    walkInTokenAllotment: walkInTokenAllotment || 0,
+    advanceAppointments: activeAdvanceAppointments.map(entry => ({
+      id: entry.id,
+      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+    })),
+    walkInCandidates,
+  });
+
+  const newAssignment = schedule.assignments.find(a => a.id === '__new_walk_in__');
+
+  let chosenSlotIndex = -1;
+  let chosenSessionIndex = 0;
+  let chosenTime = now;
+
+  if (newAssignment) {
+    chosenSlotIndex = newAssignment.slotIndex;
+    chosenSessionIndex = newAssignment.sessionIndex;
+    chosenTime = newAssignment.slotTime;
+  }
+
+  if (!newAssignment || chosenSlotIndex === -1) {
     // If forceBook is enabled, create an overflow slot after the last booked token
     if (forceBook) {
       console.log('[FORCE BOOK] No slots available - creating overflow slot');
@@ -2903,21 +2958,6 @@ export async function calculateWalkInDetails(
         allActiveStatuses.has(appointment.status)
       ).length;
 
-      // Numeric token: next after max existing W or slots length
-      const existingNumericTokens = appointments
-        .filter(appointment => appointment.bookedVia === 'Walk-in')
-        .map(appointment => {
-          if (typeof appointment.numericToken === 'number') {
-            return appointment.numericToken;
-          }
-          const parsed = Number(appointment.numericToken);
-          return Number.isFinite(parsed) ? parsed : 0;
-        })
-        .filter(token => token > 0);
-
-      const numericToken =
-        (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
-
       console.log('[FORCE BOOK] Created overflow slot:', {
         slotIndex: overflowSlotIndex,
         time: format(overflowTime, 'hh:mm a'),
@@ -2944,33 +2984,18 @@ export async function calculateWalkInDetails(
   const patientsAhead = appointments.filter(appointment => {
     return (
       typeof appointment.slotIndex === 'number' &&
-      appointment.slotIndex < chosenSlot.index &&
+      appointment.slotIndex < chosenSlotIndex &&
       allActiveStatuses.has(appointment.status)
     );
   }).length;
 
-  // Numeric token: next after max existing W or slots length
-  const existingNumericTokens = appointments
-    .filter(appointment => appointment.bookedVia === 'Walk-in')
-    .map(appointment => {
-      if (typeof appointment.numericToken === 'number') {
-        return appointment.numericToken;
-      }
-      const parsed = Number(appointment.numericToken);
-      return Number.isFinite(parsed) ? parsed : 0;
-    })
-    .filter(token => token > 0);
-
-  const numericToken =
-    (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
-
   return {
-    estimatedTime: chosenSlot.time,
+    estimatedTime: chosenTime,
     patientsAhead,
     numericToken,
-    slotIndex: chosenSlot.index,
-    sessionIndex: chosenSlot.sessionIndex,
-    actualSlotTime: chosenSlot.time,
+    slotIndex: chosenSlotIndex,
+    sessionIndex: chosenSessionIndex,
+    actualSlotTime: chosenTime,
   };
 }
 

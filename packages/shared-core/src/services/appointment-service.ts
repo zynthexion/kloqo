@@ -583,9 +583,13 @@ export async function generateNextTokenAndReserveSlot(
   const counterRef = doc(firestore, 'token-counters', counterDocId);
   let walkInSpacingValue = 0;
   if (type === 'W') {
-    const clinicSnap = await getDoc(doc(firestore, 'clinics', clinicId));
-    const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
-    walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
+    if (typeof appointmentData.walkInSpacing === 'number') {
+      walkInSpacingValue = appointmentData.walkInSpacing;
+    } else {
+      const clinicSnap = await getDoc(doc(firestore, 'clinics', clinicId));
+      const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
+      walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
+    }
   }
 
   const { doctor: doctorProfile, slots } = await loadDoctorAndSlots(

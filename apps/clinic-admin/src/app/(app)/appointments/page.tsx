@@ -1562,6 +1562,34 @@ export default function AppointmentsPage() {
             }
           }
 
+          // Send notification for Walk-in appointments
+          if (!isEditing) {
+            try {
+
+              const clinicName = `The clinic`; // Or fetch clinic name if available
+              console.log('[APPOINTMENTS PAGE] Triggering sendAppointmentBookedByStaffNotification for Walk-in', {
+                patientId: patientForAppointmentId,
+                appointmentId: appointmentRef.id,
+                tokenNumber: appointmentData.tokenNumber
+              });
+              await sendAppointmentBookedByStaffNotification({
+                firestore: db,
+                patientId: patientForAppointmentId,
+                appointmentId: appointmentRef.id,
+                doctorName: appointmentData.doctor,
+                clinicName: clinicName,
+                date: appointmentData.date,
+                time: appointmentData.time,
+                arriveByTime: appointmentData.arriveByTime,
+                tokenNumber: appointmentData.tokenNumber,
+                bookedBy: 'admin',
+              });
+              console.log('[APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification (Walk-in) SUCCESS');
+            } catch (notifError) {
+              console.error('[APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification (Walk-in) FAILED:', notifError);
+            }
+          }
+
           setGeneratedToken(appointmentData.tokenNumber);
           setIsTokenModalOpen(true);
 

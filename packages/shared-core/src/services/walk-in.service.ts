@@ -2880,6 +2880,8 @@ export async function calculateWalkInDetails(
     );
   });
 
+
+
   const walkInCandidates = [
     ...activeWalkIns.map(appointment => ({
       id: appointment.id,

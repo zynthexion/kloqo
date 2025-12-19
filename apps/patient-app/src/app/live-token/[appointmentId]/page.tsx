@@ -98,11 +98,7 @@ function calculateDelayForAppointments(
 function getReportByTimeLabel(appointment: Appointment | null, doctor?: Doctor | null): string {
     if (!appointment) return '--';
     try {
-        const appointmentDate = parse(appointment.date, "d MMMM yyyy", new Date());
-        const arriveByString = appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor);
-        const arriveByDateTime = parse(arriveByString, "hh:mm a", appointmentDate);
-        const reportBy = subMinutes(arriveByDateTime, 15);
-        return format(reportBy, 'hh:mm a');
+        return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
     } catch {
         return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
     }
@@ -507,12 +503,13 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         try {
             const appointmentDate = parse(yourAppointment.date, "d MMMM yyyy", new Date());
             const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
-            const arriveByDateTime = parse(arriveByString, "hh:mm a", appointmentDate);
-            return subMinutes(arriveByDateTime, 15);
+            return parse(arriveByString, "hh:mm a", appointmentDate);
         } catch {
             try {
                 const scheduledDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
-                return subMinutes(scheduledDateTime, 15);
+                // For direct fallback, we still subtract 15 for non-walk-ins if getArriveByTimeFromAppointment failed
+                const isWalkIn = yourAppointment.tokenNumber?.startsWith('W');
+                return isWalkIn ? scheduledDateTime : subMinutes(scheduledDateTime, 15);
             } catch {
                 return null;
             }
@@ -532,11 +529,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     const formatReportByTime = useCallback((appointment: Appointment | null, doctor?: Doctor | null) => {
         if (!appointment) return '--';
         try {
-            const appointmentDate = parse(appointment.date, "d MMMM yyyy", new Date());
-            const arriveByString = appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor);
-            const arriveByDateTime = parse(arriveByString, "hh:mm a", appointmentDate);
-            const reportBy = subMinutes(arriveByDateTime, 15);
-            return format(reportBy, 'hh:mm a');
+            return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
         } catch {
             return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
         }
@@ -2173,32 +2166,7 @@ function LiveTokenPage() {
         return () => clearInterval(timerId);
     }, []);
 
-    // Fetch appointments for today
-    useEffect(() => {
-        if (!firestore || clinicIds.length === 0) return;
 
-        const todayStr = format(new Date(), "d MMMM yyyy");
-        const appointmentsQuery = query(
-            collection(firestore, 'appointments'),
-            where("clinicId", "in", clinicIds),
-            where("date", "==", todayStr)
-        );
-
-        const unsubscribe = onSnapshot(appointmentsQuery,
-            (snapshot: QuerySnapshot<DocumentData>) => {
-                const appointmentsData: Appointment[] = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                } as Appointment));
-                setAllClinicAppointments(appointmentsData);
-            },
-            (error) => {
-                console.error("Error fetching all clinic appointments: ", error);
-            }
-        );
-
-        return () => unsubscribe();
-    }, [firestore, clinicIds]);
 
     // Also fetch appointments for the appointment date if it's different from today
     const [appointmentDateAppointments, setAppointmentDateAppointments] = useState<Appointment[]>([]);
@@ -2386,6 +2354,37 @@ function LiveTokenPage() {
 
     const activeAppointment = useMemo(() => yourAppointments[0] || null, [yourAppointments]);
 
+    // Fetch appointments for today
+    useEffect(() => {
+        const targetClinicIds = activeAppointment?.clinicId
+            ? [activeAppointment.clinicId]
+            : clinicIds;
+
+        if (!firestore || targetClinicIds.length === 0) return;
+
+        const todayStr = format(new Date(), "d MMMM yyyy");
+        const appointmentsQuery = query(
+            collection(firestore, 'appointments'),
+            where("clinicId", "in", targetClinicIds),
+            where("date", "==", todayStr)
+        );
+
+        const unsubscribe = onSnapshot(appointmentsQuery,
+            (snapshot: QuerySnapshot<DocumentData>) => {
+                const appointmentsData: Appointment[] = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                } as Appointment));
+                setAllClinicAppointments(appointmentsData);
+            },
+            (error) => {
+                console.error("Error fetching all clinic appointments: ", error);
+            }
+        );
+
+        return () => unsubscribe();
+    }, [firestore, clinicIds, activeAppointment?.clinicId]);
+
     useEffect(() => {
         if (!firestore || !activeAppointment || clinicIds.length === 0) {
             setAppointmentDateAppointments([]);
@@ -2400,9 +2399,18 @@ function LiveTokenPage() {
             return;
         }
 
+        const targetClinicIds = activeAppointment?.clinicId
+            ? [activeAppointment.clinicId]
+            : clinicIds;
+
+        if (targetClinicIds.length === 0) {
+            setAppointmentDateAppointments([]);
+            return;
+        }
+
         const appointmentsQuery = query(
             collection(firestore, 'appointments'),
-            where("clinicId", "in", clinicIds),
+            where("clinicId", "in", targetClinicIds),
             where("date", "==", appointmentDateStr)
         );
 
@@ -2421,7 +2429,7 @@ function LiveTokenPage() {
         );
 
         return () => unsubscribe();
-    }, [firestore, clinicIds, activeAppointment?.date, activeAppointment?.id]);
+    }, [firestore, clinicIds, activeAppointment?.date, activeAppointment?.id, activeAppointment?.clinicId]);
 
     const allRelevantAppointments = useMemo(() => {
         if (!activeAppointment) return allClinicAppointments;
@@ -2440,6 +2448,11 @@ function LiveTokenPage() {
         });
         return Array.from(uniqueMap.values());
     }, [allClinicAppointments, appointmentDateAppointments, activeAppointment]);
+
+    const realTimeActiveAppointment = useMemo(() => {
+        if (!activeAppointment) return null;
+        return allRelevantAppointments.find(a => a.id === activeAppointment.id) || activeAppointment;
+    }, [activeAppointment, allRelevantAppointments]);
 
     const isLoading = userLoading || familyAppointmentsLoading || doctorsLoading;
 
@@ -2506,9 +2519,9 @@ function LiveTokenPage() {
                     </div>
                 )}
 
-                {activeAppointment ? (
+                {realTimeActiveAppointment ? (
                     <AppointmentStatusCard
-                        yourAppointment={activeAppointment}
+                        yourAppointment={realTimeActiveAppointment}
                         allTodaysAppointments={allRelevantAppointments}
                         doctors={doctors}
                         currentTime={currentTime}

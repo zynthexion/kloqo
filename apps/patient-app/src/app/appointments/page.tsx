@@ -288,9 +288,7 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                                     <>
                                         {!isHistory && !isWalkIn && <p className="text-xs text-muted-foreground">{t.home.arriveBy}</p>}
                                         <p className="font-semibold">
-                                            {isWalkIn
-                                                ? getDisplayTimeFromAppointment(appointment, doctor)
-                                                : getArriveByTimeFromAppointment(appointment, doctor)}
+                                            {getArriveByTimeFromAppointment(appointment, doctor)}
                                         </p>
                                     </>
                                 );

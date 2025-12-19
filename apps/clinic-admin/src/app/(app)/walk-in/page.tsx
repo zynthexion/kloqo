@@ -353,8 +353,9 @@ function WalkInRegistrationContent() {
         sex: values.sex,
         clinicId,
         // For walk-ins, we can either use the existing patient's primary ID or create a new mock one.
-        bookingUserId: selectedPatientId || `user_walkin_${fullPhoneNumber}`,
-        bookingFor: selectedPatientId ? 'self' : 'new_related',
+        // For walk-ins, we treat them as primary patients (self)
+        bookingUserId: selectedPatientId || undefined,
+        bookingFor: 'self',
       });
 
       const numericTokenFromService = numericToken;

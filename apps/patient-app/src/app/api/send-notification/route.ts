@@ -112,6 +112,28 @@ export async function POST(request: NextRequest) {
           ...(data?.notificationSound && { notificationSound: data.notificationSound }),
         };
 
+        // Determine target URL if not present
+        const type = messageData.type;
+        let targetUrl = messageData.url;
+
+        if (!targetUrl) {
+          if (
+            type === 'token_called' ||
+            type === 'doctor_consultation_started' ||
+            type === 'queue_update' ||
+            type === 'appointment_skipped' ||
+            type === 'doctor_late' ||
+            type === 'appointment_reminder' ||
+            (finalTitle && finalTitle.includes('Upcoming Appointment'))
+          ) {
+            targetUrl = '/live-token';
+          } else {
+            // Default for others (confirmed, cancelled, rescheduled)
+            targetUrl = '/appointments';
+          }
+        }
+        messageData.url = targetUrl;
+
         // FCM requires all data values to be strings
         // Convert any non-string values to strings to prevent failures
         const stringifiedData: Record<string, string> = {};
@@ -132,6 +154,9 @@ export async function POST(request: NextRequest) {
               icon: '/icons/icon-192x192.png',
               badge: '/icons/icon-192x192.png',
             },
+            fcmOptions: {
+              link: targetUrl
+            }
           },
         };
 

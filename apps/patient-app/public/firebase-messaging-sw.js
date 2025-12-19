@@ -43,20 +43,20 @@ const NOTIFICATION_SOUNDS = {
 messaging.onBackgroundMessage((payload) => {
   console.log('📨 Background message received via onBackgroundMessage:', payload);
   console.log('📨 Has notification object:', !!payload.notification);
-  
+
   if (!payload.notification) {
     console.warn('⚠️ Payload has no notification object, cannot show notification');
     return Promise.resolve();
   }
 
   const notificationTitle = payload.notification.title || 'Kloqo';
-  
+
   // Use unique tag to prevent duplicates
   // Include notification type in tag to make it unique even for same appointmentId
   const notificationType = payload.data?.type || 'notification';
   const appointmentId = payload.data?.appointmentId || '';
   const fcmMessageId = payload.fcmMessageId || payload.messageId || '';
-  
+
   // Create unique tag: type_appointmentId or type_fcmMessageId or type_timestamp
   let uniqueTag;
   if (appointmentId) {
@@ -66,7 +66,7 @@ messaging.onBackgroundMessage((payload) => {
   } else {
     uniqueTag = `${notificationType}_${Date.now()}`;
   }
-  
+
   console.log('📨 Preparing notification:', {
     title: notificationTitle,
     body: payload.notification.body,
@@ -75,20 +75,20 @@ messaging.onBackgroundMessage((payload) => {
     appointmentId: appointmentId || 'none',
     fcmMessageId: fcmMessageId || 'none'
   });
-  
+
   // Determine notification sound based on data type or use default
   // ALWAYS use notification.wav as default sound
   // Priority: 1. payload.data.notificationSound (explicit), 2. sound mapping by type, 3. default
   // Supported formats: MP3, WAV, OGG
   let notificationSound = '/sounds/notification.wav'; // Always use notification.wav
-  
+
   // Only override if explicitly specified in payload
   if (payload.data?.notificationSound) {
     notificationSound = payload.data.notificationSound;
   } else if (NOTIFICATION_SOUNDS[payload.data?.type]) {
     notificationSound = NOTIFICATION_SOUNDS[payload.data?.type];
   }
-  
+
   console.log('🔊 Notification sound:', {
     explicit: payload.data?.notificationSound,
     type: payload.data?.type,
@@ -97,7 +97,19 @@ messaging.onBackgroundMessage((payload) => {
 
   // Detect if device is iOS (iOS doesn't support custom notification sounds)
   const isIOS = /iPhone|iPad|iPod/.test(self.navigator?.userAgent || '');
-  
+
+  // Determine target URL based on notification type/title
+  let targetUrl = '/appointments';
+
+  if (
+    notificationTitle.includes('Upcoming Appointment') ||
+    notificationType === 'appointment_reminder' ||
+    notificationType === 'token_called' ||
+    notificationType === 'doctor_consultation_started'
+  ) {
+    targetUrl = '/live-token';
+  }
+
   const notificationOptions = {
     body: payload.notification.body || 'You have a new notification',
     icon: payload.notification.icon || '/icons/icon-192x192.png',
@@ -110,17 +122,17 @@ messaging.onBackgroundMessage((payload) => {
     ...(notificationSound && !isIOS && { sound: notificationSound }),
     data: {
       ...payload.data,
-      url: payload.data?.url || '/appointments' // Default to appointments page
+      url: payload.data?.url || targetUrl
     }
   };
-  
+
   if (isIOS) {
     console.log('📱 iOS device detected - custom sound not supported, using system default');
   }
 
   // Check if this notification was shown recently to prevent duplicates
   const now = Date.now();
-  
+
   // Check by unique tag
   const recentTime = recentNotifications.get(uniqueTag);
   if (recentTime && (now - recentTime) < DUPLICATE_PREVENTION_WINDOW) {
@@ -131,7 +143,7 @@ messaging.onBackgroundMessage((payload) => {
     });
     return Promise.resolve();
   }
-  
+
   // Also check by FCM message ID to prevent duplicates from same message
   if (fcmMessageId) {
     const recentByMessageId = recentNotifications.get(`msg_${fcmMessageId}`);
@@ -160,7 +172,7 @@ messaging.onBackgroundMessage((payload) => {
     console.warn('⚠️ Notification already shown for this push event, preventing duplicate');
     return Promise.resolve();
   }
-  
+
   notificationShownForCurrentPush = true;
   console.log('📨 Showing notification with options:', notificationOptions);
 
@@ -186,10 +198,10 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('push', (event) => {
   console.log('📬 Push event received:', event);
   console.log('📬 Push event has data:', !!event.data);
-  
+
   // Reset flag for new push
   notificationShownForCurrentPush = false;
-  
+
   // Firebase handles push messages via onBackgroundMessage
   // The push event listener is mainly for logging and as a fallback
   if (event.data) {
@@ -197,11 +209,11 @@ self.addEventListener('push', (event) => {
       const payload = event.data.json();
       console.log('📬 Push payload parsed:', payload);
       console.log('📬 Has notification object:', !!payload.notification);
-      
+
       if (payload.notification) {
         console.log('📬 Notification will be handled by onBackgroundMessage handler');
       }
-      
+
       // Firebase's onBackgroundMessage will handle showing the notification
       // We don't need to manually show it here to avoid duplicates
     } catch (e) {
@@ -217,29 +229,33 @@ self.addEventListener('push', (event) => {
 // Handle notification clicks
 self.addEventListener('notificationclick', (event) => {
   console.log('Notification clicked:', event);
-  
+
   event.notification.close();
 
   const data = event.notification.data;
-  
+
   // Use the url from data, or default to appointments page
   let urlToOpen = data?.url || '/appointments';
-  
+
   // If url is relative, make it absolute
   if (urlToOpen.startsWith('/')) {
     const origin = self.location.origin;
     urlToOpen = `${origin}${urlToOpen}`;
   }
-  
+
   console.log('Opening URL:', urlToOpen);
-  
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        // Check if there's already a window/tab open
+        // Check if there's already a window/tab open matching the origin
         for (const client of clientList) {
-          if ('focus' in client) {
+          const clientUrl = new URL(client.url, self.location.origin);
+          if (clientUrl.origin === self.location.origin && 'focus' in client) {
             client.focus();
+            if ('navigate' in client) {
+              client.navigate(urlToOpen);
+            }
             return;
           }
         }

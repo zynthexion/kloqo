@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useLanguage } from '@/contexts/language-context';
 
 // Sub-component for Swipeable Notification
-const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => {
+const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon, router }: any) => {
     const [startX, setStartX] = useState<number | null>(null);
     const [currentX, setCurrentX] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -77,6 +77,38 @@ const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => 
         if (isDragging) handleMouseUp();
     };
 
+    const handleClick = () => {
+        // Only navigate if not swiping
+        if (Math.abs(currentX) < 10) {
+            onMarkRead();
+
+            // Determine navigation path based on notification type/title
+            const notificationType = note.data?.type || '';
+            const notificationTitle = note.title || '';
+
+            // Navigate to /live-token for:
+            // - Upcoming Appointment notifications
+            // - Doctor consultation started notifications
+            // - Token called notifications
+            if (
+                notificationTitle.includes('Upcoming Appointment') ||
+                notificationType === 'appointment_reminder' ||
+                notificationType === 'token_called' ||
+                notificationType === 'doctor_consultation_started'
+            ) {
+                router.push('/live-token');
+            } else {
+                // Navigate to /appointments for:
+                // - New appointment
+                // - Appointment cancelled
+                // - Appointment rescheduled
+                // - Appointment confirmed
+                // - All other notifications
+                router.push('/appointments');
+            }
+        }
+    };
+
     const opacity = Math.max(0, 1 + currentX / 200); // Fade out as you swipe
 
     if (isDeleting) return null;
@@ -90,7 +122,7 @@ const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => 
 
             {/* Foreground (Actual Content) */}
             <div
-                className={`relative bg-white flex gap-3 p-3 rounded-lg border transition-transform duration-200 ease-out select-none ${!note.read ? 'bg-blue-50 border-blue-100' : 'border-gray-100'}`}
+                className={`relative bg-white flex gap-3 p-3 rounded-lg border transition-transform duration-200 ease-out select-none cursor-pointer hover:bg-gray-50 ${!note.read ? 'bg-blue-50 border-blue-100' : 'border-gray-100'}`}
                 style={{ transform: `translateX(${currentX}px)`, opacity }}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
@@ -99,7 +131,7 @@ const SwipeableNotification = ({ note, onMarkRead, onDelete, getIcon }: any) => 
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseLeave}
-                onClick={onMarkRead}
+                onClick={handleClick}
             >
                 <div className="mt-1 flex-shrink-0">
                     {getIcon(note.data?.type || 'default')}
@@ -314,6 +346,7 @@ export function NotificationHistory() {
                                 getIcon={getIcon}
                                 onMarkRead={() => { }} // Already marked on open
                                 onDelete={handleDeleteOne}
+                                router={router}
                             />
                         ))
                     )}

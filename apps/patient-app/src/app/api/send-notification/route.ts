@@ -107,12 +107,23 @@ export async function POST(request: NextRequest) {
     try {
       if (app) {
         /* console.log('🔔 API DEBUG: Attempting to send FCM notification'); */
+        const messageData = {
+          ...(data || {}),
+          ...(data?.notificationSound && { notificationSound: data.notificationSound }),
+        };
+
+        // FCM requires all data values to be strings
+        // Convert any non-string values to strings to prevent failures
+        const stringifiedData: Record<string, string> = {};
+        Object.entries(messageData).forEach(([key, value]) => {
+          if (value !== null && value !== undefined) {
+            stringifiedData[key] = String(value);
+          }
+        });
+
         const message = {
           notification: { title: finalTitle, body: finalBody },
-          data: {
-            ...(data || {}),
-            ...(data?.notificationSound && { notificationSound: data.notificationSound }),
-          },
+          data: stringifiedData,
           token: fcmToken,
           webpush: {
             notification: {

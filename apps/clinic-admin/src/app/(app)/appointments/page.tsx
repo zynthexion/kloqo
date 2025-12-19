@@ -2367,6 +2367,7 @@ export default function AppointmentsPage() {
 
     startTransition(async () => {
       try {
+        const appointmentRef = doc(db, 'appointments', appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed'
         });

@@ -98,9 +98,9 @@ function calculateDelayForAppointments(
 function getReportByTimeLabel(appointment: Appointment | null, doctor?: Doctor | null): string {
     if (!appointment) return '--';
     try {
-        return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
+        return getArriveByTimeFromAppointment(appointment, doctor);
     } catch {
-        return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
+        return appointment.arriveByTime || appointment.time || '--';
     }
 }
 
@@ -324,17 +324,22 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         // Get your appointment's time for comparison
         const yourAppointmentTime = parseAppointmentTime(yourAppointment);
 
+        const yourNaturalIndex = pendingAndConfirmed.findIndex(a => a.id === yourAppointment.id);
+        const isTopPosition = yourNaturalIndex !== -1 && yourNaturalIndex <= 1; // 1st or 2nd position (0 or 1)
+
         // Build the complete queue: pending/confirmed + skipped (only if they would be before you)
         const queue: Array<{ appointment: Appointment; queueTime: Date }> = [];
 
         // Add Pending and Confirmed appointments at their current time
         for (const apt of pendingAndConfirmed) {
+            // If in top 2 positions, exclude other Pending tokens from the count
+            // This ensures stability once you are "Next" or "Current"
+            if (isTopPosition && apt.status === 'Pending' && apt.id !== yourAppointment.id) {
+                continue;
+            }
             const aptTime = parseAppointmentTime(apt);
             queue.push({ appointment: apt, queueTime: aptTime });
         }
-
-        const yourNaturalIndex = pendingAndConfirmed.findIndex(a => a.id === yourAppointment.id);
-        const isTopPosition = yourNaturalIndex !== -1 && yourNaturalIndex <= 1; // 1st or 2nd position (0 or 1)
 
         // Add Skipped appointments only if they would be placed before your appointment
         // AND we are NOT in the top 2 positions
@@ -502,7 +507,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         if (!yourAppointment) return null;
         try {
             const appointmentDate = parse(yourAppointment.date, "d MMMM yyyy", new Date());
-            const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
+            const arriveByString = getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
             return parse(arriveByString, "hh:mm a", appointmentDate);
         } catch {
             try {
@@ -529,9 +534,9 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     const formatReportByTime = useCallback((appointment: Appointment | null, doctor?: Doctor | null) => {
         if (!appointment) return '--';
         try {
-            return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
+            return getArriveByTimeFromAppointment(appointment, doctor);
         } catch {
-            return appointment.arriveByTime || getArriveByTimeFromAppointment(appointment, doctor) || '--';
+            return appointment.arriveByTime || appointment.time || '--';
         }
     }, []);
 

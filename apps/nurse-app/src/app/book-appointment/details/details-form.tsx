@@ -177,10 +177,9 @@ function AppointmentDetailsFormContent() {
             const appointmentDateStr = format(selectedSlot, "d MMMM yyyy");
             const duplicateCheckQuery = query(
                 collection(db, "appointments"),
-                where("patientId", "==", patientId),
                 where("doctor", "==", doctor.name),
                 where("date", "==", appointmentDateStr),
-                where("status", "in", ["Pending", "Confirmed", "Completed", "Skipped"])
+                where("status", "in", ["Pending", "Confirmed", "Skipped"])
             );
 
             const duplicateSnapshot = await getDocs(duplicateCheckQuery);

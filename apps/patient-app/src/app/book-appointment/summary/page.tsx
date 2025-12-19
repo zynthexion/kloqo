@@ -551,10 +551,9 @@ function BookingSummaryPage() {
             // Check for duplicates
             const duplicateCheckQuery = query(
                 collection(firestore, "appointments"),
-                where("patientId", "==", finalPatient.id),
                 where("doctor", "==", finalDoctor.name),
                 where("date", "==", appointmentDateStr),
-                where("status", "in", ["Pending", "Confirmed", "Completed", "Skipped"])
+                where("status", "in", ["Pending", "Confirmed", "Skipped"])
             );
 
             const duplicateSnapshot = await getDocs(duplicateCheckQuery);

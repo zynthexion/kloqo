@@ -158,23 +158,46 @@ function WalkInRegistrationContent() {
 
     try {
       const fullPhoneNumber = `+91${phone}`;
-      const patientsRef = collection(db, 'patients');
 
-      // Find the primary user record first based on the phone number
-      const primaryQuery = query(patientsRef, where('phone', '==', fullPhoneNumber));
-      const primarySnapshot = await getDocs(primaryQuery);
+      // PRIORITY 1: Check 'users' collection first to ensure we find the registered account
+      const usersRef = collection(db, 'users');
+      const userQuery = query(usersRef, where('phone', '==', fullPhoneNumber), where('role', '==', 'patient'));
+      const userSnapshot = await getDocs(userQuery);
 
-      if (primarySnapshot.empty) {
+      let primaryPatient: Patient | null = null;
+
+      if (!userSnapshot.empty) {
+        // User exists! Use their linked patient record.
+        const userDoc = userSnapshot.docs[0].data();
+        if (userDoc.patientId) {
+          const patientDocSnap = await getDoc(doc(db, 'patients', userDoc.patientId));
+          if (patientDocSnap.exists()) {
+            primaryPatient = { id: patientDocSnap.id, ...patientDocSnap.data() } as Patient;
+          }
+        }
+      }
+
+      // PRIORITY 2: If no user found (or user has no patient), search 'patients' collection
+      if (!primaryPatient) {
+        const patientsRef = collection(db, 'patients');
+        const primaryQuery = query(patientsRef, where('phone', '==', fullPhoneNumber));
+        const primarySnapshot = await getDocs(primaryQuery);
+
+        if (!primarySnapshot.empty) {
+          const primaryDoc = primarySnapshot.docs[0];
+          primaryPatient = { id: primaryDoc.id, ...primaryDoc.data() } as Patient;
+        }
+      }
+
+      if (!primaryPatient) {
         setSearchedPatients([]);
-        setShowForm(true); // No user found, show form to create one
+        setShowForm(true); // No user or patient found, show form
         form.setValue('phone', phone);
         return;
       }
 
-      const primaryDoc = primarySnapshot.docs[0];
-      const primaryPatient = { id: primaryDoc.id, ...primaryDoc.data() } as Patient;
       primaryPatient.clinicIds = primaryPatient.clinicIds || [];
-
+      const patientsRef = collection(db, 'patients');
       let allRelatedPatients: Patient[] = [primaryPatient];
 
       if (primaryPatient.relatedPatientIds && primaryPatient.relatedPatientIds.length > 0) {
@@ -353,9 +376,11 @@ function WalkInRegistrationContent() {
         sex: values.sex,
         clinicId,
         // For walk-ins, we can either use the existing patient's primary ID or create a new mock one.
-        // For walk-ins, we treat them as primary patients (self)
-        bookingUserId: selectedPatientId || undefined,
-        bookingFor: 'self',
+        // If we selected a patient, update that specific record (safest)
+        // If new, create/find (self)
+        id: selectedPatientId || undefined,
+        bookingUserId: undefined,
+        bookingFor: selectedPatientId ? 'update' : 'self',
       });
 
       const numericTokenFromService = numericToken;

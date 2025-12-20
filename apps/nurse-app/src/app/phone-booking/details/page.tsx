@@ -288,14 +288,21 @@ function PhoneBookingDetailsContent() {
         }
     }
 
-    const handleBookForRelative = (relative: Patient) => {
-        if (!doctor || !primaryPatient?.primaryUserId) return;
-        router.push(`/book-appointment?doctor=${doctor.id}&patientId=${relative.id}&bookingUserId=${primaryPatient.primaryUserId}&source=phone`);
+    const handleSelectRelative = (relative: Patient) => {
+        setSelectedPatient(relative);
+        form.reset({
+            patientName: relative.name || '',
+            age: relative.age ?? undefined,
+            place: relative.place || '',
+            sex: relative.sex || undefined,
+            phone: (relative.phone || primaryPatient?.phone || '').replace('+91', ''),
+        });
+        setShowForm(true);
     }
 
     const handleNewRelativeAdded = (newRelative: Patient) => {
         setRelatives(prev => [...prev, newRelative]);
-        handleBookForRelative(newRelative);
+        handleSelectRelative(newRelative);
     }
 
     const handleSendLink = async () => {
@@ -494,7 +501,7 @@ function PhoneBookingDetailsContent() {
                                                                     <p className="text-xs text-muted-foreground">{relative.sex}, {relative.age} years</p>
                                                                 </div>
                                                             </div>
-                                                            <Button size="sm" variant="outline" onClick={() => handleBookForRelative(relative)}>Book</Button>
+                                                            <Button size="sm" variant="outline" onClick={() => handleSelectRelative(relative)}>Select</Button>
                                                         </div>
                                                     ))}
                                                 </div>

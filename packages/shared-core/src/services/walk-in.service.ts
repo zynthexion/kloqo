@@ -2896,18 +2896,27 @@ export async function calculateWalkInDetails(
     }
   ];
 
-  const schedule = computeWalkInSchedule({
-    slots,
-    now,
-    walkInTokenAllotment: walkInTokenAllotment || 0,
-    advanceAppointments: activeAdvanceAppointments.map(entry => ({
-      id: entry.id,
-      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-    })),
-    walkInCandidates,
-  });
+  let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
-  const newAssignment = schedule.assignments.find(a => a.id === '__new_walk_in__');
+  try {
+    schedule = computeWalkInSchedule({
+      slots,
+      now,
+      walkInTokenAllotment: walkInTokenAllotment || 0,
+      advanceAppointments: activeAdvanceAppointments.map(entry => ({
+        id: entry.id,
+        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+      })),
+      walkInCandidates,
+    });
+  } catch (error) {
+    if (!forceBook) {
+      throw error;
+    }
+    console.log('[FORCE BOOK] Scheduler could not allocate slot, proceeding to overflow logic', error);
+  }
+
+  const newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
 
   let chosenSlotIndex = -1;
   let chosenSessionIndex = 0;

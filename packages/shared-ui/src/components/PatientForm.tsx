@@ -195,13 +195,21 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
 
                 // Auto-select primary patient if no selection exists
                 if (!form.getValues('selectedPatient')) {
+                    const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
+                        if (!val) return undefined;
+                        const s = val.toString().toLowerCase();
+                        if (s === 'male' || s === 'm') return 'Male';
+                        if (s === 'female' || s === 'f') return 'Female';
+                        if (s === 'other' || s === 'o') return 'Other';
+                        return undefined;
+                    };
                     form.reset({
+                        selectedPatient: primaryData.id,
                         name: primaryData.name || '',
                         age: primaryData.age === 0 ? undefined : (primaryData.age ?? undefined),
-                        sex: primaryData.sex || undefined,
+                        sex: normalizeSex(primaryData.sex || (primaryData as any).gender),
                         place: primaryData.place || '',
                         phone: primaryData.communicationPhone || primaryData.phone || user.phoneNumber || '',
-                        selectedPatient: primaryData.id,
                     });
                     setAddNewPatient(false); // Ensure form shows
                 }
@@ -246,13 +254,21 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
             setRelatedPatients(Array.isArray(relatives) ? relatives : []);
 
             if (!form.getValues('selectedPatient')) {
+                const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
+                    if (!val) return undefined;
+                    const s = val.toString().toLowerCase();
+                    if (s === 'male' || s === 'm') return 'Male';
+                    if (s === 'female' || s === 'f') return 'Female';
+                    if (s === 'other' || s === 'o') return 'Other';
+                    return undefined;
+                };
                 form.reset({
+                    selectedPatient: primaryData.id,
                     name: primaryData.name || '',
                     age: primaryData.age === 0 ? undefined : (primaryData.age ?? undefined),
-                    sex: primaryData.sex || undefined,
+                    sex: normalizeSex(primaryData.sex || (primaryData as any).gender),
                     place: primaryData.place || '',
                     phone: primaryData.communicationPhone || primaryData.phone || user.phoneNumber || '',
-                    selectedPatient: primaryData.id,
                 });
             }
         } catch (error) {
@@ -305,13 +321,24 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                     displayPhone = digitsOnly;
                 }
 
+                const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
+                    if (!val) return undefined;
+                    const s = val.toString().toLowerCase();
+                    if (s === 'male' || s === 'm') return 'Male';
+                    if (s === 'female' || s === 'f') return 'Female';
+                    if (s === 'other' || s === 'o') return 'Other';
+                    return undefined;
+                };
+
+                const genderValue = normalizeSex(patient.sex || (patient as any).gender);
+
                 form.reset({
+                    selectedPatient: patient.id,
                     name: patient.name || '',
                     age: patient.age === 0 ? undefined : (patient.age ?? undefined),
-                    sex: patient.sex || undefined,
+                    sex: genderValue,
                     place: patient.place || '',
                     phone: displayPhone || (patient.isPrimary ? (user?.phoneNumber?.replace(/^\+91/, '') || '') : ''),
-                    selectedPatient: patient.id,
                 });
                 lastResetIdRef.current = currentId;
             }
@@ -1239,7 +1266,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                                     render={({ field }) => (
                                         <FormItem>
                                             <FormLabel>{t.patientForm.gender}</FormLabel>
-                                            <Select onValueChange={field.onChange} value={field.value}>
+                                            <Select key={field.value || "none"} onValueChange={field.onChange} value={field.value || ""}>
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder={t.common.select} />

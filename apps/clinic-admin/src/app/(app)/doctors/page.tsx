@@ -1397,7 +1397,11 @@ export default function DoctorsPage() {
       toast({ variant: 'destructive', title: 'Error', description: 'Cannot cancel break.' });
       return;
     }
-    setShouldCancelExtension(true);
+
+    // If we have appointments in the extension, we MUST keep the extension (don't cancel it)
+    // Otherwise, default to cancelling it (true)
+    setShouldCancelExtension(!hasAppointmentsInExtension);
+
     setShouldOpenSlots(true);
     setCancelBreakPrompt({ breakId });
   };
@@ -1407,6 +1411,34 @@ export default function DoctorsPage() {
     setBreakEndSlot(null);
     setSelectedBlockedSlots([]);
   }, [activeBreakTab]);
+
+  const hasAppointmentsInExtension = useMemo(() => {
+    if (!currentSession?.originalEnd || !leaveCalDate || !selectedDoctor) return false;
+
+    // If originalEnd and effectiveEnd are the same, there is no extension
+    if (currentSession.effectiveEnd?.getTime() === currentSession.originalEnd.getTime()) return false;
+
+    const originalEnd = currentSession.originalEnd;
+    const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+
+    return appointments.some(appt => {
+      // Filter for current session active appointments
+      if (appt.doctor !== selectedDoctor.name ||
+        appt.date !== dateStr ||
+        appt.sessionIndex !== currentSession.sessionIndex) return false;
+
+      if (['Cancelled', 'No-show'].includes(appt.status)) return false;
+
+      // Check if appointment ends after the ORIGINAL session end
+      // Use arriveByTime or time as the start
+      const apptRimeStr = appt.arriveByTime || appt.time;
+      const apptStart = parseTimeUtil(apptRimeStr, leaveCalDate);
+      const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
+
+      // Check if it's strictly after the original end (i.e. part of the extension)
+      return isAfter(apptEnd, originalEnd);
+    });
+  }, [currentSession, appointments, leaveCalDate, selectedDoctor]);
 
 
   const handleConfirmCancelBreak = async () => {
@@ -2816,18 +2848,27 @@ export default function DoctorsPage() {
 
           <div className="space-y-6 py-4">
             {currentSession && currentSession.effectiveEnd?.getTime() !== currentSession.originalEnd?.getTime() && (
-              <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
-                <div className="space-y-0.5">
-                  <Label className="text-base font-semibold">Cancel session extension</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Remove the extra time added to the session's end for this break.
+              !hasAppointmentsInExtension ? (
+                <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+                  <div className="space-y-0.5">
+                    <Label className="text-base font-semibold">Cancel session extension</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Remove the extra time added to the session's end for this break.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={shouldCancelExtension}
+                    onCheckedChange={setShouldCancelExtension}
+                  />
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg border bg-yellow-50 text-yellow-900 text-sm">
+                  <p className="font-semibold mb-1">Session extension required</p>
+                  <p>
+                    The break extension cannot be removed because there are appointments scheduled during the extended time.
                   </p>
                 </div>
-                <Switch
-                  checked={shouldCancelExtension}
-                  onCheckedChange={setShouldCancelExtension}
-                />
-              </div>
+              )
             )}
 
             <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">

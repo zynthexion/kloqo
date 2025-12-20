@@ -1398,10 +1398,7 @@ export default function DoctorsPage() {
       return;
     }
 
-    // If we have appointments in the extension, we MUST keep the extension (don't cancel it)
-    // Otherwise, default to cancelling it (true)
-    setShouldCancelExtension(!hasAppointmentsInExtension);
-
+    // Logic for default state moved to useEffect below to depend on calculated utilization
     setShouldOpenSlots(true);
     setCancelBreakPrompt({ breakId });
   };
@@ -1412,33 +1409,59 @@ export default function DoctorsPage() {
     setSelectedBlockedSlots([]);
   }, [activeBreakTab]);
 
-  const hasAppointmentsInExtension = useMemo(() => {
-    if (!currentSession?.originalEnd || !leaveCalDate || !selectedDoctor) return false;
+  // Calculate if and how much extension is needed by appointments
+  const extensionUtilization = useMemo(() => {
+    if (!currentSession?.originalEnd || !leaveCalDate || !selectedDoctor) {
+      return { needed: false, maxExtensionNeeded: 0, currentExtensionDuration: 0 };
+    }
 
     // If originalEnd and effectiveEnd are the same, there is no extension
-    if (currentSession.effectiveEnd?.getTime() === currentSession.originalEnd.getTime()) return false;
+    if (!currentSession.effectiveEnd || currentSession.effectiveEnd.getTime() === currentSession.originalEnd.getTime()) {
+      return { needed: false, maxExtensionNeeded: 0, currentExtensionDuration: 0 };
+    }
 
     const originalEnd = currentSession.originalEnd;
+    const currentExtensionDuration = differenceInMinutes(currentSession.effectiveEnd, originalEnd);
     const dateStr = format(leaveCalDate, 'd MMMM yyyy');
 
-    return appointments.some(appt => {
+    let maxExtensionNeeded = 0;
+    let needed = false;
+
+    appointments.forEach(appt => {
       // Filter for current session active appointments
       if (appt.doctor !== selectedDoctor.name ||
         appt.date !== dateStr ||
-        appt.sessionIndex !== currentSession.sessionIndex) return false;
+        appt.sessionIndex !== currentSession.sessionIndex) return;
 
-      if (['Cancelled', 'No-show'].includes(appt.status)) return false;
+      if (['Cancelled', 'No-show'].includes(appt.status)) return;
 
       // Check if appointment ends after the ORIGINAL session end
-      // Use arriveByTime or time as the start
-      const apptRimeStr = appt.arriveByTime || appt.time;
-      const apptStart = parseTimeUtil(apptRimeStr, leaveCalDate);
+      const apptTimeStr = appt.arriveByTime || appt.time;
+      const apptStart = parseTimeUtil(apptTimeStr, leaveCalDate);
       const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
 
-      // Check if it's strictly after the original end (i.e. part of the extension)
-      return isAfter(apptEnd, originalEnd);
+      if (isAfter(apptEnd, originalEnd)) {
+        needed = true;
+        const extensionNeeded = differenceInMinutes(apptEnd, originalEnd);
+        if (extensionNeeded > maxExtensionNeeded) {
+          maxExtensionNeeded = extensionNeeded;
+        }
+      }
     });
+
+    return { needed, maxExtensionNeeded, currentExtensionDuration };
   }, [currentSession, appointments, leaveCalDate, selectedDoctor]);
+
+  // Update effect to handle default toggle state based on utilization
+  useEffect(() => {
+    if (extensionUtilization.maxExtensionNeeded >= extensionUtilization.currentExtensionDuration && extensionUtilization.currentExtensionDuration > 0) {
+      // Fully needed: Must keep extension (so Cancel = false)
+      setShouldCancelExtension(false);
+    } else {
+      // Partial or None: Default to Cancel (true)
+      setShouldCancelExtension(true);
+    }
+  }, [extensionUtilization, cancelBreakPrompt]); // Re-run when prompt opens or util changes
 
 
   const handleConfirmCancelBreak = async () => {
@@ -1542,7 +1565,38 @@ export default function DoctorsPage() {
       const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
 
       const newTotalExtendedBy = shouldCancelExtension
-        ? totalBreakMinutes
+        ? (() => {
+          // SMART CANCELLATION LOGIC:
+          // If user wants to cancel extension, check if we need to keep SOME of it
+          // for existing appointments that are in the extended zone.
+
+          if (!currentSession.originalEnd || !leaveCalDate) return 0;
+
+          const originalSessionEnd = currentSession.originalEnd;
+          const appointmentsInSession = appointments.filter(a =>
+            a.doctor === selectedDoctor.name &&
+            a.date === dateStr &&
+            a.sessionIndex === currentSession.sessionIndex &&
+            !['Cancelled', 'No-show'].includes(a.status)
+          );
+
+          let maxExtensionNeeded = 0;
+
+          appointmentsInSession.forEach(appt => {
+            const apptTimeStr = appt.arriveByTime || appt.time;
+            const apptStart = parseTimeUtil(apptTimeStr, leaveCalDate);
+            const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
+
+            if (isAfter(apptEnd, originalSessionEnd)) {
+              const extensionNeeded = differenceInMinutes(apptEnd, originalSessionEnd);
+              if (extensionNeeded > maxExtensionNeeded) {
+                maxExtensionNeeded = extensionNeeded;
+              }
+            }
+          });
+
+          return maxExtensionNeeded;
+        })()
         : currentTotalExtendedBy;
 
       const newSessionExtension = {
@@ -2848,25 +2902,35 @@ export default function DoctorsPage() {
 
           <div className="space-y-6 py-4">
             {currentSession && currentSession.effectiveEnd?.getTime() !== currentSession.originalEnd?.getTime() && (
-              !hasAppointmentsInExtension ? (
+              extensionUtilization.maxExtensionNeeded >= extensionUtilization.currentExtensionDuration ? (
+                // Case 1: Fully utilized. Hide toggle. show message.
+                <div className="p-3 rounded-lg border bg-blue-50 text-blue-900 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold">Session extension active</span>
+                    <span className="text-xs bg-blue-200 px-2 py-0.5 rounded text-blue-800">Required</span>
+                  </div>
+                  <p className="mt-1">
+                    The session extension ({extensionUtilization.currentExtensionDuration} min) is fully required by existing appointments and cannot be removed.
+                  </p>
+                </div>
+              ) : (
+                // Case 2: Partial or None. Show Toggle.
                 <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
                   <div className="space-y-0.5">
                     <Label className="text-base font-semibold">Cancel session extension</Label>
                     <p className="text-sm text-muted-foreground">
                       Remove the extra time added to the session's end for this break.
+                      {extensionUtilization.needed && (
+                        <span className="block text-yellow-600 font-medium mt-1">
+                          Note: Appointments use {extensionUtilization.maxExtensionNeeded} min of the extension. It will be trimmed to fit them.
+                        </span>
+                      )}
                     </p>
                   </div>
                   <Switch
                     checked={shouldCancelExtension}
                     onCheckedChange={setShouldCancelExtension}
                   />
-                </div>
-              ) : (
-                <div className="p-3 rounded-lg border bg-yellow-50 text-yellow-900 text-sm">
-                  <p className="font-semibold mb-1">Session extension required</p>
-                  <p>
-                    The break extension cannot be removed because there are appointments scheduled during the extended time.
-                  </p>
                 </div>
               )
             )}

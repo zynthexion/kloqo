@@ -1288,6 +1288,8 @@ function ScheduleBreakContent() {
                                     <Switch
                                         checked={shouldCancelExtension}
                                         onCheckedChange={setShouldCancelExtension}
+                                        labelOn="YES"
+                                        labelOff="NO"
                                     />
                                 </div>
                             )}
@@ -1302,6 +1304,8 @@ function ScheduleBreakContent() {
                                 <Switch
                                     checked={shouldOpenSlots}
                                     onCheckedChange={setShouldOpenSlots}
+                                    labelOn="YES"
+                                    labelOff="NO"
                                 />
                             </div>
                         </div>

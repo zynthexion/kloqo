@@ -384,16 +384,6 @@ export function computeWalkInSchedule({
         }
         continue;
       }
-    } else if (shouldEnforceInterval && earliestWindowPosition !== -1) {
-      if (DEBUG) {
-        console.info('[walk-in scheduler] Skipping bubble logic - interval logic will be enforced', {
-          candidateId: candidate.id,
-          earliestWindowPosition,
-          anchorPosition,
-          advanceAfterAnchor,
-          spacing
-        });
-      }
     }
 
     if (typeof preferredPosition === 'number') {

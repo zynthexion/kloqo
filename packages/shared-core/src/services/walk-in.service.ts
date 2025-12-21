@@ -2882,7 +2882,7 @@ export async function calculateWalkInDetails(
 
 
 
-  const walkInCandidates = [
+  const activeWalkInCandidates = [
     ...activeWalkIns.map(appointment => ({
       id: appointment.id,
       numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : Number(appointment.numericToken) || 0,
@@ -2896,6 +2896,51 @@ export async function calculateWalkInDetails(
     }
   ];
 
+  // ============================================================================
+  // ORDER PROTECTION: Identify cancelled slots that MUST remain blocked
+  // ============================================================================
+  const slotsWithActiveAppointments = new Set<number>();
+  appointments.forEach(appt => {
+    if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+      slotsWithActiveAppointments.add(appt.slotIndex);
+    }
+  });
+
+  const activeWalkInsWithTimes = activeWalkIns
+    .filter(appt => typeof appt.slotIndex === 'number')
+    .map(appt => ({
+      slotIndex: appt.slotIndex!,
+      slotTime: slots[appt.slotIndex!]?.time,
+    }))
+    .filter(item => item.slotTime !== undefined);
+
+  const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
+    id: entry.id,
+    slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+  }));
+
+  // Identify blocked cancelled slots (Order Protection)
+  const oneHourAhead = addMinutes(now, 60);
+  appointments.forEach(appt => {
+    if (
+      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
+      typeof appt.slotIndex === 'number' &&
+      !slotsWithActiveAppointments.has(appt.slotIndex)
+    ) {
+      const slotMeta = slots[appt.slotIndex];
+      if (slotMeta && !isAfter(slotMeta.time, oneHourAhead)) {
+        // If a walk-in already exists AFTER this slot, this slot is BLOCKED for new walk-ins
+        const hasWalkInsAfter = activeWalkInsWithTimes.some(w => isAfter(w.slotTime!, slotMeta.time));
+        if (hasWalkInsAfter) {
+          blockedAdvanceAppointments.push({
+            id: `__blocked_cancelled_${appt.slotIndex}`,
+            slotIndex: appt.slotIndex
+          });
+        }
+      }
+    }
+  });
+
   let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
   try {
@@ -2903,11 +2948,8 @@ export async function calculateWalkInDetails(
       slots,
       now,
       walkInTokenAllotment: walkInTokenAllotment || 0,
-      advanceAppointments: activeAdvanceAppointments.map(entry => ({
-        id: entry.id,
-        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-      })),
-      walkInCandidates,
+      advanceAppointments: blockedAdvanceAppointments,
+      walkInCandidates: activeWalkInCandidates,
     });
   } catch (error) {
     if (!forceBook) {

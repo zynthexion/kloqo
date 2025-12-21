@@ -383,7 +383,30 @@ function WalkInRegistrationContent() {
         bookingFor: selectedPatientId ? 'update' : 'self',
       });
 
+
+      // Check for duplicate booking - same patient, same doctor, same day
+      const appointmentDateStr = format(new Date(), "d MMMM yyyy");
+      const duplicateCheckQuery = query(
+        collection(db, "appointments"),
+        where("patientId", "==", patientId),
+        where("doctor", "==", doctor.name),
+        where("date", "==", appointmentDateStr),
+        where("status", "in", ["Pending", "Confirmed", "Skipped", "Completed"])
+      );
+
+      const duplicateSnapshot = await getDocs(duplicateCheckQuery);
+      if (!duplicateSnapshot.empty) {
+        toast({
+          variant: "destructive",
+          title: "Duplicate Booking",
+          description: "This patient already has an appointment with this doctor today.",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
       const numericTokenFromService = numericToken;
+
       const tokenNumber = `${numericTokenFromService}W`;
 
       // Calculate cut-off time and no-show time

@@ -527,9 +527,10 @@ function WalkInRegistrationContent() {
       const appointmentDateStr = format(new Date(), "d MMMM yyyy");
       const duplicateCheckQuery = query(
         collection(db, "appointments"),
+        where("patientId", "==", patientId),
         where("doctor", "==", doctor.name),
         where("date", "==", appointmentDateStr),
-        where("status", "in", ["Pending", "Confirmed", "Skipped"])
+        where("status", "in", ["Pending", "Confirmed", "Skipped", "Completed"])
       );
 
       const duplicateSnapshot = await getDocs(duplicateCheckQuery);

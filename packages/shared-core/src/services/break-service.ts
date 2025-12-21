@@ -167,9 +167,8 @@ export async function shiftAppointmentsForNewBreak(
 
             if (s.hasActive) {
                 dynamicShiftAmount += 1;
-            } else if (!s.hasBreak) {
-                dynamicShiftAmount += 1;
             } else {
+                // Gap or existing break block: no extra shift needed for the rest of the schedule
                 dynamicShiftAmount += 0;
             }
         }

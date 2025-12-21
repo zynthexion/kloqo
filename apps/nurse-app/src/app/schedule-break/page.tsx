@@ -70,7 +70,7 @@ function ScheduleBreakContent() {
         sessionEnd: Date;
         sessionEffectiveEnd: Date;
     } | null>(null);
-    const [extensionOptions, setExtensionOptions] = useState<{ hasOverrun: boolean; minimalExtension: number; fullExtension: number; lastTokenBefore: string; lastTokenAfter: string; originalEnd: string; breakDuration: number } | null>(null);
+    const [extensionOptions, setExtensionOptions] = useState<{ hasOverrun: boolean; minimalExtension: number; fullExtension: number; actualExtensionNeeded?: number; lastTokenBefore: string; lastTokenAfter: string; originalEnd: string; breakDuration: number } | null>(null);
     const [currentSession, setCurrentSession] = useState<SessionInfo | null>(null);
     const [existingBreaks, setExistingBreaks] = useState<BreakPeriod[]>([]);
     const [availableSlots, setAvailableSlots] = useState<{ currentSessionSlots: SlotInfo[]; upcomingSessionSlots: Map<number, SlotInfo[]> } | null>(null);
@@ -631,10 +631,13 @@ function ScheduleBreakContent() {
             minimalExtension = overrunMinutes;
         }
 
+        const actualExtensionNeeded = actualShiftAmount * slotDuration;
+
         setExtensionOptions({
             hasOverrun,
             minimalExtension,
             fullExtension: breakDuration,
+            actualExtensionNeeded,
             lastTokenBefore,
             lastTokenAfter,
             originalEnd,
@@ -1371,13 +1374,14 @@ function ScheduleBreakContent() {
                                             <ul className="list-disc list-inside space-y-1 text-sm">
                                                 <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
                                                 <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
+                                                <li><strong>Actual extension needed:</strong> {extensionOptions.actualExtensionNeeded || extensionOptions.minimalExtension} minutes (gaps absorbed)</li>
                                             </ul>
                                             <p className="text-sm font-medium">Choose how to extend availability:</p>
                                         </div>
                                     ) : (
                                         // Safe scenario: all tokens within availability
                                         <div className="space-y-2">
-                                            <p>A {extensionOptions.breakDuration}-minute break won’t affect today’s schedule. Do you still want to extend availability?</p>
+                                            <p>A {extensionOptions.breakDuration}-minute break only needs {extensionOptions.actualExtensionNeeded || 0}-minute extension (gaps absorbed{extensionOptions.actualExtensionNeeded === 0 ? ' - no extension needed' : ''}). Do you still want to extend availability?</p>
                                         </div>
                                     )
                                 ) : (

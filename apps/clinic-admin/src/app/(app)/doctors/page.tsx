@@ -272,6 +272,7 @@ export default function DoctorsPage() {
     hasOverrun: boolean;
     minimalExtension: number;
     fullExtension: number;
+    actualExtensionNeeded?: number; // Gap-aware extension amount
     lastTokenBefore: string;
     lastTokenAfter: string;
     originalEnd: string;
@@ -1141,11 +1142,13 @@ export default function DoctorsPage() {
 
     const estimatedFinishTime = hasOverrun || lastTokenAfter ? format(addMinutes(parseTimeUtil(lastTokenAfter, leaveCalDate), selectedDoctor.averageConsultingTime || 15), 'hh:mm a') : '';
     const breakDurationForDisplay = differenceInMinutes(parseISO(breakEndSlot.isoString), parseISO(breakStartSlot.isoString)) + slotDuration;
+    const actualExtensionNeeded = actualShiftAmount * slotDuration; // Gap-aware extension
 
     setExtensionOptions({
       hasOverrun,
       minimalExtension,
       fullExtension: breakDurationForDisplay,
+      actualExtensionNeeded, // NEW: Gap-aware extension to display
       lastTokenBefore,
       lastTokenAfter,
       originalEnd,
@@ -2850,13 +2853,14 @@ export default function DoctorsPage() {
                       <ul className="list-disc list-inside space-y-1 text-sm">
                         <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
                         <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
+                        <li><strong>Actual extension needed:</strong> {extensionOptions.actualExtensionNeeded || extensionOptions.minimalExtension} minutes (gaps absorbed)</li>
                       </ul>
                       <p className="text-sm font-medium">Choose how to extend availability:</p>
                     </div>
                   ) : (
                     // Safe scenario: all tokens within availability
                     <div className="space-y-2">
-                      <p>A {extensionOptions.breakDuration}-minute break won’t affect today’s schedule. Do you still want to extend availability?</p>
+                      <p>A {extensionOptions.breakDuration}-minute break only needs {extensionOptions.actualExtensionNeeded || 0}-minute extension (gaps absorbed{extensionOptions.actualExtensionNeeded === 0 ? ' - no extension needed' : ''}). Do you still want to extend availability?</p>
                     </div>
                   )
                 ) : (

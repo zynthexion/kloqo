@@ -343,6 +343,7 @@ type SearchResult =
 function HomePageContent() {
     const pathname = usePathname();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { t, language } = useLanguage();
     const { departments } = useMasterDepartments();
     const { toast } = useToast();
@@ -1351,7 +1352,9 @@ function HomePageContent() {
         }
     }, [hasShownSplashInSession, splashAnimationDone, dataReady]);
 
-    if (!hasShownSplashInSession && (!splashAnimationDone || !dataReady)) {
+    const isWhatsAppMode = searchParams.get('wa') === 'true';
+
+    if (!hasShownSplashInSession && (!splashAnimationDone || !dataReady) && !isWhatsAppMode) {
         return <SplashScreen onComplete={handleSplashComplete} />;
     }
 
@@ -1359,7 +1362,7 @@ function HomePageContent() {
         <div className="flex min-h-screen w-full flex-col font-body">
             <div className="flex-grow bg-card">
                 {/* Header Section */}
-                <div className="bg-primary text-primary-foreground p-6 rounded-b-[2rem] pb-24">
+                <div className="bg-primary text-primary-foreground p-6 rounded-b-[2rem] pb-24 hide-on-wa">
                     <div className="flex justify-between items-center mb-4">
                         <div>
                             <h1 className="text-2xl font-bold">{t.home.hello}, {user?.name || user?.displayName || t.home.user}</h1>

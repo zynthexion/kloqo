@@ -14,11 +14,15 @@ export function WhatsAppManager() {
     const isWhatsApp = searchParams.get('wa') === 'true';
 
     useEffect(() => {
-        if (isWhatsApp) {
+        const waInSession = sessionStorage.getItem('wa_mode') === 'true';
+
+        if (isWhatsApp || waInSession) {
             document.documentElement.classList.add('whatsapp-mode');
+            if (isWhatsApp) {
+                sessionStorage.setItem('wa_mode', 'true');
+            }
 
             // Additional optimizations for WhatsApp in-app browser
-            // Disable pull-to-refresh if needed, etc.
             document.body.style.overscrollBehaviorY = 'contain';
         } else {
             document.documentElement.classList.remove('whatsapp-mode');

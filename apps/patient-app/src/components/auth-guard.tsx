@@ -200,6 +200,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
       if (clinicId) {
         loginParams.set('clinicId', clinicId);
       }
+      const wa = searchParams.get('wa');
+      if (wa) {
+        loginParams.set('wa', wa);
+      }
 
       const loginUrl = loginParams.toString()
         ? `/login?${loginParams.toString()}`

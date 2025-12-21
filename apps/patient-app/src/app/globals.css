@@ -3,10 +3,13 @@
 @tailwind utilities;
 
 @keyframes wave {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(0.8);
     opacity: 0.3;
   }
+
   50% {
     transform: scale(1.2);
     opacity: 1;
@@ -17,6 +20,7 @@
   0% {
     transform: translateX(-100%);
   }
+
   100% {
     transform: translateX(100%);
   }
@@ -32,21 +36,25 @@
     opacity: 0;
     filter: blur(20px);
   }
+
   30% {
     transform: translate(-20%, -20%) rotate(-90deg) scale(0.6);
     opacity: 0.4;
     filter: blur(10px);
   }
+
   60% {
     transform: translate(5%, 5%) rotate(10deg) scale(1.05);
     opacity: 0.9;
     filter: blur(2px);
   }
+
   80% {
     transform: translate(-2%, -2%) rotate(-2deg) scale(1.02);
     opacity: 1;
     filter: blur(0px);
   }
+
   100% {
     transform: translate(0, 0) rotate(0deg) scale(1);
     opacity: 1;
@@ -60,16 +68,19 @@
     opacity: 1;
     filter: blur(0px);
   }
+
   30% {
     transform: translate(30%, -30%) rotate(45deg) scale(0.9);
     opacity: 0.8;
     filter: blur(5px);
   }
+
   60% {
     transform: translate(70%, -70%) rotate(135deg) scale(0.5);
     opacity: 0.4;
     filter: blur(15px);
   }
+
   100% {
     transform: translate(100vw, -100vh) rotate(180deg) scale(0.2);
     opacity: 0;
@@ -82,10 +93,12 @@
     transform: translateX(-100%) scale(0.8);
     opacity: 0;
   }
+
   50% {
     transform: translateX(5%) scale(1.05);
     opacity: 0.8;
   }
+
   100% {
     transform: translateX(0) scale(1);
     opacity: 1;
@@ -97,10 +110,12 @@
     transform: translateX(100%) scale(0.8);
     opacity: 0;
   }
+
   50% {
     transform: translateX(-5%) scale(1.05);
     opacity: 0.8;
   }
+
   100% {
     transform: translateX(0) scale(1);
     opacity: 1;
@@ -113,21 +128,25 @@
     opacity: 0;
     animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
   }
+
   40% {
     transform: scale(0.9) translateY(20%);
     opacity: 0.8;
     animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
   }
+
   60% {
     transform: scale(1.1) translateY(-10%);
     opacity: 1;
     animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
   }
+
   80% {
     transform: scale(0.95) translateY(5%);
     opacity: 1;
     animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
   }
+
   100% {
     transform: scale(1) translateY(0);
     opacity: 1;
@@ -135,10 +154,13 @@
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1);
     opacity: 1;
   }
+
   50% {
     transform: scale(1.05);
     opacity: 0.9;
@@ -146,9 +168,12 @@
 }
 
 @keyframes glow {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 5px rgba(59, 130, 246, 0.5), 0 0 10px rgba(59, 130, 246, 0.3);
   }
+
   50% {
     box-shadow: 0 0 20px rgba(59, 130, 246, 0.8), 0 0 30px rgba(59, 130, 246, 0.5), 0 0 40px rgba(59, 130, 246, 0.3);
   }
@@ -159,6 +184,7 @@
     transform: translateY(0);
     opacity: 1;
   }
+
   100% {
     transform: translateY(-100%);
     opacity: 0;
@@ -170,6 +196,7 @@
     transform: translateY(0);
     opacity: 1;
   }
+
   100% {
     transform: translateY(100%);
     opacity: 0;
@@ -252,6 +279,7 @@
     --token-current: 150 25% 40%;
     --token-your: 38 92% 56%;
   }
+
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
@@ -296,11 +324,13 @@
   * {
     @apply border-border;
   }
+
   html {
     @apply bg-background;
     /* Prevent white flash during page transitions */
     background-color: hsl(var(--background));
   }
+
   body {
     @apply bg-background text-foreground;
     /* Ensure body covers full viewport to prevent white flash */
@@ -309,20 +339,23 @@
 }
 
 /* For firebase phone auth */
-.grecaptcha-badge { 
+.grecaptcha-badge {
   visibility: hidden;
 }
 
 /* Fix for iOS PWA keyboard issues */
 @supports (-webkit-touch-callout: none) {
+
   /* iOS Safari */
   [data-radix-dialog-content] {
     -webkit-overflow-scrolling: touch;
     transform: translate3d(0, 0, 0);
   }
-  
+
   /* Ensure inputs can focus properly in PWAs */
-  input, textarea, select {
+  input,
+  textarea,
+  select {
     -webkit-appearance: none;
     -webkit-tap-highlight-color: transparent;
   }
@@ -338,12 +371,11 @@
 }
 
 /* WhatsApp Optimized Mode */
-.whatsapp-mode {
-  --background: 0 0% 100%;
-}
-
+.whatsapp-mode,
+.whatsapp-mode html,
 .whatsapp-mode body {
-  background-color: #ffffff;
+  background-color: #ffffff !important;
+  --background: 0 0% 100%;
 }
 
 .whatsapp-mode .hide-on-wa {

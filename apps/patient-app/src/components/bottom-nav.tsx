@@ -34,11 +34,11 @@ export function BottomNav() {
     };
 
     return (
-        <footer className="fixed bottom-0 left-0 right-0 w-full bg-card border-t pb-safe z-50">
+        <footer className="fixed bottom-0 left-0 right-0 w-full bg-card border-t pb-safe z-50 hide-on-wa">
             <nav className="mx-auto flex max-w-md items-center justify-around h-20 pb-4">
                 {navItems.map((item) => (
-                    <Link 
-                        key={item.href} 
+                    <Link
+                        key={item.href}
                         href={item.href}
                         prefetch={true}
                         className={cn(

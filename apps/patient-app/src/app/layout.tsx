@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { Toaster } from "@/components/ui/toaster";
 import './globals.css';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
@@ -11,6 +12,7 @@ import { ErrorBoundaryWithLogging } from '@/components/ErrorBoundary';
 import { GlobalErrorHandler } from '@/components/GlobalErrorHandler';
 import { RoutePrefetcher } from '@/components/route-prefetcher';
 import { ReviewChecker, AppointmentReminderHandler } from '@/components/deferred-components';
+import { WhatsAppManager } from '@/components/whatsapp-manager';
 
 export const metadata: Metadata = {
   title: 'Kloqo',
@@ -85,6 +87,9 @@ export default function RootLayout({
       <body className="font-body antialiased">
         <FirebaseClientProvider>
           <LanguageProvider>
+            <Suspense fallback={null}>
+              <WhatsAppManager />
+            </Suspense>
             <LanguagePrompt />
             <ErrorBoundaryWithLogging>
               {children}

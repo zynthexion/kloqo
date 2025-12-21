@@ -336,3 +336,31 @@
 .font-malayalam {
   font-family: 'Noto Sans Malayalam', sans-serif;
 }
+
+/* WhatsApp Optimized Mode */
+.whatsapp-mode {
+  --background: 0 0% 100%;
+}
+
+.whatsapp-mode body {
+  background-color: #ffffff;
+}
+
+.whatsapp-mode .hide-on-wa {
+  display: none !important;
+}
+
+.whatsapp-mode .wa-card {
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  border-bottom: 1px solid #f0f0f0 !important;
+}
+
+.whatsapp-mode .wa-button {
+  background-color: #25d366 !important;
+  color: white !important;
+  border-radius: 24px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

@@ -11,6 +11,8 @@ export * from './utils/break-helpers';
 export { previewWalkInPlacement, calculateWalkInDetails } from './services/walk-in.service';
 export * from './services/walk-in-scheduler';
 
+export * from './services/whatsapp-service';
+export * from './services/whatsapp-auth';
 export * from './utils/errors';
 export * from './utils/error-emitter';
 

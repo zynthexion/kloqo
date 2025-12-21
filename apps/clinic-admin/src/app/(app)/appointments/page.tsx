@@ -18,7 +18,7 @@ import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreD
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
-import { updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave } from '@kloqo/shared-core';
+import { updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, generateWhatsAppMagicLink } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
   Form,
@@ -2165,11 +2165,34 @@ export default function AppointmentsPage() {
         });
       }
 
-      // Send WhatsApp message with booking link
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.kloqo.com';
+      // --- WHATSAPP MAGIC LINK INTEGRATION ---
+      // Step 1: Securely determine the patient ID for the link
+      let linkPatientId: string | undefined;
+      if (!userSnapshot.empty) {
+        const existingUser = userSnapshot.docs[0].data() as User;
+        linkPatientId = existingUser.patientId;
+      } else {
+        // For new users, we just created them via the batch above.
+        // We need to fetch the patient record or ensure we know the ID.
+        // The newPatientRef.id was used in the batch above.
+        linkPatientId = newPatientRef.id;
+      }
+
+      if (!linkPatientId) {
+        throw new Error("Could not determine patient ID for magic link.");
+      }
+
+      // Step 2: Generate the secure Magic Link
+      const magicLink = generateWhatsAppMagicLink({
+        baseUrl: process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com',
+        patientId: linkPatientId,
+        clinicId: clinicId,
+        doctorId: values.doctorId || undefined,
+        action: 'book'
+      });
+
       const clinicName = clinicDetails?.name || 'the clinic';
-      const bookingLink = `${baseUrl}/clinics/${clinicId}`;
-      const message = `Your request for appointment is received in '${clinicName}'. Use this link to complete the booking: ${bookingLink}`;
+      const message = `Your request for appointment is received in '${clinicName}'. Use this secure link to complete your booking instantly: ${magicLink}`;
 
       try {
         const response = await fetch('/api/send-sms', {

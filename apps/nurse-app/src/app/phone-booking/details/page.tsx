@@ -17,7 +17,7 @@ import { collection, getDocs, doc, getDoc, query, where, updateDoc, serverTimest
 import { db } from '@/lib/firebase';
 import type { Doctor, Patient, User } from '@/lib/types';
 import AppFrameLayout from '@/components/layout/app-frame';
-import { errorEmitter } from '@kloqo/shared-core';
+import { errorEmitter, generateWhatsAppMagicLink } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { managePatient } from '@kloqo/shared-core';
 import { useToast } from '@/hooks/use-toast';
@@ -360,11 +360,37 @@ function PhoneBookingDetailsContent() {
             const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
             const clinicDetails = clinicDoc.exists() ? clinicDoc.data() : null;
 
-            // Send WhatsApp message with booking link
-            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.kloqo.com';
+            // --- WHATSAPP MAGIC LINK INTEGRATION ---
+            // Step 1: Securely determine the patient ID for the link
+            let linkPatientId: string | undefined;
+            if (!isNewUser) {
+                const existingUser = userSnapshot.docs[0].data() as User;
+                linkPatientId = existingUser.patientId;
+            } else {
+                // For new users, we just created them via managePatient above.
+                // We need to fetch the user again or ensure managePatient returns the ID.
+                // In this specific flow, let's re-query to be safe and get the patientId.
+                const newUserSnapshot = await getDocs(query(usersRef, where('phone', '==', fullPhoneNumber)));
+                if (!newUserSnapshot.empty) {
+                    linkPatientId = (newUserSnapshot.docs[0].data() as User).patientId;
+                }
+            }
+
+            if (!linkPatientId) {
+                throw new Error("Could not determine patient ID for magic link.");
+            }
+
+            // Step 2: Generate the secure Magic Link
+            const magicLink = generateWhatsAppMagicLink({
+                baseUrl: process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com',
+                patientId: linkPatientId,
+                clinicId: clinicId,
+                doctorId: doctorId || undefined,
+                action: 'book'
+            });
+
             const clinicName = clinicDetails?.name || 'the clinic';
-            const bookingLink = `${baseUrl}/clinics/${clinicId}`;
-            const message = `Your request for appointment is received in '${clinicName}'. Use this link to complete the booking: ${bookingLink}`;
+            const message = `Your request for appointment is received in '${clinicName}'. Use this secure link to complete your booking instantly: ${magicLink}`;
 
             const response = await fetch('/api/send-sms', {
                 method: 'POST',

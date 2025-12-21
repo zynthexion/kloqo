@@ -148,6 +148,33 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         };
     }, [firestore]);
 
+    const fetchVirtualAppUserDetails = useCallback(async (patientId: string): Promise<AppUser | null> => {
+        if (!firestore) return null;
+
+        try {
+            const patientDocRef = doc(firestore, 'patients', patientId);
+            const patientDocSnap = await getDoc(patientDocRef);
+
+            if (patientDocSnap.exists()) {
+                const patientData = patientDocSnap.data();
+                return {
+                    uid: `wa-${patientId}`, // Synthetic UID
+                    dbUserId: patientData.primaryUserId || patientId, // Fallback to patientId if no user doc
+                    patientId: patientId,
+                    phoneNumber: patientData.phone || patientData.communicationPhone || null,
+                    displayName: patientData.name || 'WhatsApp Guest',
+                    name: patientData.name || undefined,
+                    place: patientData.place || '',
+                    clinicIds: patientData.clinicIds || [],
+                    role: 'patient' as const
+                };
+            }
+        } catch (e) {
+            console.error('[WA-SESSION] Error fetching virtual user details:', e);
+        }
+        return null;
+    }, [firestore]);
+
     useEffect(() => {
         if (!auth) {
             setLoading(false);
@@ -161,6 +188,22 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                 // Cache user data for faster subsequent loads
                 userCache.set(appUser);
             } else {
+                // Check for virtual WhatsApp session if no traditional auth
+                const waSessionData = typeof window !== 'undefined' ? sessionStorage.getItem('wa_auth_data') : null;
+                if (waSessionData) {
+                    try {
+                        const session = JSON.parse(waSessionData);
+                        const virtualUser = await fetchVirtualAppUserDetails(session.patientId);
+                        if (virtualUser) {
+                            setUser(virtualUser);
+                            setLoading(false);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('[WA-SESSION] Parsing error:', e);
+                    }
+                }
+
                 setUser(null);
                 // Clear cache on logout
                 userCache.clear();
@@ -175,6 +218,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         if (!auth) return;
         // Clear cache before logout
         userCache.clear();
+        // Clear WhatsApp session
+        if (typeof window !== 'undefined') {
+            sessionStorage.removeItem('wa_auth_data');
+            sessionStorage.removeItem('wa_mode');
+        }
         signOut(auth).then(() => {
             setUser(null);
             router.push('/login');

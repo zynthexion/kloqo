@@ -36,38 +36,83 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const auth = useAuth();
     const firestore = useFirestore();
 
-    const fetchAppUserDetails = useCallback(async (firebaseUser: User): Promise<AppUser> => {
-        let patientIdToSet: string | null = null;
-        // Default dbUserId to uid if no resolution happens (will be overridden if found)
-        let resolvedDbUserId: string = firebaseUser.uid;
+    const fetchAppUserDetails = useCallback(async (firebaseUser: User | { patientId: string, userId?: string, isWhatsApp: boolean }): Promise<AppUser> => {
+        const isVirtual = 'isWhatsApp' in firebaseUser && firebaseUser.isWhatsApp;
+        const patientIdToSet = isVirtual ? firebaseUser.patientId : null;
+        console.log(`[useUser] fetchAppUserDetails - isVirtual: ${isVirtual}`, firebaseUser);
 
-        if (!firestore || !firebaseUser.phoneNumber) {
+        if (isVirtual) {
+            // Handle virtual WhatsApp session
+            try {
+                if (firestore) {
+                    const patientDocRef = doc(firestore, 'patients', firebaseUser.patientId);
+                    const patientDocSnap = await getDoc(patientDocRef);
+
+                    if (patientDocSnap.exists()) {
+                        const patientData = patientDocSnap.data();
+                        console.log('[useUser] Virtual patient details found:', patientData.name);
+                        // Use the userId from the session if available, otherwise fallback to wa_ prefix
+                        const uid = firebaseUser.userId || `wa_${firebaseUser.patientId}`;
+                        return {
+                            uid: uid,
+                            dbUserId: firebaseUser.userId || patientData.primaryUserId || firebaseUser.patientId,
+                            patientId: firebaseUser.patientId,
+                            phoneNumber: patientData.phone || patientData.communicationPhone || null,
+                            displayName: patientData.name || 'WhatsApp User',
+                            name: patientData.name || undefined,
+                            place: patientData.place || '',
+                            clinicIds: patientData.clinicIds || [],
+                            role: 'patient' as const
+                        };
+                    } else {
+                        console.warn('[useUser] Virtual patient document not found:', firebaseUser.patientId);
+                    }
+                }
+            } catch (e) {
+                console.error('[useUser] Error fetching virtual patient details:', e);
+            }
+
+            // Fallback for virtual session
+            const uid = firebaseUser.userId || `wa_${firebaseUser.patientId}`;
             return {
-                uid: firebaseUser.uid,
-                dbUserId: firebaseUser.uid,
-                patientId: null,
-                phoneNumber: firebaseUser.phoneNumber,
-                displayName: firebaseUser.displayName || 'User',
+                uid: uid,
+                dbUserId: firebaseUser.userId || firebaseUser.patientId,
+                patientId: firebaseUser.patientId,
+                phoneNumber: null,
+                displayName: 'WhatsApp User',
                 role: 'patient' as const
             };
         }
 
+        const actualFirebaseUser = firebaseUser as User;
+        if (!firestore || !actualFirebaseUser.phoneNumber) {
+            return {
+                uid: actualFirebaseUser.uid,
+                dbUserId: actualFirebaseUser.uid,
+                patientId: null,
+                phoneNumber: actualFirebaseUser.phoneNumber,
+                displayName: actualFirebaseUser.displayName || 'User',
+                role: 'patient' as const
+            };
+        }
+
+        let resolvedDbUserId = actualFirebaseUser.uid;
         try {
             // Step 1: Get the user document directly by UID
-            const userDocRef = doc(firestore, 'users', firebaseUser.uid);
+            const userDocRef = doc(firestore, 'users', actualFirebaseUser.uid);
             const userDocSnap = await getDoc(userDocRef);
 
             let userDocData: any = null;
 
             if (userDocSnap.exists()) {
                 userDocData = userDocSnap.data();
-                resolvedDbUserId = firebaseUser.uid;
+                resolvedDbUserId = actualFirebaseUser.uid;
             } else {
                 // Fallback: Search by phone number if document doesn't exist by UID
-                if (firebaseUser.phoneNumber) {
+                if (actualFirebaseUser.phoneNumber) {
                     const usersByPhoneQuery = query(
                         collection(firestore, 'users'),
-                        where('phone', '==', firebaseUser.phoneNumber)
+                        where('phone', '==', actualFirebaseUser.phoneNumber)
                     );
                     const usersByPhoneSnap = await getDocs(usersByPhoneQuery);
 
@@ -88,13 +133,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
             if (userDocData) {
                 let patientId = userDocData.patientId;
-                patientIdToSet = patientId;
 
                 // If no patientId in user document, try to find patient by phone number
-                if (!patientId && firebaseUser.phoneNumber) {
+                if (!patientId && actualFirebaseUser.phoneNumber) {
                     const patientsByPhoneQuery = query(
                         collection(firestore, 'patients'),
-                        where('phone', '==', firebaseUser.phoneNumber)
+                        where('phone', '==', actualFirebaseUser.phoneNumber)
                     );
                     const patientsByPhoneSnap = await getDocs(patientsByPhoneQuery);
 
@@ -103,7 +147,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                         const patients = patientsByPhoneSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
                         const primaryPatient = patients.find((p: any) => p.isPrimary) || patients[0];
                         patientId = primaryPatient.id;
-                        patientIdToSet = patientId;
                     }
                 }
 
@@ -118,11 +161,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                         const patientName = patientData.name || null;
 
                         return {
-                            uid: firebaseUser.uid,
+                            uid: actualFirebaseUser.uid,
                             dbUserId: resolvedDbUserId,
                             patientId: patientId,
-                            phoneNumber: firebaseUser.phoneNumber,
-                            displayName: patientName || firebaseUser.displayName || 'User',
+                            phoneNumber: actualFirebaseUser.phoneNumber,
+                            displayName: patientName || actualFirebaseUser.displayName || 'User',
                             name: patientName || undefined, // Name directly from patients collection
                             place: patientData.place || '',
                             clinicIds: clinicIds,
@@ -137,42 +180,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
         // Fallback if anything fails
         return {
-            uid: firebaseUser.uid,
+            uid: actualFirebaseUser.uid,
             dbUserId: resolvedDbUserId, // Use the resolved ID if found, otherwise default from init
-            patientId: patientIdToSet,
-            phoneNumber: firebaseUser.phoneNumber,
-            displayName: firebaseUser.displayName || 'User',
+            patientId: null,
+            phoneNumber: actualFirebaseUser.phoneNumber,
+            displayName: actualFirebaseUser.displayName || 'User',
             place: '',
             clinicIds: [],
             role: 'patient' as const
         };
-    }, [firestore]);
-
-    const fetchVirtualAppUserDetails = useCallback(async (patientId: string): Promise<AppUser | null> => {
-        if (!firestore) return null;
-
-        try {
-            const patientDocRef = doc(firestore, 'patients', patientId);
-            const patientDocSnap = await getDoc(patientDocRef);
-
-            if (patientDocSnap.exists()) {
-                const patientData = patientDocSnap.data();
-                return {
-                    uid: `wa-${patientId}`, // Synthetic UID
-                    dbUserId: patientData.primaryUserId || patientId, // Fallback to patientId if no user doc
-                    patientId: patientId,
-                    phoneNumber: patientData.phone || patientData.communicationPhone || null,
-                    displayName: patientData.name || 'WhatsApp Guest',
-                    name: patientData.name || undefined,
-                    place: patientData.place || '',
-                    clinicIds: patientData.clinicIds || [],
-                    role: 'patient' as const
-                };
-            }
-        } catch (e) {
-            console.error('[WA-SESSION] Error fetching virtual user details:', e);
-        }
-        return null;
     }, [firestore]);
 
     useEffect(() => {
@@ -181,34 +197,48 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             return;
         }
 
+        const checkVirtualSession = async () => {
+            const waAuthData = typeof window !== 'undefined' ? sessionStorage.getItem('wa_auth_data') : null;
+            if (waAuthData) {
+                console.log('[useUser] Found virtual WhatsApp session data');
+                try {
+                    const session = JSON.parse(waAuthData);
+                    if (session.patientId) {
+                        const appUser = await fetchAppUserDetails({
+                            patientId: session.patientId,
+                            userId: session.userId,
+                            isWhatsApp: true
+                        });
+                        if (appUser) {
+                            console.log('[useUser] Successfully loaded virtual user:', appUser.displayName);
+                            setUser(appUser);
+                            return true;
+                        }
+                    }
+                } catch (e) {
+                    console.error('[useUser] Parsing error for virtual session:', e);
+                }
+            }
+            return false;
+        };
+
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            console.log('[useUser] onAuthStateChanged - firebaseUser:', firebaseUser?.uid || 'null');
             if (firebaseUser) {
                 const appUser = await fetchAppUserDetails(firebaseUser);
                 setUser(appUser);
-                // Cache user data for faster subsequent loads
                 userCache.set(appUser);
+                setLoading(false);
             } else {
                 // Check for virtual WhatsApp session if no traditional auth
-                const waSessionData = typeof window !== 'undefined' ? sessionStorage.getItem('wa_auth_data') : null;
-                if (waSessionData) {
-                    try {
-                        const session = JSON.parse(waSessionData);
-                        const virtualUser = await fetchVirtualAppUserDetails(session.patientId);
-                        if (virtualUser) {
-                            setUser(virtualUser);
-                            setLoading(false);
-                            return;
-                        }
-                    } catch (e) {
-                        console.error('[WA-SESSION] Parsing error:', e);
-                    }
+                const hasVirtual = await checkVirtualSession();
+                if (!hasVirtual) {
+                    console.log('[useUser] No traditional or virtual session found');
+                    setUser(null);
+                    userCache.clear();
                 }
-
-                setUser(null);
-                // Clear cache on logout
-                userCache.clear();
+                setLoading(false);
             }
-            setLoading(false);
         });
 
         return () => unsubscribe();

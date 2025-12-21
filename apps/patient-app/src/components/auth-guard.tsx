@@ -44,6 +44,24 @@ export function AuthGuard({ children }: AuthGuardProps) {
       return;
     }
 
+    // If this is a WhatsApp virtual session with a userId, skip strict validation
+    const isWhatsAppSession = currentUser.uid?.startsWith('wa_') ||
+      (currentUser.uid && currentUser.dbUserId && currentUser.uid !== currentUser.dbUserId);
+    if (isWhatsAppSession && currentUser.dbUserId && currentUser.patientId) {
+      console.log('[AuthGuard] ✅ WhatsApp virtual session detected with valid userId, skipping strict validation');
+      setIsValidated(true);
+
+      // Cache validation result
+      validationCacheRef.current = {
+        userId: currentUser.uid,
+        patientId: currentUser.patientId,
+        isValidated: true,
+        timestamp: Date.now(),
+      };
+      setValidating(false);
+      return;
+    }
+
     setValidating(true);
     setValidationError(null);
 
@@ -252,7 +270,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       hasUser: !!user,
       userId: user?.uid || 'null',
       patientId: user?.patientId || 'null',
-      phoneNumber: user?.phoneNumber || 'null',
+      isWhatsApp: user?.uid?.startsWith('wa_'),
       pathname,
       redirecting: redirectingRef.current,
       timestamp: new Date().toISOString()

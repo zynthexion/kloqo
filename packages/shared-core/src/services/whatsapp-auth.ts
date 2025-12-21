@@ -7,6 +7,7 @@
 
 export interface WhatsAppSession {
     patientId: string;
+    userId?: string;
     doctorId?: string;
     clinicId?: string;
     action?: string;
@@ -33,6 +34,7 @@ export function validateWhatsAppToken(token: string): WhatsAppSession | null {
 
         return {
             patientId: payload.pid,
+            userId: payload.uid,
             doctorId: payload.did,
             clinicId: payload.cid,
             action: payload.act,

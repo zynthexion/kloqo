@@ -361,11 +361,13 @@ function PhoneBookingDetailsContent() {
             const clinicDetails = clinicDoc.exists() ? clinicDoc.data() : null;
 
             // --- WHATSAPP MAGIC LINK INTEGRATION ---
-            // Step 1: Securely determine the patient ID for the link
+            // Step 1: Securely determine the patient ID and user ID for the link
             let linkPatientId: string | undefined;
+            let linkUserId: string | undefined;
             if (!isNewUser) {
                 const existingUser = userSnapshot.docs[0].data() as User;
                 linkPatientId = existingUser.patientId;
+                linkUserId = userSnapshot.docs[0].id;
             } else {
                 // For new users, we just created them via managePatient above.
                 // We need to fetch the user again or ensure managePatient returns the ID.
@@ -373,6 +375,7 @@ function PhoneBookingDetailsContent() {
                 const newUserSnapshot = await getDocs(query(usersRef, where('phone', '==', fullPhoneNumber)));
                 if (!newUserSnapshot.empty) {
                     linkPatientId = (newUserSnapshot.docs[0].data() as User).patientId;
+                    linkUserId = newUserSnapshot.docs[0].id;
                 }
             }
 
@@ -384,6 +387,7 @@ function PhoneBookingDetailsContent() {
             const magicLink = generateWhatsAppMagicLink({
                 baseUrl: process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com',
                 patientId: linkPatientId,
+                userId: linkUserId,
                 clinicId: clinicId,
                 doctorId: doctorId || undefined,
                 action: 'book'

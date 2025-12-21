@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 interface DeepLinkOptions {
     baseUrl: string;
     patientId: string;
+    userId?: string;
     doctorId?: string;
     clinicId?: string;
     action?: 'book' | 'view' | 'live';
@@ -20,11 +21,12 @@ interface DeepLinkOptions {
  * (Simplified for now - using base64 for POC)
  */
 export function generateWhatsAppMagicLink(options: DeepLinkOptions): string {
-    const { baseUrl, patientId, doctorId, clinicId, action = 'book' } = options;
+    const { baseUrl, patientId, userId, doctorId, clinicId, action = 'book' } = options;
 
     // Create a payload for the magic link
     const payload = JSON.stringify({
         pid: patientId,
+        uid: userId,
         did: doctorId,
         cid: clinicId,
         act: action,

@@ -2092,6 +2092,9 @@ export default function AppointmentsPage() {
       });
 
       // Check if user already exists
+      let newUserRef: any = null;
+      let newPatientRef: any = null;
+
       if (!userSnapshot.empty) {
         // User exists, check if patient exists and add clinicId to clinicIds array
         const existingUser = userSnapshot.docs[0].data() as User;
@@ -2120,8 +2123,8 @@ export default function AppointmentsPage() {
       } else {
         // User doesn't exist, create new user and patient records
         const batch = writeBatch(db);
-        const newUserRef = doc(collection(db, 'users'));
-        const newPatientRef = doc(collection(db, 'patients'));
+        newUserRef = doc(collection(db, 'users'));
+        newPatientRef = doc(collection(db, 'patients'));
 
         const newUserData: Pick<User, 'uid' | 'phone' | 'role' | 'patientId'> = {
           uid: newUserRef.id,
@@ -2166,16 +2169,19 @@ export default function AppointmentsPage() {
       }
 
       // --- WHATSAPP MAGIC LINK INTEGRATION ---
-      // Step 1: Securely determine the patient ID for the link
+      // Step 1: Securely determine the patient ID and user ID for the link
       let linkPatientId: string | undefined;
+      let linkUserId: string | undefined;
       if (!userSnapshot.empty) {
         const existingUser = userSnapshot.docs[0].data() as User;
         linkPatientId = existingUser.patientId;
+        linkUserId = userSnapshot.docs[0].id;
       } else {
         // For new users, we just created them via the batch above.
         // We need to fetch the patient record or ensure we know the ID.
         // The newPatientRef.id was used in the batch above.
         linkPatientId = newPatientRef.id;
+        linkUserId = newUserRef.id;
       }
 
       if (!linkPatientId) {
@@ -2186,6 +2192,7 @@ export default function AppointmentsPage() {
       const magicLink = generateWhatsAppMagicLink({
         baseUrl: process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com',
         patientId: linkPatientId,
+        userId: linkUserId,
         clinicId: clinicId,
         doctorId: values.doctorId || undefined,
         action: 'book'

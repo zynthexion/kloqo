@@ -180,21 +180,95 @@ export function validateBreakSlots(
 export function calculateSessionExtension(
   sessionIndex: number,
   breaks: BreakPeriod[],
-  originalSessionEnd: Date
+  originalSessionEnd: Date,
+  appointments?: Appointment[],
+  doctor?: Doctor | null,
+  referenceDate?: Date
 ): {
   totalBreakMinutes: number;
+  actualExtensionNeeded: number;
   newSessionEnd: Date;
   formattedNewEnd: string;
 } {
-  const totalMinutes = breaks.reduce((sum, bp) => sum + bp.duration, 0);
-  const newEnd = addMinutes(originalSessionEnd, totalMinutes);
+  const totalBreakMinutes = breaks.reduce((sum, bp) => sum + bp.duration, 0);
+
+  // Default behavior if appointments not provided: extend by full break duration
+  if (!appointments || !doctor || !referenceDate) {
+    const newEnd = addMinutes(originalSessionEnd, totalBreakMinutes);
+    return {
+      totalBreakMinutes,
+      actualExtensionNeeded: totalBreakMinutes,
+      newSessionEnd: newEnd,
+      formattedNewEnd: format(newEnd, 'hh:mm a')
+    };
+  }
+
+  // Calculate actual extension needed based on gap absorption
+  const slotDuration = doctor.averageConsultingTime || 15;
+  const dateStr = format(referenceDate, 'd MMMM yyyy');
+
+  // Filter appointments for this session and date
+  const sessionAppointments = appointments.filter(apt =>
+    apt.date === dateStr &&
+    apt.sessionIndex === sessionIndex &&
+    apt.status !== 'Cancelled' &&
+    !apt.cancelledByBreak
+  );
+
+  // Build a map of which slot indices have appointments
+  const occupiedSlots = new Set<number>();
+  sessionAppointments.forEach(apt => {
+    if (typeof apt.slotIndex === 'number') {
+      occupiedSlots.add(apt.slotIndex);
+    }
+  });
+
+  // Calculate which break slots actually need shifting
+  let actualShiftCount = 0;
+
+  // Get all slot indices covered by breaks
+  const breakSlotIndices = new Set<number>();
+  const dayOfWeek = format(referenceDate, 'EEEE');
+  const availabilityForDay = doctor.availabilitySlots?.find(slot => slot.day === dayOfWeek);
+
+  if (availabilityForDay?.timeSlots?.[sessionIndex]) {
+    const session = availabilityForDay.timeSlots[sessionIndex];
+    const sessionStart = parseTime(session.from, referenceDate);
+
+    breaks.forEach(bp => {
+      const breakStart = parseISO(bp.startTime);
+      const breakEnd = parseISO(bp.endTime);
+      const breakDuration = differenceInMinutes(breakEnd, breakStart);
+      const slotsInBreak = breakDuration / slotDuration;
+
+      const breakStartSlotIndex = Math.floor(
+        differenceInMinutes(breakStart, sessionStart) / slotDuration
+      );
+
+      for (let i = 0; i < slotsInBreak; i++) {
+        breakSlotIndices.add(breakStartSlotIndex + i);
+      }
+    });
+
+    // Count how many break slots have active appointments
+    breakSlotIndices.forEach(slotIndex => {
+      if (occupiedSlots.has(slotIndex)) {
+        actualShiftCount++;
+      }
+    });
+  }
+
+  const actualExtensionNeeded = actualShiftCount * slotDuration;
+  const newEnd = addMinutes(originalSessionEnd, actualExtensionNeeded);
 
   return {
-    totalBreakMinutes: totalMinutes,
+    totalBreakMinutes,
+    actualExtensionNeeded,
     newSessionEnd: newEnd,
     formattedNewEnd: format(newEnd, 'hh:mm a')
   };
 }
+
 
 // ============================================================================
 // 5. GET CURRENT ACTIVE SESSION

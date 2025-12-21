@@ -853,7 +853,7 @@ export default function DoctorsPage() {
                 ? addMinutes(sessionEnd, storedExtension.totalExtendedBy)
                 : sessionEnd;
             } else {
-              const extension = calculateSessionExtension(i, breaks, sessionEnd);
+              const extension = calculateSessionExtension(i, breaks, sessionEnd, appointments, selectedDoctor, leaveCalDate);
               effectiveEnd = extension.newSessionEnd;
               totalBreakMinutes = extension.totalBreakMinutes;
             }
@@ -1023,10 +1023,11 @@ export default function DoctorsPage() {
       breakSessionEffectiveEnd = breakSessionEnd;
     }
 
+
     // Convert range to array of slot ISO strings
+    const slotDuration = selectedDoctor.averageConsultingTime || 15;
     const startDate = parseISO(breakStartSlot.isoString);
     const endDate = parseISO(breakEndSlot.isoString);
-    const slotDuration = selectedDoctor.averageConsultingTime || 15;
     const breakDuration = differenceInMinutes(endDate, startDate) + slotDuration;
 
     const selectedBreakSlots: string[] = [];
@@ -1063,6 +1064,7 @@ export default function DoctorsPage() {
       return;
     }
 
+
     // Calculate extension options before showing dialog
     let hasOverrun = false;
     let minimalExtension = 0;
@@ -1078,7 +1080,36 @@ export default function DoctorsPage() {
         apt.sessionIndex === breakSessionIndex
     );
 
+    // Calculate the ACTUAL shift amount using gap absorption logic
+    let actualShiftAmount = 0;
+
     if (appointmentsOnDate.length > 0) {
+      // Build a map of occupied slots
+      const occupiedSlots = new Set<number>();
+      appointmentsOnDate.forEach(apt => {
+        if (typeof apt.slotIndex === 'number' && apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
+          occupiedSlots.add(apt.slotIndex);
+        }
+      });
+
+      // Calculate which break slots have appointments
+      const startDate = parseISO(breakStartSlot.isoString);
+      const endDate = parseISO(breakEndSlot.isoString);
+      const breakDuration = differenceInMinutes(endDate, startDate) + slotDuration;
+
+      const breakStartSlotIndex = Math.floor(
+        differenceInMinutes(startDate, breakSessionStart) / slotDuration
+      );
+      const slotsInBreak = breakDuration / slotDuration;
+
+      // Count how many break slots have appointments (these need to be shifted)
+      for (let i = 0; i < slotsInBreak; i++) {
+        const slotIndex = breakStartSlotIndex + i;
+        if (occupiedSlots.has(slotIndex)) {
+          actualShiftAmount++;
+        }
+      }
+
       // Sort by arriveByTime (which already includes break offsets) to get the actual last appointment
       const sortedByArriveByTime = [...appointmentsOnDate].sort((a, b) => {
         const timeA = parseTimeUtil(a.arriveByTime || a.time, leaveCalDate).getTime();
@@ -1090,15 +1121,15 @@ export default function DoctorsPage() {
       const consultationTime = selectedDoctor.averageConsultingTime || 15;
 
       // Use arriveByTime (already includes existing break offsets) as the base
-      // If arriveByTime is not available, fall back to time
       const lastArriveByTime = lastAppointment.arriveByTime
         ? parseTimeUtil(lastAppointment.arriveByTime, leaveCalDate)
         : parseTimeUtil(lastAppointment.time, leaveCalDate);
 
       lastTokenBefore = format(lastArriveByTime, 'hh:mm a');
 
-      // After applying the NEW break, the last appointment shifts by breakDuration
-      const lastTimeAfterBreak = addMinutes(lastArriveByTime, breakDuration);
+      // After applying the NEW break, the last appointment shifts by ACTUAL shift amount (not full break duration)
+      const actualShiftMinutes = actualShiftAmount * slotDuration;
+      const lastTimeAfterBreak = addMinutes(lastArriveByTime, actualShiftMinutes);
       // The appointment still needs consultationTime to finish
       const lastAppointmentEnd = addMinutes(lastTimeAfterBreak, consultationTime);
       lastTokenAfter = format(lastTimeAfterBreak, 'hh:mm a');
@@ -1106,22 +1137,22 @@ export default function DoctorsPage() {
       const overrunMinutes = Math.max(0, differenceInMinutes(lastAppointmentEnd, breakSessionEffectiveEnd));
       hasOverrun = overrunMinutes > 0;
       minimalExtension = overrunMinutes;
-
-
     }
 
     const estimatedFinishTime = hasOverrun || lastTokenAfter ? format(addMinutes(parseTimeUtil(lastTokenAfter, leaveCalDate), selectedDoctor.averageConsultingTime || 15), 'hh:mm a') : '';
+    const breakDurationForDisplay = differenceInMinutes(parseISO(breakEndSlot.isoString), parseISO(breakStartSlot.isoString)) + slotDuration;
 
     setExtensionOptions({
       hasOverrun,
       minimalExtension,
-      fullExtension: breakDuration,
+      fullExtension: breakDurationForDisplay,
       lastTokenBefore,
       lastTokenAfter,
       originalEnd,
-      breakDuration,
+      breakDuration: breakDurationForDisplay,
       estimatedFinishTime
     });
+
 
     // Show dialog to ask about extending availability
     setPendingBreakData({

@@ -581,7 +581,33 @@ function ScheduleBreakContent() {
                 !(apt.cancelledByBreak === true && apt.status === 'Cancelled') // Exclude cancelled break blocks
         );
 
+
+        // Calculate the ACTUAL shift amount using gap absorption logic
+        let actualShiftAmount = 0;
+
         if (appointmentsOnDate.length > 0) {
+            // Build a map of occupied slots
+            const occupiedSlots = new Set<number>();
+            appointmentsOnDate.forEach(apt => {
+                if (typeof apt.slotIndex === 'number' && apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
+                    occupiedSlots.add(apt.slotIndex);
+                }
+            });
+
+            // Calculate which break slots have appointments
+            const breakStartSlotIndex = Math.floor(
+                differenceInMinutes(startDate, breakSessionStart) / slotDuration
+            );
+            const slotsInBreak = breakDuration / slotDuration;
+
+            // Count how many break slots have appointments (these need to be shifted)
+            for (let i = 0; i < slotsInBreak; i++) {
+                const slotIndex = breakStartSlotIndex + i;
+                if (occupiedSlots.has(slotIndex)) {
+                    actualShiftAmount++;
+                }
+            }
+
             const sortedByArriveByTime = [...appointmentsOnDate].sort((a, b) => {
                 const timeA = parseTime(a.arriveByTime || a.time || '', selectedDate).getTime();
                 const timeB = parseTime(b.arriveByTime || b.time || '', selectedDate).getTime();
@@ -594,7 +620,9 @@ function ScheduleBreakContent() {
             const lastArriveByTime = parseTime(lastAppointment.arriveByTime || lastAppointment.time, selectedDate);
             lastTokenBefore = format(lastArriveByTime, 'hh:mm a');
 
-            const lastTimeAfterBreak = addMinutes(lastArriveByTime, breakDuration);
+            // After applying the NEW break, the last appointment shifts by ACTUAL shift amount (not full break duration)
+            const actualShiftMinutes = actualShiftAmount * slotDuration;
+            const lastTimeAfterBreak = addMinutes(lastArriveByTime, actualShiftMinutes);
             const lastAppointmentEnd = addMinutes(lastTimeAfterBreak, consultationTime);
             lastTokenAfter = format(lastTimeAfterBreak, 'hh:mm a');
 

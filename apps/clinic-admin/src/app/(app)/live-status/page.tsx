@@ -13,6 +13,7 @@ import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { format, parse, isToday, differenceInMinutes } from "date-fns";
+import { compareAppointments } from '@kloqo/shared-core';
 
 type EnrichedDoctor = Doctor & {
   currentToken?: string;
@@ -172,13 +173,7 @@ export default function LiveStatusPage() {
     return doctors.map(doctor => {
       const doctorAppointments = appointments
         .filter(apt => apt.doctor === doctor.name && isToday(parse(apt.date, 'd MMMM yyyy', new Date())))
-        .sort((a, b) => {
-          try {
-            const timeA = parse(a.time, "hh:mm a", new Date()).getTime();
-            const timeB = parse(b.time, "hh:mm a", new Date()).getTime();
-            return timeA - timeB;
-          } catch { return 0; }
-        });
+        .sort(compareAppointments);
 
       const pending = doctorAppointments.filter(apt => ['Pending', 'Confirmed'].includes(apt.status));
       const currentAppointment = pending[0];

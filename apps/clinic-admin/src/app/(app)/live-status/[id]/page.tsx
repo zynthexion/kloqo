@@ -14,6 +14,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/firebase";
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { format, isToday, parse } from "date-fns";
+import { compareAppointments } from '@kloqo/shared-core';
 
 const statusStyles = {
     completed: {
@@ -78,13 +79,7 @@ export default function LiveStatusDetailPage() {
     }, [id, auth.currentUser]);
 
     const tokenQueue = useMemo(() => {
-        const sorted = appointments.sort((a, b) => {
-            try {
-                const timeA = parse(a.time, "hh:mm a", new Date()).getTime();
-                const timeB = parse(b.time, "hh:mm a", new Date()).getTime();
-                return timeA - timeB;
-            } catch { return 0; }
-        });
+        const sorted = [...appointments].sort(compareAppointments);
 
         const now = new Date();
         const completed = sorted.filter(a => a.status === 'Completed' || parse(a.time, "hh:mm a", new Date()) < now);

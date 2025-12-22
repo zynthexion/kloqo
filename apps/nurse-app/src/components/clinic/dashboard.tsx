@@ -26,8 +26,7 @@ import {
 import ClinicHeader from './header';
 import AppointmentList from './appointment-list';
 import { useRouter, usePathname } from 'next/navigation';
-import { errorEmitter } from '@kloqo/shared-core';
-import { FirestorePermissionError } from '@kloqo/shared-core';
+import { errorEmitter, compareAppointments, FirestorePermissionError } from '@kloqo/shared-core';
 
 
 export default function ClinicDashboard() {
@@ -168,32 +167,15 @@ export default function ClinicDashboard() {
         time: data.time,
         arriveByTime: data.arriveByTime, // Include arriveByTime for notifications
         cancellationReason: data.cancellationReason,
-        isSkipped: data.isSkipped,
+        skippedAt: data.skippedAt,
+        noShowTime: data.noShowTime,
         sex: data.sex || 'Male',
         communicationPhone: data.communicationPhone || data.phone,
       } as Appointment);
     });
 
 
-    fetchedAppointments.sort((a, b) => {
-      try {
-        const dateA = parse(a.date, 'd MMMM yyyy', new Date());
-        const dateB = parse(b.date, 'd MMMM yyyy', new Date());
-
-        // Compare dates first
-        if (dateA.getTime() !== dateB.getTime()) {
-          return dateA.getTime() - dateB.getTime();
-        }
-
-        // Compare times
-        const timeA = parseTime(a.time, dateA);
-        const timeB = parseTime(b.time, dateB);
-        return timeA.getTime() - timeB.getTime();
-      } catch (e) {
-        // Fallback to existing logic or safe default
-        return (a.numericToken || 0) - (b.numericToken || 0);
-      }
-    });
+    fetchedAppointments.sort(compareAppointments);
 
     setAppointments(fetchedAppointments);
   }, []);
@@ -418,95 +400,33 @@ export default function ClinicDashboard() {
 
   const handleRejoinQueue = (appointment: Appointment) => {
     startTransition(async () => {
-      if (!clinicId) return;
+      if (!clinicId || !appointment.time || !appointment.noShowTime) return;
 
-      const recurrence = clinicDetails?.skippedTokenRecurrence || 3;
-      const today = new Date();
-      const todayStr = format(today, 'd MMMM yyyy');
+      const now = new Date();
 
       try {
-        // Helper function to parse appointment time
-        const parseAppointmentTime = (apt: Appointment): Date => {
-          try {
-            const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-            return parseTime(apt.time, appointmentDate);
-          } catch {
-            return new Date(0); // Fallback for invalid dates
-          }
-        };
+        const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+        const scheduledTime = parseTime(appointment.time, appointmentDate);
 
-        // Get skipped appointment's original time
-        const skippedOriginalTime = parseAppointmentTime(appointment);
-
-        // Get arrived queue: Confirmed appointments for same doctor and date, sorted by time
-        const arrivedQueue = appointments
-          .filter(a =>
-            a.doctor === appointment.doctor &&
-            a.date === todayStr &&
-            a.status === 'Confirmed' &&
-            a.id !== appointment.id // Exclude the skipped appointment itself
-          )
-          .sort((a, b) => {
-            const timeA = parseAppointmentTime(a);
-            const timeB = parseAppointmentTime(b);
-            return timeA.getTime() - timeB.getTime();
-          });
-
-        // Filter confirmed appointments to only those that come AFTER skipped appointment's original time
-        const appointmentsAfterSkipped = arrivedQueue.filter(a => {
-          const appointmentTime = parseAppointmentTime(a);
-          return appointmentTime.getTime() > skippedOriginalTime.getTime();
-        });
-
-        // Calculate base time based on skippedTokenRecurrence using filtered list
-        let baseTime: Date;
-        if (appointmentsAfterSkipped.length >= recurrence) {
-          // Use the time of the appointment at position 'recurrence' (0-indexed: recurrence - 1) in filtered list
-          const referenceAppointment = appointmentsAfterSkipped[recurrence - 1];
-          baseTime = parseAppointmentTime(referenceAppointment);
-        } else if (appointmentsAfterSkipped.length > 0) {
-          // Use the time of the last appointment in filtered list
-          const lastAppointment = appointmentsAfterSkipped[appointmentsAfterSkipped.length - 1];
-          baseTime = parseAppointmentTime(lastAppointment);
-        } else if (arrivedQueue.length > 0) {
-          // No appointments after skipped time, use the last appointment in arrived queue
-          const lastAppointment = arrivedQueue[arrivedQueue.length - 1];
-          baseTime = parseAppointmentTime(lastAppointment);
+        // Handle noShowTime as Firestore Timestamp or Date
+        let noShowDate: Date;
+        if ((appointment.noShowTime as any)?.toDate) {
+          noShowDate = (appointment.noShowTime as any).toDate();
         } else {
-          // Arrived queue is empty, use current time + 1 minute
-          baseTime = addMinutes(today, 1);
+          noShowDate = new Date(appointment.noShowTime as any);
         }
 
-        // Add 1 minute to base time
-        let newTime = addMinutes(baseTime, 1);
-
-        // Check for existing rejoined appointments (status='Confirmed' AND has skippedAt field)
-        const rejoinedAppointments = appointments
-          .filter(a =>
-            a.doctor === appointment.doctor &&
-            a.date === todayStr &&
-            a.status === 'Confirmed' &&
-            a.skippedAt && // Only appointments that were previously skipped
-            a.id !== appointment.id
-          )
-          .sort((a, b) => {
-            // Sort by time (descending) to get the latest
-            const timeA = parseAppointmentTime(a);
-            const timeB = parseAppointmentTime(b);
-            return timeB.getTime() - timeA.getTime();
-          });
-
-        // If there are existing rejoined appointments, use the latest one's time + 1 minute
-        if (rejoinedAppointments.length > 0) {
-          const latestRejoined = rejoinedAppointments[0];
-          const latestRejoinedTime = parseAppointmentTime(latestRejoined);
-          newTime = addMinutes(latestRejoinedTime, 1);
+        let newTimeDate: Date;
+        if (isPast(scheduledTime)) {
+          // Current time past the 'time' -> noShowTime + 15 minutes
+          newTimeDate = addMinutes(noShowDate, 15);
+        } else {
+          // Current time didn't pass 'time' -> noShowTime
+          newTimeDate = noShowDate;
         }
 
-        // Format the new time
-        const newTimeString = format(newTime, 'hh:mm a');
+        const newTimeString = format(newTimeDate, 'hh:mm a');
 
-        // Update the skipped appointment: only change status and time, keep everything else
         const appointmentRef = doc(db, 'appointments', appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed',
@@ -530,15 +450,14 @@ export default function ClinicDashboard() {
 
         toast({
           title: "Patient Re-joined Queue",
-          description: `${appointment.patientName} has been added back to the queue at position after ${recurrence} patient(s).`
+          description: `${appointment.patientName} has been added back to the queue at ${newTimeString}.`
         });
       } catch (error: any) {
         console.error("Error re-joining queue:", error);
-        const errorMessage = error?.message || "Could not re-join the patient to the queue.";
         toast({
           variant: "destructive",
           title: "Error",
-          description: errorMessage
+          description: "Could not re-join the patient to the queue."
         });
       }
     });
@@ -556,15 +475,15 @@ export default function ClinicDashboard() {
   const pendingAppointments = useMemo(() => {
     const pending = filteredAppointments.filter(a => (a.status === 'Pending' || a.status === 'Confirmed'));
 
-    // Sort by token number
-    return pending.sort((a, b) => (a.numericToken || 0) - (b.numericToken || 0));
+    // Sort by unified logic
+    return pending.sort(compareAppointments);
   }, [filteredAppointments]);
 
   const skippedAppointments = useMemo(() => {
     const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
 
-    // Sort by token number
-    return skipped.sort((a, b) => (a.numericToken || 0) - (b.numericToken || 0));
+    // Sort by unified logic
+    return skipped.sort(compareAppointments);
   }, [filteredAppointments]);
 
   const pastAppointments = useMemo(() => filteredAppointments.filter(a => a.status === 'Completed' || a.status === 'Cancelled' || a.status === 'No-show'), [filteredAppointments]);

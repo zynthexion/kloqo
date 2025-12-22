@@ -11,6 +11,7 @@ import { collection, getDocs, query, where, orderBy, limit } from "firebase/fire
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { CalendarDays } from "lucide-react";
+import { compareAppointments } from '@kloqo/shared-core';
 
 export default function UpcomingAppointmentsDrawer() {
     const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -38,12 +39,7 @@ export default function UpcomingAppointmentsDrawer() {
             const querySnapshot = await getDocs(q);
             const appts = querySnapshot.docs.map(doc => doc.data() as Appointment);
 
-            // Manual sort because Firestore doesn't support ordering by date string then time
-            const sortedAppts = appts.sort((a, b) => {
-                const dateA = new Date(`${a.date} ${a.time}`).getTime();
-                const dateB = new Date(`${b.date} ${b.time}`).getTime();
-                return dateA - dateB;
-            });
+            const sortedAppts = appts.sort(compareAppointments);
 
             setAppointments(sortedAppts.slice(0, 5));
         };

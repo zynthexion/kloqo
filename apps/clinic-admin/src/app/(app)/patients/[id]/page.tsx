@@ -30,6 +30,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/firebase";
 import { parse } from "date-fns";
+import { compareAppointments } from '@kloqo/shared-core';
 
 export default function PatientHistoryPage() {
   const params = useParams();
@@ -62,11 +63,7 @@ export default function PatientHistoryPage() {
             const historySnapshot = await getDocs(historyQuery);
             const historyAppointments = historySnapshot.docs.map(d => d.data() as Appointment);
 
-            const sortedHistory = historyAppointments.sort((a, b) => {
-                 const dateA = parse(a.date, "d MMMM yyyy", new Date()).getTime();
-                 const dateB = parse(b.date, "d MMMM yyyy", new Date()).getTime();
-                 return dateB - dateA;
-            });
+            const sortedHistory = [...historyAppointments].sort(compareAppointments).reverse();
             setVisitHistory(sortedHistory);
           } else {
             setVisitHistory([]);
@@ -94,16 +91,16 @@ export default function PatientHistoryPage() {
         <DashboardHeader />
         <main className="flex-1 p-6 bg-background">
           <div className="flex items-center gap-4 mb-6">
-              <Button asChild variant="outline" size="icon">
-                  <Link href="/patients"><ArrowLeft className="h-4 w-4" /></Link>
-              </Button>
-              <h1 className="text-2xl font-bold">Patient History</h1>
+            <Button asChild variant="outline" size="icon">
+              <Link href="/patients"><ArrowLeft className="h-4 w-4" /></Link>
+            </Button>
+            <h1 className="text-2xl font-bold">Patient History</h1>
           </div>
 
           {loading ? (
             <div className="space-y-4">
-                <Skeleton className="h-32 w-full" />
-                <Skeleton className="h-64 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-64 w-full" />
             </div>
           ) : patient ? (
             <>
@@ -130,7 +127,7 @@ export default function PatientHistoryPage() {
                       </p>
                       <p className="font-medium">{patient.totalAppointments}</p>
                     </div>
-                     <div>
+                    <div>
                       <p className="text-sm text-muted-foreground">Last Visit</p>
                       <p className="font-medium">{lastVisit ? lastVisit.date : 'N/A'}</p>
                     </div>
@@ -167,10 +164,10 @@ export default function PatientHistoryPage() {
                                   visit.status === "Confirmed" || visit.status === "Completed"
                                     ? "success"
                                     : visit.status === "Pending"
-                                    ? "warning"
-                                    : visit.status === "No-show"
-                                    ? "no-show"
-                                    : "destructive"
+                                      ? "warning"
+                                      : visit.status === "No-show"
+                                        ? "no-show"
+                                        : "destructive"
                                 }
                               >
                                 {visit.status}
@@ -179,11 +176,11 @@ export default function PatientHistoryPage() {
                           </TableRow>
                         ))
                       ) : (
-                         <TableRow>
-                            <TableCell colSpan={6} className="text-center h-24">
-                                No visit history found for this patient.
-                            </TableCell>
-                         </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center h-24">
+                            No visit history found for this patient.
+                          </TableCell>
+                        </TableRow>
                       )}
                     </TableBody>
                   </Table>
@@ -192,9 +189,9 @@ export default function PatientHistoryPage() {
             </>
           ) : (
             <Card>
-                <CardContent className="p-10 text-center">
-                    <p>Patient not found.</p>
-                </CardContent>
+              <CardContent className="p-10 text-center">
+                <p>Patient not found.</p>
+              </CardContent>
             </Card>
           )}
         </main>

@@ -2,7 +2,8 @@ import { collection, doc, getDoc, setDoc, updateDoc, increment, serverTimestamp,
 import { db } from '@kloqo/shared-firebase';
 import { parse, format } from 'date-fns';
 import type { Appointment } from '@kloqo/shared-types';
-import { parseTime } from '../utils/break-helpers'; // Assuming parseTime is in break-helpers or needs to be moved to a utils file
+import { parseTime } from '../utils/break-helpers';
+import { compareAppointments } from './appointment-service';
 
 /**
  * Queue State Interface
@@ -128,26 +129,18 @@ export async function computeQueues(
         }
     };
 
-    // Arrived Queue: Confirmed appointments sorted by appointment time (ascending)
+    // Arrived Queue: Confirmed appointments sorted by shared logic
     const arrivedQueue = relevantAppointments
         .filter(apt => apt.status === 'Confirmed')
-        .sort((a, b) => {
-            const timeA = parseAppointmentTime(a);
-            const timeB = parseAppointmentTime(b);
-            return timeA.getTime() - timeB.getTime();
-        });
+        .sort(compareAppointments);
 
     // Buffer Queue: Top 2 from Arrived Queue (max 2)
     const bufferQueue = arrivedQueue.slice(0, 2);
 
-    // Skipped Queue: Skipped appointments
+    // Skipped Queue: Skipped appointments sorted by shared logic
     const skippedQueue = relevantAppointments
         .filter(apt => apt.status === 'Skipped')
-        .sort((a, b) => {
-            const timeA = parseAppointmentTime(a);
-            const timeB = parseAppointmentTime(b);
-            return timeA.getTime() - timeB.getTime();
-        });
+        .sort(compareAppointments);
 
     // Current Consultation: First appointment in Buffer Queue (if any)
     const currentConsultation = bufferQueue.length > 0 ? bufferQueue[0] : null;
@@ -215,29 +208,5 @@ export function getNextTokenFromBuffer(bufferQueue: Appointment[], arrivedQueue:
  * Check if A token takes precedence over W token at same time
  */
 export function compareTokens(a: Appointment, b: Appointment): number {
-    // Parse appointment times
-    const parseAppointmentTime = (apt: Appointment): Date => {
-        try {
-            const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-            return parseTime(apt.time, appointmentDate);
-        } catch {
-            return new Date(0);
-        }
-    };
-
-    const timeA = parseAppointmentTime(a);
-    const timeB = parseAppointmentTime(b);
-
-    // If times are different, sort by time
-    if (timeA.getTime() !== timeB.getTime()) {
-        return timeA.getTime() - timeB.getTime();
-    }
-
-    // If times are same, A token takes precedence over W token
-    const aIsA = a.bookedVia === 'Advanced Booking' || a.tokenNumber?.startsWith('A');
-    const bIsA = b.bookedVia === 'Advanced Booking' || b.tokenNumber?.startsWith('A');
-
-    if (aIsA && !bIsA) return -1; // A comes before W
-    if (!aIsA && bIsA) return 1;  // W comes after A
-    return 0; // Same type, maintain order
+    return compareAppointments(a, b);
 }

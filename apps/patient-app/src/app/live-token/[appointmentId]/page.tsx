@@ -35,7 +35,7 @@ import { useLanguage } from '@/contexts/language-context';
 import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { computeQueues, type QueueState } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments } from '@kloqo/shared-core';
 import { useToast } from '@/hooks/use-toast';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -207,82 +207,35 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     }, [clinicId, firestore]);
 
     // Simulate where a skipped appointment would be placed if it rejoined now
-    const simulateSkippedRejoinTime = useCallback((skippedAppointment: Appointment, allAppointments: Appointment[], recurrence: number): Date | null => {
+    // Simulate where a skipped appointment would be placed if it rejoined now
+    const simulateSkippedRejoinTime = useCallback((skippedAppointment: Appointment): Date | null => {
         try {
-            const skippedOriginalTime = parseAppointmentTime(skippedAppointment);
+            if (!skippedAppointment.time || !skippedAppointment.noShowTime) return null;
 
-            // Get arrived queue: Pending and Confirmed appointments for same doctor and date, sorted by time
-            // Note: Pending appointments maintain their position when they check in (become Confirmed)
-            const arrivedQueue = allAppointments
-                .filter(a =>
-                    a.doctor === skippedAppointment.doctor &&
-                    a.date === skippedAppointment.date &&
-                    (a.status === 'Pending' || a.status === 'Confirmed') &&
-                    a.id !== skippedAppointment.id
-                )
-                .sort((a, b) => {
-                    const timeA = parseAppointmentTime(a);
-                    const timeB = parseAppointmentTime(b);
-                    return timeA.getTime() - timeB.getTime();
-                });
+            const now = new Date(); // In actual use, this would be when they rejoin
+            const appointmentDate = parse(skippedAppointment.date, 'd MMMM yyyy', new Date());
+            const scheduledTime = parseTime(skippedAppointment.time, appointmentDate);
 
-            // Filter appointments (Pending/Confirmed) to only those that come AFTER skipped appointment's original time
-            const appointmentsAfterSkipped = arrivedQueue.filter(a => {
-                const appointmentTime = parseAppointmentTime(a);
-                return appointmentTime.getTime() > skippedOriginalTime.getTime();
-            });
-
-            // Calculate base time based on skippedTokenRecurrence using filtered list
-            let baseTime: Date;
-            if (appointmentsAfterSkipped.length >= recurrence) {
-                // Use the time of the appointment at position 'recurrence' (0-indexed: recurrence - 1) in filtered list
-                const referenceAppointment = appointmentsAfterSkipped[recurrence - 1];
-                baseTime = parseAppointmentTime(referenceAppointment);
-            } else if (appointmentsAfterSkipped.length > 0) {
-                // Use the time of the last appointment in filtered list
-                const lastAppointment = appointmentsAfterSkipped[appointmentsAfterSkipped.length - 1];
-                baseTime = parseAppointmentTime(lastAppointment);
-            } else if (arrivedQueue.length > 0) {
-                // No appointments after skipped time, use the last appointment in arrived queue
-                const lastAppointment = arrivedQueue[arrivedQueue.length - 1];
-                baseTime = parseAppointmentTime(lastAppointment);
+            // Handle noShowTime as Firestore Timestamp or Date
+            let noShowDate: Date;
+            if ((skippedAppointment.noShowTime as any)?.toDate) {
+                noShowDate = (skippedAppointment.noShowTime as any).toDate();
             } else {
-                // Arrived queue is empty, use current time + 1 minute
-                baseTime = addMinutes(new Date(), 1);
+                noShowDate = new Date(skippedAppointment.noShowTime as any);
             }
 
-            // Add 1 minute to base time
-            let newTime = addMinutes(baseTime, 1);
-
-            // Check for existing rejoined appointments (status='Confirmed' AND has skippedAt field)
-            const rejoinedAppointments = allAppointments
-                .filter(a =>
-                    a.doctor === skippedAppointment.doctor &&
-                    a.date === skippedAppointment.date &&
-                    a.status === 'Confirmed' &&
-                    a.skippedAt && // Only appointments that were previously skipped
-                    a.id !== skippedAppointment.id
-                )
-                .sort((a, b) => {
-                    // Sort by time (descending) to get the latest
-                    const timeA = parseAppointmentTime(a);
-                    const timeB = parseAppointmentTime(b);
-                    return timeB.getTime() - timeA.getTime();
-                });
-
-            // If there are existing rejoined appointments, use the latest one's time + 1 minute
-            if (rejoinedAppointments.length > 0) {
-                const latestRejoined = rejoinedAppointments[0];
-                const latestRejoinedTime = parseAppointmentTime(latestRejoined);
-                newTime = addMinutes(latestRejoinedTime, 1);
+            if (isPast(scheduledTime)) {
+                // Current time past the 'time' -> noShowTime + 15 minutes
+                return addMinutes(noShowDate, 15);
+            } else {
+                // Current time didn't pass 'time' -> noShowTime
+                return noShowDate;
             }
-
-            return newTime;
         } catch (error) {
             console.error('Error simulating skipped rejoin time:', error);
             return null;
         }
-    }, [parseAppointmentTime]);
+    }, []);
 
     // Build simulated queue that includes Pending, Confirmed, and Skipped (if they would rejoin before you)
     const simulatedQueue = useMemo(() => {
@@ -315,9 +268,14 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         // For each skipped appointment, simulate where it would be placed if it rejoined now
         const simulatedSkippedAppointments: Array<{ appointment: Appointment; simulatedTime: Date }> = [];
         for (const skipped of skippedAppointments) {
-            const simulatedTime = simulateSkippedRejoinTime(skipped, relevantAppointments, recurrence);
+            const simulatedTime = simulateSkippedRejoinTime(skipped);
             if (simulatedTime) {
-                simulatedSkippedAppointments.push({ appointment: skipped, simulatedTime });
+                // Create a temporary appointment object with the simulated time for sorting
+                const simulatedApt = {
+                    ...skipped,
+                    time: format(simulatedTime, 'hh:mm a')
+                };
+                simulatedSkippedAppointments.push({ appointment: simulatedApt, simulatedTime });
             }
         }
 
@@ -351,8 +309,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             }
         }
 
-        // Sort by queueTime (ascending)
-        queue.sort((a, b) => a.queueTime.getTime() - b.queueTime.getTime());
+        // Sort using shared logic
+        queue.sort((a, b) => compareAppointments(a.appointment, b.appointment));
 
         // Return just the appointments in order
         return queue.map(item => item.appointment);
@@ -381,20 +339,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 apt.status !== 'Cancelled' &&
                 apt.status !== 'No-show'
             )
-            .sort((a, b) => {
-                try {
-                    const dateA = parse(a.date, "d MMMM yyyy", new Date());
-                    const dateB = parse(b.date, "d MMMM yyyy", new Date());
-                    const timeA = parseTime(a.time, dateA).getTime();
-                    const timeB = parseTime(b.time, dateB).getTime();
-                    if (dateA.getTime() !== dateB.getTime()) {
-                        return dateA.getTime() - dateB.getTime();
-                    }
-                    return timeA - timeB;
-                } catch {
-                    return 0;
-                }
-            });
+            .sort(compareAppointments);
     }, [allTodaysAppointments, yourAppointment]);
 
     // Check if your appointment is in buffer queue

@@ -45,7 +45,7 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import type { Appointment, Doctor } from '@/lib/types';
 import { sendAppointmentCancelledNotification } from '@/lib/notification-service';
 import nextDynamic from 'next/dynamic';
-import { previewWalkInPlacement } from '@kloqo/shared-core';
+import { previewWalkInPlacement, compareAppointments } from '@kloqo/shared-core';
 
 const ReviewPrompt = nextDynamic(
     () => import('@/components/review-prompt').then(mod => mod.ReviewPrompt),
@@ -489,11 +489,7 @@ function AppointmentsPage() {
     const upcomingAppointments = effectiveAppointments
         .filter(a => a.status === 'Pending' || a.status === 'Skipped' || a.status === 'Confirmed')
         .slice()
-        .sort((a, b) => {
-            const aDate = parseAppointmentDateTime(a);
-            const bDate = parseAppointmentDateTime(b);
-            return differenceInMilliseconds(aDate, bDate);
-        });
+        .sort(compareAppointments);
 
 
     const pastAppointments = effectiveAppointments.filter(a => {

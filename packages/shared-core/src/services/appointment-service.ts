@@ -2827,3 +2827,41 @@ export async function calculateSkippedTokenRejoinSlot(
   };
 }
 
+
+/**
+ * Shared comparison function for sorting appointments consistently across all apps.
+ * Primary sort: scheduled time (ascending)
+ * Secondary sort: skippedAt field (appointments that were skipped come FIRST)
+ * Tertiary sort: numericToken (ascending)
+ */
+export function compareAppointments(a: Appointment, b: Appointment): number {
+  try {
+    const parseRes = (apt: Appointment) => {
+      // Appointments can have different date formats, but 'd MMMM yyyy' is the standard in Kloqo
+      const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
+      return parseTimeString(apt.time, appointmentDate);
+    };
+
+    const timeA = parseRes(a);
+    const timeB = parseRes(b);
+
+    if (timeA.getTime() !== timeB.getTime()) {
+      return timeA.getTime() - timeB.getTime();
+    }
+
+    // Tie-breaker: skippedAt field existence
+    // Prioritize previously skipped tokens at the same time slot
+    const isASkipped = !!a.skippedAt;
+    const isBSkipped = !!b.skippedAt;
+
+    if (isASkipped !== isBSkipped) {
+      return isASkipped ? -1 : 1;
+    }
+
+    // Final tie-breaker: numericToken
+    return (a.numericToken || 0) - (b.numericToken || 0);
+  } catch (e) {
+    // Fail-safe sorting
+    return (a.numericToken || 0) - (b.numericToken || 0);
+  }
+}

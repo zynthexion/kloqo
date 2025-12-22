@@ -11,6 +11,7 @@ import { isToday } from 'date-fns/isToday';
 import { isPast } from 'date-fns/isPast';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { collection, onSnapshot, query, where, DocumentData, QuerySnapshot, doc, getDoc, limit, orderBy } from 'firebase/firestore';
+import { compareAppointments } from '@kloqo/shared-core';
 
 const getGeolocationErrorMessage = (error: unknown) => {
     return (
@@ -1216,7 +1217,7 @@ function HomePageContent() {
                 a.status !== 'Cancelled' &&
                 a.status !== 'Completed'
         );
-        activeWalkins.sort((a, b) => (a.numericToken || 0) - (b.numericToken || 0));
+        activeWalkins.sort(compareAppointments);
         return activeWalkins[0] || null;
     }, [effectiveAppointments]);
 
@@ -1252,22 +1253,7 @@ function HomePageContent() {
 
             // Show if not past (includes today and future)
             return !isPast(date) || isToday(date);
-        }).sort((a, b) => {
-            // Sort by date, then by time if dates are the same
-            try {
-                const dateA = parse(a.date, "d MMMM yyyy", new Date());
-                const dateB = parse(b.date, "d MMMM yyyy", new Date());
-                const dateDiff = dateA.getTime() - dateB.getTime();
-                if (dateDiff !== 0) return dateDiff;
-
-                // If same date, sort by time
-                const timeA = a.time || '';
-                const timeB = b.time || '';
-                return timeA.localeCompare(timeB);
-            } catch {
-                return new Date(a.date).getTime() - new Date(b.date).getTime();
-            }
-        });
+        }).sort(compareAppointments);
 
         // Debug logging (remove after debugging)
         if (process.env.NODE_ENV === 'development') {

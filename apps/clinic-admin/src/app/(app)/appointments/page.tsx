@@ -522,8 +522,8 @@ export default function AppointmentsPage() {
           return acc;
         }, [] as Appointment[]);
 
-        // Filter out appointments cancelled by break
-        const filteredAppointments = uniqueAppointments.filter(apt => !(apt.status === 'Cancelled' && apt.cancelledByBreak));
+        // Filter out appointments cancelled or completed by break
+        const filteredAppointments = uniqueAppointments.filter(apt => !((apt.status === 'Cancelled' || apt.status === 'Completed') && apt.cancelledByBreak !== undefined));
 
         setAppointments(filteredAppointments);
         setLoading(false);
@@ -1598,7 +1598,10 @@ export default function AppointmentsPage() {
             toast({ variant: "destructive", title: "Missing Information", description: "Please select a date and time for the appointment." });
             return;
           }
-          const appointmentId = isEditing && editingAppointment ? editingAppointment.id : doc(collection(db, "appointments")).id;
+          const isRescheduling = isEditing && !!editingAppointment;
+          const oldAppointmentId = isRescheduling ? editingAppointment.id : null;
+          const newAppointmentId = doc(collection(db, "appointments")).id;
+          const appointmentId = newAppointmentId; // Use new ID for the new appointment
           const appointmentDateStr = format(values.date, "d MMMM yyyy");
           const appointmentTimeStr = format(parseDateFns(values.time, "HH:mm", new Date()), "hh:mm a");
 
@@ -1670,7 +1673,7 @@ export default function AppointmentsPage() {
                 time: appointmentTimeStr,
                 slotIndex,
                 doctorId: selectedDoctor.id,
-                existingAppointmentId: isEditing && editingAppointment ? editingAppointment.id : undefined,
+                existingAppointmentId: oldAppointmentId || undefined,
               }
             );
           } catch (error: any) {
@@ -1830,31 +1833,32 @@ export default function AppointmentsPage() {
           }
 
           const appointmentData: Appointment = {
-            id: appointmentId,
+            id: newAppointmentId,
             clinicId: clinicId,
             patientId: patientForAppointmentId,
             patientName: patientForAppointmentName,
             sex: values.sex,
             communicationPhone: communicationPhone,
             age: values.age ?? undefined,
-            doctorId: selectedDoctor.id, // Add doctorId
+            doctorId: selectedDoctor.id,
             doctor: selectedDoctor.name,
             date: appointmentDateStr,
-            // Keep original slot time (before break adjustments)
             time: actualAppointmentTimeStr,
             arriveByTime: arriveByTimeValue,
             department: values.department,
-            status: isEditing ? editingAppointment!.status : "Pending",
+            status: 'Pending', // New appointment always starts as Pending
             tokenNumber: tokenData.tokenNumber,
             numericToken: tokenData.numericToken,
             bookedVia: values.bookedVia,
             place: values.place,
-            slotIndex: actualSlotIndex, // Use the actual slotIndex returned from the function
+            slotIndex: actualSlotIndex,
             sessionIndex: sessionIndex,
-            createdAt: isEditing ? editingAppointment.createdAt : serverTimestamp(),
+            createdAt: serverTimestamp(), // New appointment has new createdAt
+            updatedAt: serverTimestamp(),
+            isRescheduled: isRescheduling ? true : undefined,
             cutOffTime: cutOffTime,
             noShowTime: noShowTime,
-            ...(inheritedDelay > 0 && { delay: inheritedDelay }), // Only include delay if > 0
+            ...(inheritedDelay > 0 && { delay: inheritedDelay }),
           };
 
           const appointmentRef = doc(db, 'appointments', appointmentId);
@@ -1948,16 +1952,26 @@ export default function AppointmentsPage() {
 
 
               // CRITICAL: Mark reservation as booked instead of deleting it
-              // This acts as a persistent lock to prevent race conditions where other clients
-              // might miss the new appointment and try to claim the "free" slot
-              transaction.update(reservationRef, {
+              // This acts as a persistent lock to prevent race conditions
+              transaction.update(doc(db, 'slot-reservations', tokenData.reservationId), {
                 status: 'booked',
-                appointmentId: appointmentId,
+                appointmentId: newAppointmentId,
                 bookedAt: serverTimestamp()
               });
 
-              // Create appointment atomically in the same transaction
+              // Create new appointment atomically
               transaction.set(appointmentRef, appointmentData);
+
+              // If rescheduling, mark old appointment as cancelled
+              if (isRescheduling && oldAppointmentId) {
+                const oldAppointmentRef = doc(db, 'appointments', oldAppointmentId);
+                transaction.update(oldAppointmentRef, {
+                  status: 'Cancelled',
+                  cancellationReason: 'Rescheduled',
+                  isRescheduled: true,
+                  updatedAt: serverTimestamp(),
+                });
+              }
 
 
             });
@@ -1980,67 +1994,37 @@ export default function AppointmentsPage() {
             throw error;
           }
 
-          if (!isEditing) {
-            const patientRef = doc(db, 'patients', patientForAppointmentId);
-            const patientDoc = await getFirestoreDoc(patientRef);
-            const updateData: any = {
-              visitHistory: arrayUnion(appointmentId),
-              totalAppointments: increment(1),
-              updatedAt: serverTimestamp(),
-            };
+          // Update patient history for NEW appointments or reschedules
+          const patientRef = doc(db, 'patients', patientForAppointmentId);
+          const patientDoc = await getFirestoreDoc(patientRef);
+          const updateData: any = {
+            visitHistory: arrayUnion(newAppointmentId),
+            updatedAt: serverTimestamp(),
+          };
 
-            // Ensure clinicId is added to patient's clinicIds array if it doesn't exist
-            if (patientDoc.exists()) {
-              const patientData = patientDoc.data();
-              const clinicIds = patientData?.clinicIds || [];
-              if (!clinicIds.includes(clinicId)) {
-                updateData.clinicIds = arrayUnion(clinicId);
-              }
-            }
-
-            await updateDoc(patientRef, updateData);
+          if (!isRescheduling) {
+            updateData.totalAppointments = increment(1);
           }
 
-          // Send notification for new appointments
-          if (!isEditing) {
-            try {
-              const clinicName = `The clinic`;
-              console.log('🎯 DEBUG: [APPOINTMENTS PAGE] Triggering sendAppointmentBookedByStaffNotification', {
-                patientId: patientForAppointmentId,
-                appointmentId: appointmentId,
-                tokenNumber: appointmentData.tokenNumber
-              });
-              await sendAppointmentBookedByStaffNotification({
-                firestore: db,
-                patientId: patientForAppointmentId,
-                appointmentId: appointmentId,
-                doctorName: appointmentData.doctor,
-                clinicName: clinicName,
-                date: appointmentData.date,
-                time: appointmentData.time,
-                arriveByTime: appointmentData.arriveByTime,
-                tokenNumber: appointmentData.tokenNumber,
-                bookedBy: 'admin',
-              });
-              console.log('🎯 DEBUG: [APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification SUCCESS');
-            } catch (notifError) {
-              console.error('🎯 DEBUG: [APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification FAILED:', notifError);
+          if (patientDoc.exists()) {
+            const patientData = patientDoc.data();
+            const clinicIds = patientData?.clinicIds || [];
+            if (!clinicIds.includes(clinicId)) {
+              updateData.clinicIds = arrayUnion(clinicId);
             }
           }
+          await updateDoc(patientRef, updateData);
 
-          // When editing (rescheduling), also send a reschedule notification
-          if (isEditing) {
+          // Notifications
+          if (isRescheduling) {
             toast({ title: "Appointment Rescheduled", description: `Appointment for ${appointmentData.patientName} has been updated.` });
-
             try {
-              const clinicName = `The clinic`; // You can fetch from clinic doc if needed
-
               await sendBreakUpdateNotification({
                 firestore: db,
                 patientId: patientForAppointmentId,
-                appointmentId,
+                appointmentId: newAppointmentId,
                 doctorName: appointmentData.doctor,
-                clinicName,
+                clinicName: 'The clinic',
                 oldTime: editingAppointment?.time || appointmentData.time,
                 newTime: appointmentData.time,
                 oldDate: editingAppointment?.date,
@@ -2054,6 +2038,22 @@ export default function AppointmentsPage() {
             }
           } else {
             toast({ title: "Appointment Booked", description: `Appointment for ${appointmentData.patientName} has been successfully booked.` });
+            try {
+              await sendAppointmentBookedByStaffNotification({
+                firestore: db,
+                patientId: patientForAppointmentId,
+                appointmentId: newAppointmentId,
+                doctorName: appointmentData.doctor,
+                clinicName: 'The clinic',
+                date: appointmentData.date,
+                time: appointmentData.time,
+                arriveByTime: appointmentData.arriveByTime,
+                tokenNumber: appointmentData.tokenNumber,
+                bookedBy: 'admin',
+              });
+            } catch (notifError) {
+              console.error('Failed to send booking notification:', notifError);
+            }
           }
         }
         resetForm();
@@ -4231,13 +4231,16 @@ export default function AppointmentsPage() {
                                     <Badge
                                       variant={
                                         appointment.status === 'Completed' ? 'default' :
-                                          appointment.status === 'Cancelled' ? 'destructive' :
+                                          appointment.status === 'Cancelled' ? (appointment.isRescheduled ? 'warning' : 'destructive') :
                                             appointment.status === 'No-show' ? 'secondary' :
                                               appointment.status === 'Confirmed' ? 'default' :
                                                 'secondary'
                                       }
+                                      className={cn(
+                                        appointment.status === 'Cancelled' && appointment.isRescheduled && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100"
+                                      )}
                                     >
-                                      {appointment.status}
+                                      {appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status}
                                     </Badge>
                                   )}
                                 </TableCell>

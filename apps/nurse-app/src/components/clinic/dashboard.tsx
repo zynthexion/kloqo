@@ -464,12 +464,15 @@ export default function ClinicDashboard() {
   };
 
   const filteredAppointments = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return appointments;
+    let filtered = appointments;
+    if (searchTerm.trim()) {
+      filtered = filtered.filter(appointment =>
+        appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
-    return appointments.filter(appointment =>
-      appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+
+    // Filter out appointments cancelled or completed by break
+    return filtered.filter(a => !((a.status === 'Completed' || a.status === 'Cancelled') && a.cancelledByBreak !== undefined));
   }, [appointments, searchTerm]);
 
   const pendingAppointments = useMemo(() => {

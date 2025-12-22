@@ -92,6 +92,7 @@
     "pending": "Pending",
     "completed": "Completed",
     "cancelled": "Cancelled",
+    "rescheduled": "Rescheduled",
     "cancel": "Cancel",
     "reschedule": "Reschedule",
     "loadingAppointments": "Loading appointments...",

@@ -1215,7 +1215,8 @@ function HomePageContent() {
             a => a.tokenNumber?.startsWith('W') &&
                 isAppointmentForToday(a.date) &&
                 a.status !== 'Cancelled' &&
-                a.status !== 'Completed'
+                a.status !== 'Completed' &&
+                a.cancelledByBreak === undefined
         );
         activeWalkins.sort(compareAppointments);
         return activeWalkins[0] || null;
@@ -1223,10 +1224,11 @@ function HomePageContent() {
 
     const upcomingAppointments = useMemo(() => {
         const filtered = effectiveAppointments.filter(a => {
-            // Exclude completed and cancelled appointments
-            if (a.status === 'Cancelled' || a.status === 'Completed') {
-                return false;
-            }
+            // Hide break-affected appointments
+            if (a.cancelledByBreak !== undefined) return false;
+
+            // Hide completed and cancelled appointments
+            if (a.status === 'Cancelled' || a.status === 'Completed') return false;
 
             // Exclude today's walk-in appointments (handled by WalkInCard)
             if (a.tokenNumber?.startsWith('W')) {

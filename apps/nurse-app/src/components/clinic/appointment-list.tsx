@@ -92,6 +92,16 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
         if (appt.cancellationReason === 'DOCTOR_LEAVE') {
           return <Badge variant="destructive" className="bg-orange-500 text-white">Doctor Leave</Badge>;
         }
+        if (appt.isRescheduled) {
+          return (
+            <Badge
+              variant="outline"
+              className="bg-orange-100 text-orange-800 border-orange-200"
+            >
+              Rescheduled
+            </Badge>
+          );
+        }
         return <Badge variant="secondary">Cancelled</Badge>
       case 'Completed':
         return <Badge variant="default" className="bg-green-600">Completed</Badge>

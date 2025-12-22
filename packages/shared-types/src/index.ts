@@ -115,6 +115,8 @@ export type Appointment = {
     cancellationReason?: string;
     isForceBooked?: boolean; // True if walk-in was force booked outside normal availability
     cancelledByBreak?: boolean; // True if appointment was effectively cancelled due to a break insertion (shifted to a new slot)
+    isRescheduled?: boolean; // True if appointment was cancelled due to a reschedule or is the result of a reschedule
+    updatedAt?: any;
 };
 
 export type Patient = {

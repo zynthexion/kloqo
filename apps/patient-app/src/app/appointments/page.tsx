@@ -310,13 +310,13 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                             appointment.status === 'Confirmed' ? "bg-green-100 text-green-800" :
                                 appointment.status === 'Pending' ? "bg-yellow-100 text-yellow-800" :
                                     appointment.status === 'Completed' ? "bg-blue-100 text-blue-800" :
-                                        appointment.status === 'Cancelled' ? "bg-red-100 text-red-800" :
+                                        appointment.status === 'Cancelled' ? (appointment.isRescheduled ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800") :
                                             "bg-gray-100 text-gray-800"
                         )}>
                             {appointment.status === 'Confirmed' ? t.appointments.confirmed :
                                 appointment.status === 'Pending' ? t.appointments.pending :
                                     appointment.status === 'Completed' ? t.appointments.completed :
-                                        appointment.status === 'Cancelled' ? t.appointments.cancelled :
+                                        appointment.status === 'Cancelled' ? (appointment.isRescheduled ? t.appointments.rescheduled : t.appointments.cancelled) :
                                             appointment.status}
                         </span>
                     </div>
@@ -450,10 +450,9 @@ function AppointmentsPage() {
     }, []);
 
     const effectiveAppointments = useMemo(() => {
-        if (appointments.length > 0) {
-            return appointments.filter(a => !a.cancelledByBreak);
-        }
-        return cachedAppointments.filter(a => !a.cancelledByBreak);
+        const source = appointments.length > 0 ? appointments : cachedAppointments;
+        // Hide break-affected appointments (field present as true or false)
+        return source.filter(a => a.cancelledByBreak === undefined);
     }, [appointments, cachedAppointments]);
 
     const isAppointmentForToday = (dateStr: string) => {

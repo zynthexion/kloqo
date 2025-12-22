@@ -243,11 +243,12 @@ function BookingSummaryPage() {
 
         try {
             // If editing, update existing appointment with new token logic
+            // If editing, use the "Cancel + Create New" strategy
             if (isEditMode && appointmentId) {
-                // Edit existing appointment - regenerate token using same logic as new appointment
+                // Get existing appointment reference
                 const appointmentRef = doc(firestore, "appointments", appointmentId);
 
-                // Get existing appointment data
+                // Get existing appointment data for history and comparison
                 const existingAppointmentSnap = await getDoc(appointmentRef);
                 if (!existingAppointmentSnap.exists()) {
                     toast({
@@ -259,253 +260,143 @@ function BookingSummaryPage() {
                     return;
                 }
 
-                const existingData = existingAppointmentSnap.data();
+                const existingData = existingAppointmentSnap.data() as Appointment;
                 const oldDate = existingData.date;
                 const oldTime = existingData.time;
                 const appointmentDateStr = format(selectedSlot, "d MMMM yyyy");
-                // Auto-assign the lowest available slotIndex for rescheduled appointment (ignores selectedSlot time)
+
+                // Calculate slotIndex and sessionIndex for the CHOSEN selectedSlot
                 let slotIndex = -1;
                 let sessionIndex = -1;
-                let finalSlotTime: Date | null = null;
                 const dayOfWeek = daysOfWeek[getDay(selectedSlot)];
                 const availabilityForDay = finalDoctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-                const slotDuration = finalDoctor.averageConsultingTime || 15;
 
-                // Fetch all existing appointments for this doctor/date to find occupied slotIndices (excluding current appointment)
-                const allAppointmentsQuery = query(
-                    collection(firestore, "appointments"),
-                    where("doctor", "==", finalDoctor.name),
-                    where("clinicId", "==", finalDoctor.clinicId),
-                    where("date", "==", appointmentDateStr),
-                    where("status", "in", ["Pending", "Confirmed"])
-                );
-
-                const allAppointmentsSnapshot = await getDocs(allAppointmentsQuery);
-                const occupiedSlotIndices = new Set(
-                    allAppointmentsSnapshot.docs
-                        .filter(doc => doc.id !== appointmentId) // Exclude current appointment
-                        .map(doc => {
-                            const data = doc.data();
-                            // Both A and W tokens block slots (exclusive slots)
-                            return data.slotIndex;
-                        })
-                        .filter(index => index !== null && index !== undefined && typeof index === 'number')
-                );
-
-                // Find the lowest available slotIndex
-                // CRITICAL: A tokens must follow these rules when rescheduling:
-                // 1. Cannot book slots in the past (always skip past slots)
-                // 2. Cannot book slots within 1 hour from now (reserved for W tokens)
                 if (availabilityForDay) {
                     let globalSlotIndex = 0;
-                    const now = new Date();
-                    const isToday = isSameDay(selectedSlot, now);
-                    // Calculate 1-hour window: A tokens can only book slots at least 1 hour in the future
-                    const oneHourFromNow = addMinutes(now, 60);
-
                     for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
                         const session = availabilityForDay.timeSlots[i];
-                        const dateObj = parse(appointmentDate, "d MMMM yyyy", new Date());
+                        const dateObj = parse(appointmentDateStr, "d MMMM yyyy", new Date());
                         let currentTime = parseTime(session.from, dateObj);
                         const endTime = parseTime(session.to, dateObj);
+                        const slotDuration = finalDoctor.averageConsultingTime || 15;
 
                         while (isBefore(currentTime, endTime)) {
-                            // CRITICAL RULE 1: Skip ALL past slots (not just for today)
-                            // A tokens cannot book slots that have already passed
-                            if (isBefore(currentTime, now)) {
-                                console.log('🚫 [A TOKEN RESCHEDULE] Skipping past slot:', {
-                                    slotIndex: globalSlotIndex,
-                                    slotTime: format(currentTime, 'hh:mm a'),
-                                    currentTime: format(now, 'hh:mm a'),
-                                    reason: 'Slot is in the past'
-                                });
-                                currentTime = addMinutes(currentTime, slotDuration);
-                                globalSlotIndex++;
-                                continue;
+                            if (isSameDay(currentTime, selectedSlot) &&
+                                format(currentTime, "hh:mm a") === format(selectedSlot, "hh:mm a")) {
+                                slotIndex = globalSlotIndex;
+                                sessionIndex = i;
+                                break;
                             }
-
-                            // CRITICAL RULE 2: Skip slots within 1-hour window (reserved for W tokens)
-                            // A tokens can only book slots that are at least 1 hour in the future
-                            if (isBefore(currentTime, oneHourFromNow)) {
-                                console.log('🚫 [A TOKEN RESCHEDULE] Skipping slot within 1-hour window:', {
-                                    slotIndex: globalSlotIndex,
-                                    slotTime: format(currentTime, 'hh:mm a'),
-                                    oneHourFromNow: format(oneHourFromNow, 'hh:mm a'),
-                                    reason: 'Slots within 1 hour are reserved for walk-in tokens'
-                                });
-                                currentTime = addMinutes(currentTime, slotDuration);
-                                globalSlotIndex++;
-                                continue;
-                            }
-
-                            // Check if this slotIndex is available
-                            if (!occupiedSlotIndices.has(globalSlotIndex)) {
-                                // Final validation: Ensure slot is not in the past and is outside 1-hour window
-                                if (!isBefore(currentTime, now) && !isBefore(currentTime, oneHourFromNow)) {
-                                    slotIndex = globalSlotIndex;
-                                    sessionIndex = i;
-                                    finalSlotTime = currentTime;
-                                    console.log('✅ [A TOKEN RESCHEDULE] Selected available slot:', {
-                                        slotIndex: globalSlotIndex,
-                                        slotTime: format(currentTime, 'hh:mm a'),
-                                        isPast: false,
-                                        isWithinOneHour: false
-                                    });
-                                    break;
-                                }
-                            }
-
                             currentTime = addMinutes(currentTime, slotDuration);
                             globalSlotIndex++;
                         }
-
                         if (slotIndex !== -1) break;
                     }
                 }
 
-                if (slotIndex === -1 || !finalSlotTime) {
+                if (slotIndex === -1) {
                     toast({
                         variant: "destructive",
                         title: t.bookAppointment.error,
-                        description: "No available slots found for this date. Please select another date.",
+                        description: "Could not resolve the selected time slot. Please try again.",
                     });
                     setIsSubmitting(false);
                     return;
                 }
 
-                // Generate new token and reserve slot using same logic as new appointment
-                let tokenNumber: string;
-                let numericToken: number;
-                let actualSlotIndex = slotIndex;
-                let resolvedSessionIndex = sessionIndex;
-                let resolvedTimeString = format(finalSlotTime, "hh:mm a");
-                let reservationId: string | undefined;
-                let tokenData: Awaited<ReturnType<typeof generateNextTokenAndReserveSlot>> | null = null;
-                const bookingPayload = {
-                    time: format(finalSlotTime, "hh:mm a"),
-                    slotIndex,
-                    doctorId: finalDoctor.id,
-                } as const;
+                // Generate new token and reserve slot
+                let tokenData;
                 try {
                     tokenData = await generateNextTokenAndReserveSlot(
                         firestore,
                         finalDoctor.clinicId,
                         finalDoctor.name,
-                        finalSlotTime,
+                        selectedSlot,
                         'A',
-                        bookingPayload
+                        {
+                            time: format(selectedSlot, "hh:mm a"),
+                            slotIndex,
+                            doctorId: finalDoctor.id,
+                            existingAppointmentId: appointmentId, // This allows reusing its own slot if it's the same
+                        }
                     );
                 } catch (error: any) {
-                    if (error.code === 'SLOT_OCCUPIED' || error.message === 'SLOT_ALREADY_BOOKED') {
-                        console.warn('[BOOKING FLOW DEBUG] Reschedule slot conflict detected. Auto-selecting next slot.', {
-                            requestedSlotIndex: slotIndex,
-                            appointmentDate: appointmentDateStr,
-                        });
-                        try {
-                            tokenData = await generateNextTokenAndReserveSlot(
-                                firestore,
-                                finalDoctor.clinicId,
-                                finalDoctor.name,
-                                finalSlotTime,
-                                'A',
-                                {
-                                    ...bookingPayload,
-                                    slotIndex: -1,
-                                }
-                            );
-                            toast({
-                                variant: "default",
-                                title: "Time Slot Updated",
-                                description: "The selected slot was just booked, so we assigned the next available slot automatically.",
-                            });
-                        } catch (retryError: any) {
-                            toast({
-                                variant: "destructive",
-                                title: "Slot Already Booked",
-                                description: "This time slot was just booked. Please select another time.",
-                            });
-                            setIsSubmitting(false);
-                            return;
-                        }
-                    } else if (error.code === 'A_CAPACITY_REACHED') {
+                    // Logic for conflict or capacity handled same as new appointment
+                    if (error.code === 'SLOT_OCCUPIED' || error.message === 'SLOT_ALREADY_BOOKED' || error.message === 'No available slots match the booking rules.') {
                         toast({
                             variant: "destructive",
-                            title: "No Slots Available",
-                            description: "Advance booking capacity has been reached for this doctor today. Please choose another day.",
+                            title: "Slot Already Booked",
+                            description: "Someone else just booked this slot. Please select another time.",
                         });
                         setIsSubmitting(false);
                         return;
-                    } else {
-                        throw error;
                     }
+                    throw error;
                 }
 
-                if (!tokenData) {
-                    throw new Error('Failed to generate token for reschedule.');
-                }
+                const actualSlotIndex = tokenData.slotIndex;
+                const actualTime = tokenData.time;
 
-                tokenNumber = tokenData.tokenNumber;
-                numericToken = tokenData.numericToken;
-                actualSlotIndex = tokenData.slotIndex;
-                resolvedSessionIndex = tokenData.sessionIndex ?? resolvedSessionIndex;
-                resolvedTimeString = tokenData.time ?? resolvedTimeString;
-                reservationId = tokenData.reservationId;
-
-                const appointmentDateObj = parse(appointmentDateStr, "d MMMM yyyy", new Date());
-                const resolvedDetails = resolveSlotDetails(actualSlotIndex, appointmentDateObj);
-
-                if (!tokenData.time && resolvedDetails) {
-                    resolvedTimeString = format(resolvedDetails.slotDate, "hh:mm a");
-                }
-
-                if (!tokenData.sessionIndex && resolvedDetails) {
-                    resolvedSessionIndex = resolvedDetails.sessionIndex;
-                }
-
-                const appointmentData = {
+                // 1. Create NEW appointment document
+                const newAppointmentRef = doc(collection(firestore, "appointments"));
+                const appointmentData: Appointment = {
+                    ...existingData,
+                    id: newAppointmentRef.id,
                     date: appointmentDateStr,
-                    time: resolvedTimeString,
-                    clinicId: finalDoctor.clinicId,
-                    doctorId: finalDoctor.id,
-                    doctor: finalDoctor.name,
-                    department: finalDoctor.department,
-                    tokenNumber: tokenNumber,
-                    numericToken: numericToken,
+                    time: actualTime,
                     slotIndex: actualSlotIndex,
-                    sessionIndex: resolvedSessionIndex,
+                    sessionIndex: tokenData.sessionIndex,
+                    tokenNumber: tokenData.tokenNumber,
+                    numericToken: tokenData.numericToken,
+                    status: 'Pending',
+                    isRescheduled: true,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
                 };
 
+                // Remove fields that should not be copied or need fresh calculation
+                delete (appointmentData as any).completedAt;
+                delete (appointmentData as any).skippedAt;
+                delete (appointmentData as any).reviewed;
+                delete (appointmentData as any).reviewId;
+
+                // Calculate cut-off and no-show times for the NEW appointment
                 try {
-                    await updateDoc(appointmentRef, appointmentData);
-                } catch (serverError: any) {
-                    await releaseReservation(reservationId);
-                    const permissionError = new FirestorePermissionError({
-                        path: appointmentRef.path,
-                        operation: 'update',
-                        requestResourceData: appointmentData,
-                    });
-                    errorEmitter.emit('permission-error', permissionError);
-                    throw permissionError;
+                    const appointmentTimeDate = parse(appointmentDateStr, "d MMMM yyyy", new Date());
+                    const resolvedDateTime = parseTime(actualTime, appointmentTimeDate);
+                    appointmentData.cutOffTime = subMinutes(resolvedDateTime, 15);
+                    appointmentData.noShowTime = addMinutes(resolvedDateTime, 15);
+                } catch (error) {
+                    console.error('Error calculating times for new appointment:', error);
                 }
 
-                await releaseReservation(reservationId, 2000);
+                await setDoc(newAppointmentRef, appointmentData as any);
 
-                // Send rescheduled notification if date or time changed
-                if ((oldDate !== appointmentData.date || oldTime !== appointmentData.time) && user?.dbUserId && firestore) {
+                // 2. Mark OLD appointment as Cancelled
+                await updateDoc(appointmentRef, {
+                    status: 'Cancelled',
+                    cancellationReason: 'Rescheduled',
+                    isRescheduled: true,
+                    updatedAt: serverTimestamp(),
+                });
+
+                await releaseReservation(tokenData.reservationId, 2000);
+
+                // Send rescheduled notification
+                if (user?.dbUserId && (oldDate !== appointmentDateStr || oldTime !== actualTime)) {
                     try {
                         await sendAppointmentRescheduledNotification({
                             firestore,
                             userId: user.dbUserId,
-                            appointmentId: appointmentId,
+                            appointmentId: newAppointmentRef.id,
                             doctorName: finalDoctor.name,
                             oldDate: oldDate,
-                            newDate: appointmentData.date,
-                            time: appointmentData.time,
-                            tokenNumber: appointmentData.tokenNumber,
+                            newDate: appointmentDateStr,
+                            time: actualTime,
+                            tokenNumber: tokenData.tokenNumber,
                         });
-                        console.log('Appointment rescheduled notification sent');
                     } catch (notifError) {
-                        console.error('Failed to send rescheduled notification:', notifError);
+                        console.error('Failed to send notification:', notifError);
                     }
                 }
 
@@ -514,31 +405,15 @@ function BookingSummaryPage() {
                     description: t.messages.appointmentRescheduledSuccess,
                 });
 
-                // Store appointment date and time for success page
-                setAppointmentDate(appointmentData.date);
-                setAppointmentTime(appointmentData.time);
-                setGeneratedToken(appointmentData.tokenNumber);
-                setBookedAppointmentId(appointmentId);
-
-                // Fetch the appointment to get the noShowTime from database
-                try {
-                    const appointmentDoc = await getDoc(appointmentRef);
-                    if (appointmentDoc.exists()) {
-                        const updatedAppointmentData = appointmentDoc.data();
-                        if (updatedAppointmentData.noShowTime) {
-                            // Convert Firestore Timestamp to Date
-                            const noShowTimeValue = updatedAppointmentData.noShowTime;
-                            const noShowDate = noShowTimeValue?.toDate ? noShowTimeValue.toDate() : new Date(noShowTimeValue);
-                            setNoShowTime(noShowDate);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error fetching noShowTime:', error);
-                }
-
+                // Store details for success page
+                setAppointmentDate(appointmentDateStr);
+                setAppointmentTime(actualTime);
+                setGeneratedToken(tokenData.tokenNumber);
+                setBookedAppointmentId(newAppointmentRef.id);
                 setStatus('success');
                 return;
             }
+
 
             // New appointment - Auto-assign the lowest available slotIndex (ignores selectedSlot time)
             const appointmentDateStr = format(selectedSlot, "d MMMM yyyy");

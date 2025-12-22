@@ -14,7 +14,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AppFrameLayout from '@/components/layout/app-frame';
 import { useToast } from '@/hooks/use-toast';
-import { collection, getDocs, doc, getDoc, updateDoc, query, where, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, updateDoc, query, where, deleteDoc, writeBatch, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import type { Appointment } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import type { Doctor, Patient } from '@/lib/types';
@@ -388,34 +388,63 @@ export default function EditAppointmentPage({ params }: EditAppointmentPageProps
             }
 
             try {
-                await updateDoc(appointmentRef, updatedAppointment);
-            } catch (serverError) {
-                await releaseReservation();
-                const permissionError = new FirestorePermissionError({
-                    path: appointmentRef.path,
-                    operation: 'update',
-                    requestResourceData: updatedAppointment,
-                });
-                errorEmitter.emit('permission-error', permissionError);
-                throw serverError;
-            }
+                if (newSlotParam && appointment) {
+                    const batch = writeBatch(db);
+                    const newAppointmentRef = doc(collection(db, 'appointments'));
+                    const newAppointmentId = newAppointmentRef.id;
 
-            await releaseReservation(2000);
+                    // 1. Mark old appointment as cancelled
+                    batch.update(appointmentRef, {
+                        status: 'Cancelled',
+                        cancellationReason: 'Rescheduled',
+                        isRescheduled: true,
+                        updatedAt: serverTimestamp(),
+                    });
 
-            // Send reschedule notification if appointment was rescheduled (newSlotParam exists)
-            if (newSlotParam && appointment) {
-                try {
-                    const clinicName = 'The clinic'; // You can fetch actual clinic name if needed
-                    // Use the patientId from the updated appointment (which may have changed) or fallback to original
-                    const notificationPatientId = updatedAppointment.patientId || appointment.patientId;
+                    // 2. Create new appointment
+                    const newAppointmentData = {
+                        ...appointment,
+                        ...updatedAppointment,
+                        id: newAppointmentId,
+                        status: 'Pending',
+                        isRescheduled: true,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    };
+                    // Remove fields that should not be carried over to new appointment
+                    delete (newAppointmentData as any).completedAt;
+                    delete (newAppointmentData as any).skippedAt;
+                    delete (newAppointmentData as any).reviewed;
+                    delete (newAppointmentData as any).reviewId;
 
-                    if (!notificationPatientId) {
-                        console.warn('Cannot send reschedule notification: patientId is missing');
-                    } else {
+                    batch.set(newAppointmentRef, newAppointmentData);
+
+                    // 3. Update patient history
+                    const patientRef = doc(db, 'patients', patientId);
+                    batch.update(patientRef, {
+                        visitHistory: arrayUnion(newAppointmentId),
+                        updatedAt: serverTimestamp(),
+                    });
+
+                    // Update reservation with new appointment ID
+                    if (reservationId) {
+                        const reservationRef = doc(db, 'slot-reservations', reservationId);
+                        batch.update(reservationRef, {
+                            status: 'booked',
+                            appointmentId: newAppointmentId,
+                            bookedAt: serverTimestamp()
+                        });
+                    }
+
+                    await batch.commit();
+
+                    // Send reschedule notification
+                    try {
+                        const clinicName = 'The clinic';
                         await sendBreakUpdateNotification({
                             firestore: db,
-                            patientId: notificationPatientId,
-                            appointmentId: appointment.id,
+                            patientId,
+                            appointmentId: newAppointmentId,
                             doctorName: updatedAppointment.doctor || appointment.doctor,
                             clinicName,
                             oldTime: appointment.time,
@@ -426,10 +455,28 @@ export default function EditAppointmentPage({ params }: EditAppointmentPageProps
                             oldArriveByTime: appointment.arriveByTime,
                             newArriveByTime: updatedAppointment.arriveByTime || updatedAppointment.time || appointment.arriveByTime,
                         });
+                    } catch (notifError) {
+                        console.error('Failed to send reschedule notification from nurse app:', notifError);
                     }
-                } catch (notifError) {
-                    console.error('Failed to send reschedule notification from nurse app:', notifError);
+                } else {
+                    // Just update patient details
+                    await updateDoc(appointmentRef, updatedAppointment);
                 }
+            } catch (serverError) {
+                if (reservationId) {
+                    try {
+                        await deleteDoc(doc(db, 'slot-reservations', reservationId));
+                    } catch (cleanupError) {
+                        console.warn('⚠️ [NURSE EDIT] Failed to release reservation:', cleanupError);
+                    }
+                }
+                const permissionError = new FirestorePermissionError({
+                    path: appointmentRef.path,
+                    operation: 'update',
+                    requestResourceData: updatedAppointment,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+                throw serverError;
             }
 
             toast({

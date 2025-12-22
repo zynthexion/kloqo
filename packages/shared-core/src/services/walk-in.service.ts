@@ -3109,6 +3109,33 @@ export async function calculateWalkInDetails(
 
 
 
+  // Strategy 4: Bucket Compensation Check (Calculate early for error handling)
+  // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
+  const allSlotsFilled = (() => {
+    const occupiedSlotsForCheck = new Set<number>();
+    appointments.forEach(appt => {
+      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+        occupiedSlotsForCheck.add(appt.slotIndex);
+      }
+    });
+
+    for (let i = 0; i < slots.length; i++) {
+      if (isBefore(slots[i].time, now)) {
+        continue; // Skip past slots
+      }
+      // Skip cancelled slots in bucket - they're blocked, not available
+      if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) {
+        continue;
+      }
+      if (!occupiedSlotsForCheck.has(i)) {
+        return false; // Found an empty slot
+      }
+    }
+    return true; // All available future slots are occupied
+  })();
+
+  const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
+
   try {
     schedule = computeWalkInSchedule({
       slots,
@@ -3118,10 +3145,10 @@ export async function calculateWalkInDetails(
       walkInCandidates: activeWalkInCandidates,
     });
   } catch (error) {
-    if (!forceBook) {
+    if (!forceBook && !canUseBucketCompensation) {
       throw error;
     }
-    console.log('[FORCE BOOK] Scheduler could not allocate slot, proceeding to overflow logic', error);
+    console.log('[FORCE BOOK/BUCKET] Scheduler could not allocate slot, proceeding to overflow logic', error);
   }
 
   const newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
@@ -3164,7 +3191,7 @@ export async function calculateWalkInDetails(
       return true; // All available future slots are occupied
     })();
 
-    const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
+
 
     // If forceBook is enabled OR bucket compensation is valid, create an overflow slot
     if (forceBook || canUseBucketCompensation) {

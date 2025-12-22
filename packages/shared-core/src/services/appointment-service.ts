@@ -1439,12 +1439,11 @@ const prepareAdvanceShift = async ({
     currentSlotIndex: slotIndex,
   }));
 
-  const baseWalkInCandidates = activeWalkIns.map(appointment => ({
-    id: appointment.id,
-    numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : 0,
-    createdAt: toDate(appointment.createdAt),
-    currentSlotIndex: typeof appointment.slotIndex === 'number' ? appointment.slotIndex : undefined,
-  }));
+
+  // CRITICAL FIX: Don't include existing walk-ins as candidates in actual booking
+  // This matches the preview logic and prevents re-placing existing walk-ins
+  // Existing walk-ins will be added to blockedAdvanceAppointments instead
+  const baseWalkInCandidates: any[] = [];
 
   const newWalkInCandidate = {
     id: '__new_walk_in__',
@@ -1615,6 +1614,17 @@ const prepareAdvanceShift = async ({
         id: entry.id,
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
       }));
+
+      // CRITICAL FIX: Add existing walk-ins as blocked appointments (matching preview logic)
+      // This prevents the scheduler from re-placing existing walk-ins
+      activeWalkIns.forEach(walkIn => {
+        if (typeof walkIn.slotIndex === 'number') {
+          blockedAdvanceAppointments.push({
+            id: `__existing_walkin_${walkIn.id}`,
+            slotIndex: walkIn.slotIndex
+          });
+        }
+      });
 
       // Add cancelled slots in bucket as blocked slots (treat as occupied)
       // These are cancelled slots that have walk-ins AFTER them, so walk-ins cannot use them

@@ -108,6 +108,18 @@ export function computeWalkInSchedule({
   const firstFuturePosition = orderedSlots.findIndex(slot => !isBefore(slot.time, now));
   const effectiveFirstFuturePosition = firstFuturePosition === -1 ? positionCount : firstFuturePosition;
 
+  if (DEBUG) {
+    console.info('[walk-in scheduler] future position analysis', {
+      now: now.toISOString(),
+      firstFuturePosition,
+      effectiveFirstFuturePosition,
+      firstFutureSlot: firstFuturePosition !== -1 ? {
+        index: orderedSlots[firstFuturePosition]?.index,
+        time: orderedSlots[firstFuturePosition]?.time.toISOString()
+      } : null
+    });
+  }
+
   const assignments = new Map<string, SchedulerAssignment>();
   const preferredPositions = new Map<string, number>();
 

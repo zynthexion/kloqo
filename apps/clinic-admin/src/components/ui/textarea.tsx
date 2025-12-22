@@ -1,9 +1,24 @@
 import * as React from 'react';
+import { cn } from '@/lib/utils';
+import { capitalizeFirstLetter, capitalizeWords } from '@kloqo/shared-core';
 
-import {cn} from '@/lib/utils';
+export interface TextareaProps extends React.ComponentProps<'textarea'> {
+  autoCapitalizeFirst?: boolean;
+  autoCapitalizeTitle?: boolean;
+}
 
-const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'textarea'>>(
-  ({className, ...props}, ref) => {
+const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
+  ({ className, autoCapitalizeFirst, autoCapitalizeTitle, onChange, ...props }, ref) => {
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      if (autoCapitalizeFirst) {
+        e.target.value = capitalizeFirstLetter(e.target.value);
+      }
+      if (autoCapitalizeTitle) {
+        e.target.value = capitalizeWords(e.target.value);
+      }
+      onChange?.(e);
+    };
+
     return (
       <textarea
         className={cn(
@@ -11,6 +26,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'tex
           className
         )}
         ref={ref}
+        onChange={handleChange}
         {...props}
       />
     );
@@ -18,4 +34,4 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'tex
 );
 Textarea.displayName = 'Textarea';
 
-export {Textarea};
+export { Textarea };

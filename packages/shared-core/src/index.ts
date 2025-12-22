@@ -14,4 +14,4 @@ export * from './services/walk-in-scheduler';
 export * from './utils/date-utils';
 export * from './utils/errors';
 export * from './utils/error-emitter';
-
+export * from './utils/text-utils';

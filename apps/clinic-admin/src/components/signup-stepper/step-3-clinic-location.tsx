@@ -97,7 +97,7 @@ export function Step3ClinicLocation() {
             <FormItem className="md:col-span-2">
               <FormLabel>Address Line 1 <span className="text-destructive">*</span></FormLabel>
               <FormControl>
-                <Input placeholder="Building Name, Street Name" {...field} />
+                <Input placeholder="Building Name, Street Name" {...field} autoCapitalizeTitle />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -110,7 +110,7 @@ export function Step3ClinicLocation() {
             <FormItem className="md:col-span-2">
               <FormLabel>Address Line 2 (Optional)</FormLabel>
               <FormControl>
-                <Input placeholder="Landmark, Area" {...field} />
+                <Input placeholder="Landmark, Area" {...field} autoCapitalizeTitle />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -123,7 +123,7 @@ export function Step3ClinicLocation() {
             <FormItem>
               <FormLabel>City / Town <span className="text-destructive">*</span></FormLabel>
               <FormControl>
-                <Input placeholder="e.g., Kochi" {...field} />
+                <Input placeholder="e.g., Kochi" {...field} autoCapitalizeTitle />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -136,7 +136,7 @@ export function Step3ClinicLocation() {
             <FormItem>
               <FormLabel>District (Optional)</FormLabel>
               <FormControl>
-                <Input placeholder="e.g., Ernakulam" {...field} />
+                <Input placeholder="e.g., Ernakulam" {...field} autoCapitalizeTitle />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -149,7 +149,7 @@ export function Step3ClinicLocation() {
             <FormItem>
               <FormLabel>State <span className="text-destructive">*</span></FormLabel>
               <FormControl>
-                <Input placeholder="e.g., Kerala" {...field} />
+                <Input placeholder="e.g., Kerala" {...field} autoCapitalizeTitle />
               </FormControl>
               <FormMessage />
             </FormItem>

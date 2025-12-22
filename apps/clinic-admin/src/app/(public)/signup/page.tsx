@@ -26,6 +26,7 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { writeBatch, doc, collection } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { capitalizeFirstLetter, toUpperCase, capitalizeWords } from '@kloqo/shared-core';
 
 const timeSlotSchema = z.object({
   open: z.string().min(1, 'Required'),
@@ -58,10 +59,11 @@ const signupSchema = z.object({
     .max(100, { message: "Clinic name must be 100 characters or less." })
     .regex(/^[a-zA-Z0-9\s&'\.-]*$/, { message: "Clinic name contains invalid characters." })
     .refine(name => !/\s{2,}/.test(name), { message: "Clinic name cannot have multiple consecutive spaces." })
-    .refine(name => /[a-zA-Z0-9]/.test(name), { message: "Clinic name must contain at least one letter or number." }),
+    .refine(name => /[a-zA-Z0-9]/.test(name), { message: "Clinic name must contain at least one letter or number." })
+    .transform(capitalizeWords),
   clinicType: z.enum(['Single Doctor', 'Multi-Doctor'], { required_error: "Please select a clinic type." }),
   numDoctors: z.coerce.number().min(1, "There must be at least one doctor."),
-  clinicRegNumber: z.string().optional(),
+  clinicRegNumber: z.string().optional().transform(v => v ? toUpperCase(v) : v),
   latitude: z.coerce.number().min(-90, "Invalid latitude").max(90, "Invalid latitude"),
   longitude: z.coerce.number().min(-180, "Invalid longitude").max(180, "Invalid longitude"),
   walkInTokenAllotment: z.coerce.number().min(2, "Value must be at least 2."),
@@ -69,7 +71,8 @@ const signupSchema = z.object({
   // Step 2
   ownerName: z.string()
     .min(2, { message: "Owner name must be at least 2 characters." })
-    .regex(/^[a-zA-Z\s]*$/, { message: "Name should only contain alphabets and spaces." }),
+    .regex(/^[a-zA-Z\s]*$/, { message: "Name should only contain alphabets and spaces." })
+    .transform(capitalizeWords),
   designation: z.enum(['Doctor', 'Owner'], { required_error: "Please select a designation." }),
   mobileNumber: z.string().regex(/^\d{10}$/, "Please enter a valid 10-digit mobile number."),
   emailAddress: z.string().email({ message: "Please enter a valid email address." }),
@@ -88,11 +91,11 @@ const signupSchema = z.object({
     }),
 
   // Step 3
-  addressLine1: z.string().min(5, { message: "Address Line 1 is required." }),
-  addressLine2: z.string().optional(),
-  city: z.string().min(2, { message: "City is required." }),
-  district: z.string().optional(),
-  state: z.string().min(2, { message: "State is required." }),
+  addressLine1: z.string().min(5, { message: "Address Line 1 is required." }).transform(capitalizeWords),
+  addressLine2: z.string().optional().transform(v => v ? capitalizeWords(v) : v),
+  city: z.string().min(2, { message: "City is required." }).transform(capitalizeWords),
+  district: z.string().optional().transform(v => v ? capitalizeWords(v) : v),
+  state: z.string().min(2, { message: "State is required." }).transform(capitalizeWords),
   pincode: z.string().regex(/^\d{6}$/, "A valid 6-digit pincode is required."),
 
   // Step 4

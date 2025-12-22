@@ -143,7 +143,7 @@ export function Step1ClinicProfile() {
             <FormItem>
               <FormLabel>Clinic Name <span className="text-destructive">*</span></FormLabel>
               <FormControl>
-                <Input placeholder="e.g., Sree Narayana Medical Centre" {...field} value={field.value ?? ''} />
+                <Input placeholder="e.g., Sree Narayana Medical Centre" {...field} value={field.value ?? ''} autoCapitalizeTitle />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -190,7 +190,7 @@ export function Step1ClinicProfile() {
             <FormItem>
               <FormLabel>Clinic Registration Number (if any)</FormLabel>
               <FormControl>
-                <Input placeholder="e.g., KER/HSP/2025/203" {...field} value={field.value ?? ''} />
+                <Input placeholder="e.g., KER/HSP/2025/203" {...field} value={field.value ?? ''} autoUppercase />
               </FormControl>
               <FormMessage />
             </FormItem>

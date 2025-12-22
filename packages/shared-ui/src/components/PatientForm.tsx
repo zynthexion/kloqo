@@ -28,7 +28,7 @@ import type { Doctor, Patient, Appointment } from '@/lib/types';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { isWithinBookingWindow, buildBreakIntervals, applyBreakOffsets, parseTime as parseTimeUtil } from '@/lib/utils';
-import { getSessionEnd, getSessionBreakIntervals, calculateWalkInDetails } from '@kloqo/shared-core';
+import { getSessionEnd, getSessionBreakIntervals, calculateWalkInDetails, capitalizeFirstLetter, capitalizeWords } from '@kloqo/shared-core';
 
 
 const createFormSchema = (t: any) => z.object({
@@ -38,7 +38,8 @@ const createFormSchema = (t: any) => z.object({
         .regex(/^[a-zA-Z\s]+$/, { message: t.patientForm.nameAlphabetsOnly })
         .refine(name => !name.startsWith(' ') && !name.endsWith(' ') && !name.includes('  '), {
             message: t.patientForm.nameSpaces
-        }),
+        })
+        .transform(capitalizeWords),
     age: z.preprocess(
         (val) => {
             if (val === "" || val === undefined || val === null) return undefined;
@@ -54,7 +55,7 @@ const createFormSchema = (t: any) => z.object({
             .max(120, { message: t.patientForm.ageMax })
     ),
     sex: z.enum(['Male', 'Female', 'Other'], { required_error: t.patientForm.genderRequired }),
-    place: z.string().min(2, { message: t.patientForm.placeRequired }),
+    place: z.string().min(2, { message: t.patientForm.placeRequired }).transform(capitalizeWords),
     phone: z.string()
         .optional()
         .refine((val) => {
@@ -1228,6 +1229,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                                                 field.onChange(e);
                                                 form.trigger('name');
                                             }}
+                                            autoCapitalizeTitle
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -1296,6 +1298,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                                                 field.onChange(e);
                                                 form.trigger('place');
                                             }}
+                                            autoCapitalizeTitle
                                         />
                                     </FormControl>
                                     <FormMessage />

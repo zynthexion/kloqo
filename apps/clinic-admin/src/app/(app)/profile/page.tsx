@@ -39,6 +39,7 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { capitalizeFirstLetter, toUpperCase, capitalizeWords } from "@kloqo/shared-core";
 
 
 const passwordFormSchema = z.object({
@@ -52,21 +53,21 @@ const passwordFormSchema = z.object({
 type PasswordFormValues = z.infer<typeof passwordFormSchema>;
 
 const profileFormSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters."),
+  name: z.string().min(2, "Name must be at least 2 characters.").transform(capitalizeWords),
   phone: z.string().min(10, "Phone number must be at least 10 digits."),
 });
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
 const clinicFormSchema = z.object({
-  name: z.string().min(2, "Clinic name must be at least 2 characters."),
+  name: z.string().min(2, "Clinic name must be at least 2 characters.").transform(capitalizeWords),
   type: z.enum(['Single Doctor', 'Multi-Doctor']),
   numDoctors: z.coerce.number().min(1),
-  clinicRegNumber: z.string().optional(),
-  addressLine1: z.string().min(1, "Address Line 1 is required."),
-  addressLine2: z.string().optional(),
-  city: z.string().min(1, "City is required."),
-  district: z.string().optional(),
-  state: z.string().min(1, "State is required."),
+  clinicRegNumber: z.string().optional().transform(v => v ? toUpperCase(v) : v),
+  addressLine1: z.string().min(1, "Address Line 1 is required.").transform(capitalizeWords),
+  addressLine2: z.string().optional().transform(v => v ? capitalizeWords(v) : v),
+  city: z.string().min(1, "City is required.").transform(capitalizeWords),
+  district: z.string().optional().transform(v => v ? capitalizeWords(v) : v),
+  state: z.string().min(1, "State is required.").transform(capitalizeWords),
   pincode: z.string().min(1, "Pincode is required."),
   mapsLink: z.string().url().optional().or(z.literal('')),
 }).refine((data) => {
@@ -527,7 +528,7 @@ export default function ProfilePage() {
               <form onSubmit={clinicForm.handleSubmit(onClinicSubmit)}>
                 <CardContent className="space-y-4">
                   <FormField control={clinicForm.control} name="name" render={({ field }) => (
-                    <FormItem><FormLabel>Clinic Name</FormLabel><FormControl><Input {...field} disabled={!isEditingClinic || isPending} placeholder="Enter clinic name" value={field.value || ''} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Clinic Name</FormLabel><FormControl><Input {...field} disabled={!isEditingClinic || isPending} placeholder="Enter clinic name" value={field.value || ''} autoCapitalizeTitle /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={clinicForm.control} name="type" render={({ field }) => {
                     const handleTypeChange = (value: string) => {
@@ -622,14 +623,14 @@ export default function ProfilePage() {
                     }}
                   />
                   <FormField control={clinicForm.control} name="clinicRegNumber" render={({ field }) => (
-                    <FormItem><FormLabel>Clinic Registration Number</FormLabel><FormControl><Input {...field} disabled={!isEditingClinic || isPending} value={field.value || ''} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Clinic Registration Number</FormLabel><FormControl><Input {...field} disabled={!isEditingClinic || isPending} value={field.value || ''} autoUppercase /></FormControl><FormMessage /></FormItem>
                   )} />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField control={clinicForm.control} name="addressLine1" render={({ field }) => (
                       <FormItem className="md:col-span-2">
                         <FormLabel>Address Line 1 <span className="text-destructive">*</span></FormLabel>
                         <FormControl>
-                          <Input placeholder="Building Name, Street Name" {...field} disabled={!isEditingClinic || isPending} />
+                          <Input placeholder="Building Name, Street Name" {...field} disabled={!isEditingClinic || isPending} autoCapitalizeTitle />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -638,7 +639,7 @@ export default function ProfilePage() {
                       <FormItem className="md:col-span-2">
                         <FormLabel>Address Line 2 (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Landmark, Area" {...field} disabled={!isEditingClinic || isPending} />
+                          <Input placeholder="Landmark, Area" {...field} disabled={!isEditingClinic || isPending} autoCapitalizeTitle />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -647,7 +648,7 @@ export default function ProfilePage() {
                       <FormItem>
                         <FormLabel>City / Town <span className="text-destructive">*</span></FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Kochi" {...field} disabled={!isEditingClinic || isPending} />
+                          <Input placeholder="e.g., Kochi" {...field} disabled={!isEditingClinic || isPending} autoCapitalizeTitle />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -656,7 +657,7 @@ export default function ProfilePage() {
                       <FormItem>
                         <FormLabel>District (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Ernakulam" {...field} disabled={!isEditingClinic || isPending} />
+                          <Input placeholder="e.g., Ernakulam" {...field} disabled={!isEditingClinic || isPending} autoCapitalizeTitle />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -665,7 +666,7 @@ export default function ProfilePage() {
                       <FormItem>
                         <FormLabel>State <span className="text-destructive">*</span></FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Kerala" {...field} disabled={!isEditingClinic || isPending} />
+                          <Input placeholder="e.g., Kerala" {...field} disabled={!isEditingClinic || isPending} autoCapitalizeTitle />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

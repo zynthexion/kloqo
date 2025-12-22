@@ -44,6 +44,7 @@ import { useAuth } from "@/firebase";
 import { setDoc, doc, getDoc, collection, query, where, getDocs, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import imageCompression from "browser-image-compression";
+import { capitalizeFirstLetter, toUpperCase, capitalizeWords } from "@kloqo/shared-core";
 import { Textarea } from "../ui/textarea";
 import { SelectDepartmentDialog } from "../onboarding/select-department-dialog";
 import { Separator } from "../ui/separator";
@@ -75,11 +76,11 @@ const availabilitySlotSchema = z.object({
 
 const formSchema = z.object({
   id: z.string().optional(),
-  name: z.string().min(2, { message: "Name must be at least 2 characters." }),
-  specialty: z.string().min(2, { message: "Specialty must be at least 2 characters." }),
+  name: z.string().min(2, { message: "Name must be at least 2 characters." }).transform(capitalizeWords),
+  specialty: z.string().min(2, { message: "Specialty must be at least 2 characters." }).transform(capitalizeWords),
   department: z.string().min(1, { message: "Please select a department." }),
-  registrationNumber: z.string().optional(),
-  bio: z.string().optional(),
+  registrationNumber: z.string().optional().transform(v => v ? toUpperCase(v) : v),
+  bio: z.string().optional().transform(v => v ? capitalizeFirstLetter(v) : v),
   experience: z.coerce.number().min(0, "Years of experience cannot be negative."),
   consultationFee: z.coerce.number({ invalid_type_error: "Consultation fee is required." }).min(1, "Consultation fee must be greater than 0."),
   averageConsultingTime: z.coerce.number().min(5, "Must be at least 5 minutes."),
@@ -680,7 +681,7 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
                             <span className="text-red-500">*</span>
                           </FormLabel>
                           <FormControl>
-                            <Input placeholder="Dr. John Doe" {...field} value={field.value ?? ''} />
+                            <Input placeholder="Dr. John Doe" {...field} value={field.value ?? ''} autoCapitalizeTitle />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -693,7 +694,7 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
                         <FormItem>
                           <FormLabel>Registration Number</FormLabel>
                           <FormControl>
-                            <Input placeholder="e.g., IMA/12345" {...field} value={field.value ?? ''} />
+                            <Input placeholder="e.g., IMA/12345" {...field} value={field.value ?? ''} autoUppercase />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -709,7 +710,7 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
                             <span className="text-red-500">*</span>
                           </FormLabel>
                           <FormControl>
-                            <Input placeholder="Cardiology" {...field} />
+                            <Input placeholder="Cardiology" {...field} autoCapitalizeTitle />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -772,7 +773,12 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
                             Bio
                           </FormLabel>
                           <FormControl>
-                            <Textarea placeholder="A brief biography of the doctor..." {...field} />
+                            <Textarea
+                              placeholder="Share details about the doctor's expertise and background"
+                              className="min-h-[100px]"
+                              {...field}
+                              autoCapitalizeFirst
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>

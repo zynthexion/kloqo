@@ -14,11 +14,12 @@ import { useSearchParams } from 'next/navigation';
 import { managePatient } from '@kloqo/shared-core';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { capitalizeFirstLetter, capitalizeWords } from '@kloqo/shared-core';
 
 const formSchema = z.object({
-    name: z.string().min(2, { message: "Name must be at least 2 characters." }),
+    name: z.string().min(2, { message: "Name must be at least 2 characters." }).transform(capitalizeWords),
     age: z.coerce.number().int().positive({ message: "Age must be a positive number." }).min(1, { message: "Please enter a valid age." }),
-    place: z.string().min(2, { message: "Place is required." }),
+    place: z.string().min(2, { message: "Place is required." }).transform(capitalizeWords),
     phone: z.string()
         .refine((val) => {
             if (!val || val.length === 0) return false; // Phone is required
@@ -135,7 +136,7 @@ export default function PatientRegistrationForm() {
                                         <FormItem>
                                             <FormLabel>Full Name</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="e.g. Jane Smith" {...field} />
+                                                <Input placeholder="e.g. Jane Smith" {...field} autoCapitalizeTitle />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -216,7 +217,7 @@ export default function PatientRegistrationForm() {
                                         <FormItem>
                                             <FormLabel>Place</FormLabel>
                                             <FormControl>
-                                                <Input placeholder="e.g. Cityville" {...field} />
+                                                <Input placeholder="e.g. Cityville" {...field} autoCapitalizeTitle />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>

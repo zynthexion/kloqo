@@ -4349,12 +4349,18 @@ export default function AppointmentsPage() {
                                           <TableRow
                                             key={`${appointment.id}-${index}`}
                                             className={cn(
-                                              isBuffer && "bg-yellow-100 dark:bg-yellow-900/30"
+                                              isBuffer && "bg-yellow-100 dark:bg-yellow-900/30",
+                                              appointment.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50"
                                             )}
                                           >
                                             <TableCell className="font-medium">
                                               <div className="flex items-center gap-2">
                                                 {appointment.patientName}
+                                                {appointment.skippedAt && (
+                                                  <Badge variant="outline" className="text-xs bg-amber-200 border-amber-400 font-bold">
+                                                    S
+                                                  </Badge>
+                                                )}
                                                 {isBuffer && (
                                                   <Badge variant="outline" className="text-xs bg-yellow-200 border-yellow-400">
                                                     Buffer

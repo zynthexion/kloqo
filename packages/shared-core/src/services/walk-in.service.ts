@@ -3076,9 +3076,17 @@ export async function calculateWalkInDetails(
     walkInCandidatesDetails: activeWalkInCandidates.map(w => ({
       id: w.id,
       numericToken: w.numericToken,
-      currentSlotIndex: w.currentSlotIndex
+      currentSlotIndex: 'currentSlotIndex' in w ? w.currentSlotIndex : undefined
     }))
   });
+
+  console.log('[PREVIEW DEBUG] Walk-in candidates:', JSON.stringify(
+    activeWalkInCandidates.map(w => ({
+      id: w.id,
+      token: w.numericToken,
+      currentSlot: 'currentSlotIndex' in w ? w.currentSlotIndex : undefined
+    })), null, 2
+  ));
 
   try {
     schedule = computeWalkInSchedule({

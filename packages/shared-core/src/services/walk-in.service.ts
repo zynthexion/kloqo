@@ -3035,6 +3035,16 @@ export async function calculateWalkInDetails(
     });
   });
 
+  // DEBUG: Log reserved slots found
+  if (reservedSlots.size > 0) {
+    console.log('[PREVIEW DEBUG] Reserved slots found:', {
+      reservedSlots: Array.from(reservedSlots),
+      blockedCount: blockedAdvanceAppointments.length,
+      doctor: doctor.name,
+      date: getClinicDateString(date)
+    });
+  }
+
   let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
   try {
@@ -3062,6 +3072,15 @@ export async function calculateWalkInDetails(
     chosenSlotIndex = newAssignment.slotIndex;
     chosenSessionIndex = newAssignment.sessionIndex;
     chosenTime = newAssignment.slotTime;
+
+    // DEBUG: Log scheduler assignment
+    console.log('[PREVIEW DEBUG] Scheduler assigned slot:', {
+      slotIndex: chosenSlotIndex,
+      slotTime: format(chosenTime, 'hh:mm a'),
+      sessionIndex: chosenSessionIndex,
+      doctor: doctor.name,
+      allAssignments: schedule?.assignments.length
+    });
   }
 
   if (!newAssignment || chosenSlotIndex === -1) {

@@ -71,9 +71,10 @@ const createFormSchema = (t: any) => z.object({
 interface PatientFormProps {
     selectedDoctor: Doctor;
     appointmentType: 'Walk-in' | 'Online';
+    renderLoadingOverlay?: (isLoading: boolean) => React.ReactNode;
 }
 
-export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProps) {
+export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOverlay }: PatientFormProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const slotISO = searchParams.get('slot');
@@ -579,7 +580,17 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
                 );
             }
 
-            setIsTokenModalOpen(true);
+            // Redirect to summary page with success state
+            const params = new URLSearchParams();
+            params.set('doctorId', selectedDoctor.id);
+            params.set('patientId', patientId);
+            params.set('appointmentId', result.appointmentId);
+            params.set('isWalkIn', 'true');
+            // use estimatedTime as the slot
+            params.set('slot', result.estimatedTime);
+
+            router.push(`/book-appointment/summary?${params.toString()}`);
+
         } catch (error) {
             console.error('[WALK-IN DEBUG] API booking failed', error);
             const err = error as Error;
@@ -1178,6 +1189,7 @@ export function PatientForm({ selectedDoctor, appointmentType }: PatientFormProp
 
     return (
         <>
+            {renderLoadingOverlay?.(isSubmitting)}
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                     <div>

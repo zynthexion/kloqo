@@ -28,6 +28,7 @@ import { format, addMinutes, isBefore, isAfter, subMinutes, isWithinInterval, se
 import { parseTime } from '@/lib/utils';
 import { getSessionEnd } from '@kloqo/shared-core';
 import { BottomNav } from '@/components/bottom-nav';
+import { FullScreenLoader } from '@/components/full-screen-loader';
 
 const PatientForm = nextDynamic(
     () => import('@kloqo/shared-ui').then(mod => mod.PatientForm),
@@ -47,7 +48,7 @@ const SelectedDoctorCard = ({ doctor, onBack }: { doctor: Doctor, onBack: () => 
     const { t, language } = useLanguage();
     const { departments } = useMasterDepartments();
     const [isBioExpanded, setIsBioExpanded] = useState(false);
-    
+
     const bio = doctor.bio || doctor.specialty || '';
     const shouldTruncate = bio.length > 100;
     const displayBio = shouldTruncate && !isBioExpanded ? bio.substring(0, 100) + '...' : bio;
@@ -77,8 +78,8 @@ const SelectedDoctorCard = ({ doctor, onBack }: { doctor: Doctor, onBack: () => 
                             <p className="text-sm text-muted-foreground">
                                 {displayBio}
                                 {shouldTruncate && (
-                                    <Button 
-                                        variant="link" 
+                                    <Button
+                                        variant="link"
                                         className="h-auto p-0 ml-1 text-xs"
                                         onClick={() => setIsBioExpanded(!isBioExpanded)}
                                     >
@@ -91,7 +92,11 @@ const SelectedDoctorCard = ({ doctor, onBack }: { doctor: Doctor, onBack: () => 
                 </CardContent>
             </Card>
             <div className="mt-6">
-                <PatientForm selectedDoctor={doctor} appointmentType="Walk-in" />
+                <PatientForm
+                    selectedDoctor={doctor}
+                    appointmentType="Walk-in"
+                    renderLoadingOverlay={(isLoading) => <FullScreenLoader isOpen={isLoading} />}
+                />
             </div>
         </div>
     );
@@ -108,15 +113,15 @@ const DoctorSelection = ({ doctors, onSelect }: { doctors: Doctor[], onSelect: (
 
     return (
         <div className="space-y-4">
-             {doctors.map(doctor => {
+            {doctors.map(doctor => {
                 const isExpanded = expandedBios[doctor.id];
                 const bio = doctor.bio || doctor.specialty || '';
                 const shouldTruncate = bio.length > 100;
                 const displayBio = shouldTruncate && !isExpanded ? bio.substring(0, 100) + '...' : bio;
 
                 return (
-                    <Card 
-                        key={doctor.id} 
+                    <Card
+                        key={doctor.id}
                         onClick={() => onSelect(doctor)}
                         className="cursor-pointer transition-all hover:shadow-lg"
                     >
@@ -141,16 +146,16 @@ const DoctorSelection = ({ doctors, onSelect }: { doctors: Doctor[], onSelect: (
                                     <p className="text-sm text-muted-foreground">
                                         {displayBio}
                                         {shouldTruncate && (
-                                    <Button 
-                                        variant="link" 
-                                        className="h-auto p-0 ml-1 text-xs"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            toggleBio(doctor.id);
-                                        }}
-                                    >
-                                        {isExpanded ? t.buttons.readLess : t.buttons.readMore}
-                                    </Button>
+                                            <Button
+                                                variant="link"
+                                                className="h-auto p-0 ml-1 text-xs"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleBio(doctor.id);
+                                                }}
+                                            >
+                                                {isExpanded ? t.buttons.readLess : t.buttons.readMore}
+                                            </Button>
                                         )}
                                     </p>
                                 </div>
@@ -158,7 +163,7 @@ const DoctorSelection = ({ doctors, onSelect }: { doctors: Doctor[], onSelect: (
                         </CardContent>
                     </Card>
                 );
-             })}
+            })}
         </div>
     );
 };
@@ -196,16 +201,16 @@ function ConsultTodayContent() {
     }, [searchParams]);
 
     const { doctors, loading: doctorsLoading } = useDoctors(clinicId ? [clinicId] : undefined);
-    
+
     // Fetch clinic details
     useEffect(() => {
         const fetchClinic = async () => {
             if (!clinicId || !firestore) return;
-            
+
             try {
                 const clinicRef = doc(firestore, 'clinics', clinicId);
                 const clinicSnap = await getDoc(clinicRef);
-                
+
                 if (clinicSnap.exists()) {
                     const clinicData = clinicSnap.data();
                     setClinic({
@@ -249,11 +254,11 @@ function ConsultTodayContent() {
     // Check location permission
     const checkLocation = async () => {
         if (!clinic) return { allowed: true };
-        
+
         if (!navigator.geolocation) {
-            return { 
-                allowed: false, 
-                error: 'Geolocation is not supported on this device' 
+            return {
+                allowed: false,
+                error: 'Geolocation is not supported on this device'
             };
         }
 
@@ -271,9 +276,9 @@ function ConsultTodayContent() {
 
             const { latitude, longitude } = position.coords;
             const distance = calculateDistance(
-                latitude, 
-                longitude, 
-                clinic.latitude, 
+                latitude,
+                longitude,
+                clinic.latitude,
                 clinic.longitude
             );
 
@@ -282,9 +287,9 @@ function ConsultTodayContent() {
             // Check if within 150 meters (increased for GPS accuracy and indoor location)
             if (distance > 150) {
                 const distanceMeters = Math.round(distance);
-                return { 
-                    allowed: false, 
-                    error: `You must be within 150 meters of the clinic. Current distance: ${distanceMeters}m away. Please try checking your location again or contact the clinic.` 
+                return {
+                    allowed: false,
+                    error: `You must be within 150 meters of the clinic. Current distance: ${distanceMeters}m away. Please try checking your location again or contact the clinic.`
                 };
             }
 
@@ -292,10 +297,10 @@ function ConsultTodayContent() {
         } catch (error: any) {
             setIsCheckingLocation(false);
             let errorMsg = t.consultToday.couldNotAccessLocation;
-            
+
             // Extract error code safely
             const errorCode = (error as GeolocationPositionError)?.code ?? (error as { code?: number })?.code;
-            
+
             if (errorCode === 1) {
                 errorMsg = t.consultToday.locationDenied;
                 console.error("Geolocation error: Permission denied");
@@ -321,7 +326,7 @@ function ConsultTodayContent() {
                     errorType: typeof error
                 });
             }
-            
+
             return { allowed: false, error: errorMsg };
         }
     };
@@ -335,8 +340,8 @@ function ConsultTodayContent() {
         const Δλ = (lon2 - lon1) * Math.PI / 180;
 
         const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
         return R * c;
@@ -349,9 +354,9 @@ function ConsultTodayContent() {
         const now = new Date();
         const todayDay = format(now, 'EEEE');
         const todaysAvailability = doctor.availabilitySlots.find(s => s.day === todayDay);
-        
+
         if (!todaysAvailability || todaysAvailability.timeSlots.length === 0) return false;
-        
+
         const firstSession = todaysAvailability.timeSlots[0];
         const lastSessionIndex = todaysAvailability.timeSlots.length - 1;
         const lastSession = todaysAvailability.timeSlots[lastSessionIndex];
@@ -391,40 +396,40 @@ function ConsultTodayContent() {
             loadQRScanner().then(Html5Qrcode => {
                 const html5Qrcode = new Html5Qrcode("qr-reader");
                 return html5Qrcode.start(
-                { facingMode: "environment" },
-                {
-                    fps: 10,
-                    qrbox: { width: 250, height: 250 }
-                },
-                (decodedText) => {
-                    html5Qrcode.stop().then(() => {
-                        setIsScanning(false);
-                        setShowQRScanner(false);
-                        
-                        // Parse QR code URL
-                        try {
-                            const url = new URL(decodedText);
-                            const params = new URLSearchParams(url.search);
-                            const scannedClinicId = params.get('clinicId');
-                            
-                            if (scannedClinicId && scannedClinicId === clinicId) {
-                                setPermissionGranted(true);
-                            } else {
+                    { facingMode: "environment" },
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 250 }
+                    },
+                    (decodedText) => {
+                        html5Qrcode.stop().then(() => {
+                            setIsScanning(false);
+                            setShowQRScanner(false);
+
+                            // Parse QR code URL
+                            try {
+                                const url = new URL(decodedText);
+                                const params = new URLSearchParams(url.search);
+                                const scannedClinicId = params.get('clinicId');
+
+                                if (scannedClinicId && scannedClinicId === clinicId) {
+                                    setPermissionGranted(true);
+                                } else {
+                                    router.push('/login');
+                                }
+                            } catch (error) {
                                 router.push('/login');
                             }
-                        } catch (error) {
-                            router.push('/login');
-                        }
-                    });
-                },
-                (errorMessage) => {
-                    // Handle scan errors silently
-                }
-            ).catch(err => {
-                console.error("QR scan error:", err);
-                setIsScanning(false);
-                setShowQRScanner(false);
-            });
+                        });
+                    },
+                    (errorMessage) => {
+                        // Handle scan errors silently
+                    }
+                ).catch(err => {
+                    console.error("QR scan error:", err);
+                    setIsScanning(false);
+                    setShowQRScanner(false);
+                });
             }).catch(err => {
                 console.error("Error loading QR scanner:", err);
                 setIsScanning(false);
@@ -438,7 +443,7 @@ function ConsultTodayContent() {
         setLocationError(null);
 
         const result = await checkLocation();
-        
+
         if (!result.allowed) {
             setLocationError(result.error || 'Location check failed');
             setIsCheckingLocation(false);
@@ -468,14 +473,14 @@ function ConsultTodayContent() {
         }
         setSelectedDoctor(doctor);
     }
-    
+
     const handleBack = () => {
-       if (selectedDoctor) {
-           setSelectedDoctor(null);
-           setLocationError(null);
-       } else {
-           router.back();
-       }
+        if (selectedDoctor) {
+            setSelectedDoctor(null);
+            setLocationError(null);
+        } else {
+            router.back();
+        }
     }
 
     // Show only doctors available for walk-in based on timing
@@ -528,7 +533,7 @@ function ConsultTodayContent() {
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    <Button 
+                                    <Button
                                         onClick={handleManualEntry}
                                         disabled={isScanning || isCheckingLocation}
                                         className="w-full"
@@ -537,7 +542,7 @@ function ConsultTodayContent() {
                                         {t.consultToday.tryAgain}
                                     </Button>
 
-                                    <Button 
+                                    <Button
                                         onClick={() => router.push(clinicId ? `/clinics/${clinicId}` : '/clinics')}
                                         variant="outline"
                                         className="w-full"
@@ -556,7 +561,7 @@ function ConsultTodayContent() {
     return (
         <div className="flex min-h-screen w-full flex-col bg-background font-body">
             <header className="flex items-center p-4 border-b">
-                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBack}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBack}>
                     <ArrowLeft className="h-5 w-5" />
                     <span className="sr-only">Back</span>
                 </Button>
@@ -567,9 +572,9 @@ function ConsultTodayContent() {
             </header>
             <main className="flex-grow overflow-y-auto p-4 md:p-6 space-y-6">
                 {selectedDoctor ? (
-                    <SelectedDoctorCard 
-                        doctor={selectedDoctor} 
-                        onBack={() => setSelectedDoctor(null)} 
+                    <SelectedDoctorCard
+                        doctor={selectedDoctor}
+                        onBack={() => setSelectedDoctor(null)}
                     />
                 ) : (
                     <>
@@ -582,14 +587,14 @@ function ConsultTodayContent() {
                                 </CardContent>
                             </Card>
                         )}
-                        
+
                         {doctorsLoading && (
                             <div className="space-y-4">
                                 <Skeleton className="h-24 w-full" />
                                 <Skeleton className="h-24 w-full" />
                             </div>
                         )}
-                        
+
                         {!doctorsLoading && availableDoctors.length > 0 && (
                             <DoctorSelection doctors={availableDoctors} onSelect={handleSelectDoctor} />
                         )}
@@ -603,7 +608,7 @@ function ConsultTodayContent() {
                                     <p className="text-sm text-muted-foreground">
                                         {t.consultToday.walkInOpens30MinutesBefore}
                                     </p>
-                                    <Button 
+                                    <Button
                                         onClick={() => router.push(clinicId ? `/clinics/${clinicId}` : '/clinics')}
                                         variant="outline"
                                         className="mt-4"
@@ -624,26 +629,26 @@ function ConsultTodayContent() {
 }
 
 function ConsultTodayPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Skeleton className="h-12 w-12 rounded-full" />
-          <Skeleton className="h-4 w-32" />
-        </div>
-      </div>
-    }>
-      <ConsultTodayContent />
-    </Suspense>
-  );
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <Skeleton className="h-12 w-12 rounded-full" />
+                    <Skeleton className="h-4 w-32" />
+                </div>
+            </div>
+        }>
+            <ConsultTodayContent />
+        </Suspense>
+    );
 }
 
 function ConsultTodayPageWithAuth() {
-  return (
-    <AuthGuard>
-      <ConsultTodayPage />
-    </AuthGuard>
-  );
+    return (
+        <AuthGuard>
+            <ConsultTodayPage />
+        </AuthGuard>
+    );
 }
 
 export default ConsultTodayPageWithAuth;

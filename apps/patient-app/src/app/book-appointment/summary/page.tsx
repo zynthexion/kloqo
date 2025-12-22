@@ -103,6 +103,7 @@ function BookingSummaryPage() {
     const patientId = searchParams.get('patientId');
     const isEditMode = searchParams.get('edit') === 'true';
     const appointmentId = searchParams.get('appointmentId');
+    const isWalkIn = searchParams.get('isWalkIn') === 'true';
 
     // Progressive loading: Try cache first for instant display
     const cachedDoctor = doctorId ? getDoctorFromCache(doctorId) : null;
@@ -110,7 +111,7 @@ function BookingSummaryPage() {
     const [doctor, setDoctor] = useState<Doctor | null>(cachedDoctor);
     const [patient, setPatient] = useState<Patient | null>(cachedPatient);
     const [loading, setLoading] = useState(!cachedDoctor || !cachedPatient); // Don't show loading if we have both cached
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(isWalkIn); // Show loader immediately for walk-ins
     const [status, setStatus] = useState<BookingStatus>('summary');
     const [generatedToken, setGeneratedToken] = useState<string>('');
     const [appointmentDate, setAppointmentDate] = useState<string>('');
@@ -211,6 +212,34 @@ function BookingSummaryPage() {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    useEffect(() => {
+        if (isWalkIn && appointmentId && firestore && !loading) {
+            const fetchWalkInAppointment = async () => {
+                try {
+                    const appointmentRef = doc(firestore, 'appointments', appointmentId);
+                    const appointmentSnap = await getDoc(appointmentRef);
+                    if (appointmentSnap.exists()) {
+                        const data = appointmentSnap.data() as Appointment;
+                        setGeneratedToken(data.tokenNumber);
+                        setAppointmentDate(data.date);
+                        setAppointmentTime(data.time);
+                        setAppointmentArriveByTime(data.arriveByTime || data.time);
+                        setBookedAppointmentId(appointmentId);
+                        if (data.noShowTime) {
+                            setNoShowTime(data.noShowTime.toDate());
+                        }
+                        setStatus('success');
+                    }
+                } catch (error) {
+                    console.error('Error fetching walk-in appointment:', error);
+                } finally {
+                    setIsSubmitting(false);
+                }
+            };
+            fetchWalkInAppointment();
+        }
+    }, [isWalkIn, appointmentId, firestore, loading]);
 
 
 
@@ -1049,6 +1078,7 @@ function BookingSummaryPage() {
                     // If multiple requests try simultaneously, only one can delete the reservation
                     transaction.delete(reservationRef);
 
+
                     // Create appointment atomically in the same transaction
                     transaction.set(appointmentRef, finalAppointmentData);
 
@@ -1198,7 +1228,7 @@ function BookingSummaryPage() {
                                     <div className="flex items-center gap-2">
                                         <Clock className="w-4 h-4 text-muted-foreground" />
                                         <div className="text-center">
-                                            <span className="text-sm text-muted-foreground block">{t.home.arriveBy}</span>
+                                            <span className="text-sm text-muted-foreground block">{isWalkIn ? t.liveToken.yourAppointmentTimeIs : t.home.arriveBy}</span>
                                             <p className="text-xl font-bold">
                                                 {(() => {
                                                     try {
@@ -1211,7 +1241,9 @@ function BookingSummaryPage() {
                                                         const adjustedBaseTime = breakIntervals.length > 0
                                                             ? applyBreakOffsets(baseTime, breakIntervals)
                                                             : baseTime;
-                                                        const adjusted = subMinutes(adjustedBaseTime, 15);
+                                                        const adjusted = isWalkIn
+                                                            ? adjustedBaseTime
+                                                            : subMinutes(adjustedBaseTime, 15);
                                                         return format(adjusted, "hh:mm a");
                                                     } catch {
                                                         return appointmentArriveByTime || appointmentTime;
@@ -1220,35 +1252,49 @@ function BookingSummaryPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
-                                        <p className="text-sm font-bold text-red-600 text-center">
-                                            ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
-                                                try {
-                                                    if (noShowTime) {
-                                                        return format(noShowTime, 'hh:mm a');
+                                    {!isWalkIn && (
+                                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
+                                            <p className="text-sm font-bold text-red-600 text-center">
+                                                ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
+                                                    try {
+                                                        if (noShowTime) {
+                                                            return format(noShowTime, 'hh:mm a');
+                                                        }
+                                                        // Fallback to calculated time if noShowTime not available
+                                                        const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
+                                                        const aptTime = parse(appointmentTime, "hh:mm a", aptDate);
+                                                        const noShowFallback = addMinutes(aptTime, 30);
+                                                        return format(noShowFallback, 'hh:mm a');
+                                                    } catch {
+                                                        return '30 minutes';
                                                     }
-                                                    // Fallback to calculated time if noShowTime not available
-                                                    const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
-                                                    const aptTime = parse(appointmentTime, "hh:mm a", aptDate);
-                                                    const noShowFallback = addMinutes(aptTime, 30);
-                                                    return format(noShowFallback, 'hh:mm a');
-                                                } catch {
-                                                    return '30 minutes';
-                                                }
-                                            })())}
-                                        </p>
-                                    </div>
+                                                })())}
+                                            </p>
+                                        </div>
+                                    )}
 
                                 </div>
                             )}
                         </CardContent>
                     </Card>
-                    <Button className="w-full mt-6" asChild>
-                        <Link href="/appointments">{t.appointments.myAppointments}</Link>
-                    </Button>
+                    {isWalkIn ? (
+                        <Button className="w-full mt-6" asChild>
+                            <Link href={`/live-token/${bookedAppointmentId}`}>{t.appointments.seeLiveToken}</Link>
+                        </Button>
+                    ) : (
+                        <Button className="w-full mt-6" asChild>
+                            <Link href="/appointments">{t.appointments.myAppointments}</Link>
+                        </Button>
+                    )}
                 </div>
             </div>
         )
+    }
+
+    // For walk-ins, we always expect to transition to success state.
+    // Prevent showing the summary form while we fetch the newly created appointment.
+    if (isWalkIn && status === 'summary') {
+        return <FullScreenLoader isOpen={true} />;
     }
 
     // Progressive loading: Show error only if we've finished loading and still don't have required data (check cache too)
@@ -1286,9 +1332,18 @@ function BookingSummaryPage() {
                         <div className="w-8"></div>
                     </header>
                     <main className="flex-grow overflow-y-auto p-4 md:p-6 space-y-6">
-                        {/* Progressive loading: Show doctor card with skeleton if loading */}
-                        <Card>
-                            <CardContent className="p-4 space-y-4">
+                        {/* Progressi **Avatar Loading**:
+ - [ ] Check for pulsing skeleton while images load
+ - [ ] Verify faster perceived loading time
+ - [ ] Test on slow network connection
+ 
+ **Walk-in Redirect**:
+ - [ ] Book a walk-in appointment in Patient App
+ - [ ] Verify redirect to success page (instead of modal)
+ - [ ] Check that time matches `arriveByTime` exactly (no 15-min deduction)
+ - [ ] Verify label says "Your appointment time is"
+ - [ ] Test with both English and Malayalam languages
+t className="p-4 space-y-4">
                                 {loading && !doctor && !cachedDoctor ? (
                                     // Show skeleton while doctor loads
                                     <>

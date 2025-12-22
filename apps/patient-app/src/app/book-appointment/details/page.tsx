@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { PatientForm } from '@kloqo/shared-ui';
+import { FullScreenLoader } from '@/components/full-screen-loader';
 
 import { useEffect, useState } from 'react';
 import { getDoctorFromCache, saveDoctorToCache } from '@/lib/doctor-cache';
@@ -218,7 +219,11 @@ function AppointmentDetailsContent() {
             </Card>
             {/* Progressive loading: Show PatientForm with cached doctor if available, otherwise show skeleton */}
             {doctor || cachedDoctor ? (
-                <PatientForm selectedDoctor={doctor || cachedDoctor!} appointmentType="Online" />
+                <PatientForm
+                    selectedDoctor={doctor || cachedDoctor!}
+                    appointmentType="Online"
+                    renderLoadingOverlay={(isLoading) => <FullScreenLoader isOpen={isLoading} />}
+                />
             ) : (
                 // Show form skeleton while waiting for doctor
                 <Card>

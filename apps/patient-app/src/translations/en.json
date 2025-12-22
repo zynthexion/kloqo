@@ -107,7 +107,8 @@
     "reviewDoctor": "Review Doctor",
     "cancelConfirmDesc": "This action cannot be undone. This will permanently cancel your appointment.",
     "back": "Back",
-    "yesCancel": "Yes, Cancel"
+    "yesCancel": "Yes, Cancel",
+    "seeLiveToken": "See live token"
   },
   "profile": {
     "myProfile": "My Profile",
@@ -297,6 +298,7 @@
   "liveToken": {
     "title": "Live Token Status",
     "yourToken": "Your Token",
+    "yourAppointmentTimeIs": "Your appointment time is",
     "currentToken": "Current Token",
     "patientsAhead": "People Ahead",
     "estimatedWait": "Est. Wait",

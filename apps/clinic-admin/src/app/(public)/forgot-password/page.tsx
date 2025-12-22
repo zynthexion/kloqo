@@ -80,7 +80,7 @@ export default function ForgotPasswordPage() {
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where("email", "==", email), where("role", "==", "clinicAdmin"));
       const querySnapshot = await getDocs(q);
-      
+
       if (querySnapshot.empty) {
         toast({
           variant: "destructive",
@@ -93,10 +93,10 @@ export default function ForgotPasswordPage() {
         setStep('enterPhone');
       }
     } catch (error) {
-        console.error("Error checking email:", error);
-        toast({ variant: "destructive", title: "Error", description: "An error occurred. Please try again." });
+      console.error("Error checking email:", error);
+      toast({ variant: "destructive", title: "Error", description: "An error occurred. Please try again." });
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -107,24 +107,24 @@ export default function ForgotPasswordPage() {
 
     const enteredPhone = `+91${phoneNumber}`;
     if (enteredPhone !== foundUser.phone) {
-        toast({ variant: "destructive", title: "Incorrect Phone Number", description: "This phone number does not match the registered user." });
-        setLoading(false);
-        return;
+      toast({ variant: "destructive", title: "Incorrect Phone Number", description: "This phone number does not match the registered user." });
+      setLoading(false);
+      return;
     }
 
     try {
-        const appVerifier = window.recaptchaVerifier;
-        const confirmationResult = await signInWithPhoneNumber(auth, enteredPhone, appVerifier);
-        window.confirmationResult = confirmationResult;
-        setStep('verifyOtp');
-        toast({ title: "OTP Sent", description: "An OTP has been sent to your mobile number." });
+      const appVerifier = window.recaptchaVerifier;
+      const confirmationResult = await signInWithPhoneNumber(auth, enteredPhone, appVerifier);
+      window.confirmationResult = confirmationResult;
+      setStep('verifyOtp');
+      toast({ title: "OTP Sent", description: "An OTP has been sent to your mobile number." });
     } catch (error) {
-        console.error("Error sending OTP:", error);
-        toast({ variant: "destructive", title: "Failed to Send OTP", description: "Please try again." });
-        // It's possible the verifier needs to be re-rendered on error
-        window.recaptchaVerifier.render().catch(console.error);
+      console.error("Error sending OTP:", error);
+      toast({ variant: "destructive", title: "Failed to Send OTP", description: "Please try again." });
+      // It's possible the verifier needs to be re-rendered on error
+      window.recaptchaVerifier.render().catch(console.error);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -133,38 +133,38 @@ export default function ForgotPasswordPage() {
     if (!window.confirmationResult) return;
     setLoading(true);
     try {
-        await window.confirmationResult.confirm(otp);
-        toast({ title: "Verification Successful", description: "You can now reset your password." });
-        setStep('resetPassword');
+      await window.confirmationResult.confirm(otp);
+      toast({ title: "Verification Successful", description: "You can now reset your password." });
+      setStep('resetPassword');
     } catch (error) {
-        toast({ variant: "destructive", title: "Invalid OTP", description: "Please try again." });
+      toast({ variant: "destructive", title: "Invalid OTP", description: "Please try again." });
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
   const handlePasswordReset = async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (newPassword !== confirmPassword) {
-          toast({ variant: "destructive", title: "Passwords Do Not Match" });
-          return;
-      }
-      if (!auth.currentUser) {
-          toast({ variant: "destructive", title: "Authentication Error", description: "User session expired. Please start over." });
-          router.push('/login');
-          return;
-      }
-      setLoading(true);
-      try {
-          await updatePassword(auth.currentUser, newPassword);
-          setStep('success');
-          toast({ title: "Password Reset Successful", description: "You can now log in with your new password." });
-      } catch (error) {
-          console.error("Error resetting password:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not reset password. Please try again." });
-      } finally {
-          setLoading(false);
-      }
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast({ variant: "destructive", title: "Passwords Do Not Match" });
+      return;
+    }
+    if (!auth.currentUser) {
+      toast({ variant: "destructive", title: "Authentication Error", description: "User session expired. Please start over." });
+      router.push('/login');
+      return;
+    }
+    setLoading(true);
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+      setStep('success');
+      toast({ title: "Password Reset Successful", description: "You can now log in with your new password." });
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not reset password. Please try again." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const titles: Record<Step, string> = {
@@ -196,7 +196,7 @@ export default function ForgotPasswordPage() {
       <Card className="mx-auto w-[400px] z-10">
         <CardHeader className="text-center">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full.png?alt=media&token=2f9b97ad-29ae-4812-b189-ba7291a1f005" alt="Kloqo Logo" width={120} height={30} />
+            <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full%20(2).webp?alt=media&token=19a163b9-3243-402c-929e-cb99ddcae05c" alt="Kloqo Logo" width={120} height={30} />
           </div>
           <CardTitle className="text-3xl font-bold">{titles[step]}</CardTitle>
           <CardDescription className="text-balance text-muted-foreground">
@@ -233,16 +233,16 @@ export default function ForgotPasswordPage() {
               <div className="grid gap-2">
                 <Label htmlFor="phone">Phone Number</Label>
                 <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        id="phone"
-                        type="tel"
-                        placeholder="98765 43210"
-                        required
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                        className="pl-10"
-                    />
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="98765 43210"
+                    required
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className="pl-10"
+                  />
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
@@ -274,10 +274,10 @@ export default function ForgotPasswordPage() {
           )}
 
           {step === 'resetPassword' && (
-             <form className="grid gap-4" onSubmit={handlePasswordReset}>
+            <form className="grid gap-4" onSubmit={handlePasswordReset}>
               <div className="grid gap-2">
                 <Label htmlFor="newPassword">New Password</Label>
-                 <div className="relative">
+                <div className="relative">
                   <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="newPassword"
@@ -291,7 +291,7 @@ export default function ForgotPasswordPage() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                 <div className="relative">
+                <div className="relative">
                   <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="confirmPassword"
@@ -312,10 +312,10 @@ export default function ForgotPasswordPage() {
 
           {(step === 'success' || step !== 'enterEmail') && (
             <Button variant="outline" className="w-full mt-4" asChild>
-                <Link href="/login">
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Login
-                </Link>
+              <Link href="/login">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to Login
+              </Link>
             </Button>
           )}
         </CardContent>

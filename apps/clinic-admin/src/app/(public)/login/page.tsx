@@ -42,63 +42,63 @@ export default function LoginPage() {
     setIsLoading(true);
     const email = (event.currentTarget.elements.namedItem('email') as HTMLInputElement).value;
     const password = (event.currentTarget.elements.namedItem('password') as HTMLInputElement).value;
-    
+
     try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        // Check clinic registration status
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-            const userData = userDoc.data();
-            const clinicId = userData.clinicId;
-            
-            if (clinicId) {
-                const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
-                if (clinicDoc.exists()) {
-                    const clinicData = clinicDoc.data();
-                    const registrationStatus = clinicData.registrationStatus;
-                    
-                    if (registrationStatus === 'Pending') {
-                        // Sign out the user
-                        await auth.signOut();
-                        setIsLoading(false);
-                        toast({
-                            variant: "destructive",
-                            title: "Registration Pending",
-                            description: "Your clinic registration is pending approval. Please wait for SuperAdmin approval before logging in.",
-                        });
-                        return;
-                    }
-                    
-                    if (registrationStatus === 'Rejected') {
-                        // Sign out the user
-                        await auth.signOut();
-                        setIsLoading(false);
-                        toast({
-                            variant: "destructive",
-                            title: "Registration Rejected",
-                            description: "Your clinic registration has been rejected. Please contact support for more information.",
-                        });
-                        return;
-                    }
-                }
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // Check clinic registration status
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const clinicId = userData.clinicId;
+
+        if (clinicId) {
+          const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
+          if (clinicDoc.exists()) {
+            const clinicData = clinicDoc.data();
+            const registrationStatus = clinicData.registrationStatus;
+
+            if (registrationStatus === 'Pending') {
+              // Sign out the user
+              await auth.signOut();
+              setIsLoading(false);
+              toast({
+                variant: "destructive",
+                title: "Registration Pending",
+                description: "Your clinic registration is pending approval. Please wait for SuperAdmin approval before logging in.",
+              });
+              return;
             }
+
+            if (registrationStatus === 'Rejected') {
+              // Sign out the user
+              await auth.signOut();
+              setIsLoading(false);
+              toast({
+                variant: "destructive",
+                title: "Registration Rejected",
+                description: "Your clinic registration has been rejected. Please contact support for more information.",
+              });
+              return;
+            }
+          }
         }
-        
-        // Registration is approved or status not set (for backward compatibility)
-        toast({ title: "Login Successful", description: "Redirecting to dashboard..." });
-        router.push('/dashboard');
+      }
+
+      // Registration is approved or status not set (for backward compatibility)
+      toast({ title: "Login Successful", description: "Redirecting to dashboard..." });
+      router.push('/dashboard');
     } catch (error: any) {
-        console.error("Login failed:", error);
-        setIsLoading(false);
-        toast({
-            variant: "destructive",
-            title: "Login Failed",
-            description: error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password'
-                ? "Invalid email or password. Please try again."
-                : error.message || "An error occurred. Please try again.",
-        });
+      console.error("Login failed:", error);
+      setIsLoading(false);
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password'
+          ? "Invalid email or password. Please try again."
+          : error.message || "An error occurred. Please try again.",
+      });
     }
   };
 
@@ -110,18 +110,18 @@ export default function LoginPage() {
           "url('https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=1920&h=1080&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWVkaWNpbmV8ZW58MHx8MHx8fDA%3D')",
       }}
     >
-        <div className="absolute inset-0 bg-primary/80" />
-        <Card className="mx-auto w-[400px] z-10">
-          <CardHeader className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full.png?alt=media&token=2f9b97ad-29ae-4812-b189-ba7291a1f005" alt="Kloqo Logo" width={120} height={30} />
-            </div>
-            <CardTitle className="text-3xl font-bold">Welcome Back!</CardTitle>
-            <CardDescription className="text-balance text-muted-foreground">
-              Enter your email below to login to your account
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      <div className="absolute inset-0 bg-primary/80" />
+      <Card className="mx-auto w-[400px] z-10">
+        <CardHeader className="text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full%20(2).webp?alt=media&token=19a163b9-3243-402c-929e-cb99ddcae05c" alt="Kloqo Logo" width={120} height={30} />
+          </div>
+          <CardTitle className="text-3xl font-bold">Welcome Back!</CardTitle>
+          <CardDescription className="text-balance text-muted-foreground">
+            Enter your email below to login to your account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <form className="grid gap-4" onSubmit={handleLogin}>
             <div className="grid gap-2">
               <Label htmlFor="email">Email</Label>
@@ -186,8 +186,8 @@ export default function LoginPage() {
               Sign up
             </Link>
           </div>
-          </CardContent>
-        </Card>
+        </CardContent>
+      </Card>
     </div>
   );
 }

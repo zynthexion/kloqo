@@ -172,21 +172,6 @@ export function calculateWalkInPosition(
     return consultationCount + walkInTokenAllotment;
 }
 
-/**
- * Calculate Skipped Token Rejoin Position
- */
-export function calculateSkippedTokenRejoinPosition(
-    arrivedQueue: Appointment[],
-    skippedTokenRecurrence: number
-): number {
-    // Count confirmed appointments
-    const confirmedCount = arrivedQueue.length;
-
-    // Insert after skippedTokenRecurrence positions
-    // If there are fewer than skippedTokenRecurrence confirmed appointments,
-    // insert after all of them
-    return Math.min(confirmedCount, skippedTokenRecurrence);
-}
 
 /**
  * Get Next Token from Buffer Queue or Arrived Queue

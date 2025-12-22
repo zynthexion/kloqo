@@ -33,7 +33,6 @@ export interface Clinic {
   licenseUrl?: string;
   receptionPhotoUrl?: string | null;
   plan?: string;
-  skippedTokenRecurrence?: number;
   walkInTokenAllotment?: number;
   departments?: string[];
 }
@@ -70,7 +69,7 @@ export async function fetchAllClinics(): Promise<Clinic[]> {
   try {
     const clinicsRef = collection(db, 'clinics');
     const snapshot = await getDocs(clinicsRef);
-    
+
     return snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
@@ -88,7 +87,7 @@ export async function fetchAllPatients(): Promise<Patient[]> {
   try {
     const patientsRef = collection(db, 'patients');
     const snapshot = await getDocs(patientsRef);
-    
+
     return snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
@@ -106,7 +105,7 @@ export async function fetchAllAppointments(): Promise<Appointment[]> {
   try {
     const appointmentsRef = collection(db, 'appointments');
     const snapshot = await getDocs(appointmentsRef);
-    
+
     return snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
@@ -123,20 +122,20 @@ export async function fetchAllAppointments(): Promise<Appointment[]> {
 export async function fetchAppointmentsByDateRange(startDate: Date, endDate: Date): Promise<Appointment[]> {
   try {
     const allAppointments = await fetchAllAppointments();
-    
+
     return allAppointments.filter((apt) => {
       let aptDate: Date | null = null;
-      
+
       if (apt.createdAt) {
         aptDate = firestoreTimestampToDate(apt.createdAt);
       }
-      
+
       if (!aptDate && apt.date) {
         aptDate = parseDateString(apt.date);
       }
-      
+
       if (!aptDate) return false;
-      
+
       return aptDate >= startDate && aptDate <= endDate;
     });
   } catch (error) {
@@ -162,7 +161,7 @@ export function getPatientFirstBooking(patientId: string, appointments: Appointm
     })
     .filter((date): date is Date => date !== null)
     .sort((a, b) => a.getTime() - b.getTime());
-  
+
   return patientAppointments.length > 0 ? patientAppointments[0] : null;
 }
 
@@ -183,7 +182,7 @@ export function getPatientLastActive(patientId: string, appointments: Appointmen
     })
     .filter((date): date is Date => date !== null)
     .sort((a, b) => b.getTime() - a.getTime());
-  
+
   return patientAppointments.length > 0 ? patientAppointments[0] : null;
 }
 
@@ -196,61 +195,34 @@ export function calculateGrowthTrends(
 ): Array<{ date: string; count: number }> {
   const now = new Date();
   const trends: Map<string, number> = new Map();
-  
+
   for (let i = days - 1; i >= 0; i--) {
     const date = new Date(now);
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split('T')[0];
     trends.set(dateStr, 0);
   }
-  
+
   appointments.forEach((apt) => {
     let aptDate: Date | null = null;
-    
+
     if (apt.createdAt) {
       aptDate = firestoreTimestampToDate(apt.createdAt);
     } else if (apt.date) {
       aptDate = parseDateString(apt.date);
     }
-    
+
     if (!aptDate) return;
-    
+
     const dateStr = aptDate.toISOString().split('T')[0];
     if (trends.has(dateStr)) {
       trends.set(dateStr, (trends.get(dateStr) || 0) + 1);
     }
   });
-  
+
   return Array.from(trends.entries())
     .map(([date, count]) => ({ date, count }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/**
- * Parse date string helper (shared with metrics.ts)
- */
-export function parseDateString(dateStr: string): Date {
-  try {
-    const months: Record<string, number> = {
-      'january': 0, 'february': 1, 'march': 2, 'april': 3,
-      'may': 4, 'june': 5, 'july': 6, 'august': 7,
-      'september': 8, 'october': 9, 'november': 10, 'december': 11
-    };
-    
-    const parts = dateStr.toLowerCase().split(' ');
-    if (parts.length === 3) {
-      const day = parseInt(parts[0]);
-      const month = months[parts[1]];
-      const year = parseInt(parts[2]);
-      
-      if (!isNaN(day) && month !== undefined && !isNaN(year)) {
-        return new Date(year, month, day);
-      }
-    }
-  } catch (e) {
-    // Fallback
-  }
-  
-  return new Date(dateStr);
-}
 

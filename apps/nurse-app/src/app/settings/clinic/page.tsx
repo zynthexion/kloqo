@@ -19,7 +19,6 @@ import AppFrameLayout from '@/components/layout/app-frame';
 
 const settingsFormSchema = z.object({
   walkInTokenAllotment: z.coerce.number().min(2, "Walk-in token allotment must be at least 2."),
-  skippedTokenRecurrence: z.coerce.number().min(1, "Skipped token recurrence must be at least 1."),
 });
 type SettingsFormValues = z.infer<typeof settingsFormSchema>;
 
@@ -36,7 +35,6 @@ export default function ClinicSettingsPage() {
     resolver: zodResolver(settingsFormSchema),
     defaultValues: {
       walkInTokenAllotment: 5,
-      skippedTokenRecurrence: 3,
     }
   });
 
@@ -74,7 +72,6 @@ export default function ClinicSettingsPage() {
           const clinicData = clinicDocSnap.data();
           form.reset({
             walkInTokenAllotment: clinicData.walkInTokenAllotment || 5,
-            skippedTokenRecurrence: clinicData.skippedTokenRecurrence || 3,
           });
         }
       } catch (error) {
@@ -107,7 +104,6 @@ export default function ClinicSettingsPage() {
       const clinicRef = doc(db, 'clinics', clinicId);
       await updateDoc(clinicRef, {
         walkInTokenAllotment: values.walkInTokenAllotment,
-        skippedTokenRecurrence: values.skippedTokenRecurrence,
       });
 
       toast({
@@ -136,7 +132,6 @@ export default function ClinicSettingsPage() {
           const clinicData = snap.data();
           form.reset({
             walkInTokenAllotment: clinicData.walkInTokenAllotment || 5,
-            skippedTokenRecurrence: clinicData.skippedTokenRecurrence || 3,
           });
         }
       });
@@ -173,7 +168,7 @@ export default function ClinicSettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Clinic Settings</CardTitle>
-                  <CardDescription>Configure walk-in token allotment and skipped token recurrence settings.</CardDescription>
+                  <CardDescription>Configure walk-in token allotment settings.</CardDescription>
                 </div>
                 {!isEditing && (
                   <Button variant="outline" size="icon" onClick={() => setIsEditing(true)} disabled={isSubmitting}>
@@ -203,29 +198,6 @@ export default function ClinicSettingsPage() {
                         </FormControl>
                         <FormDescription>
                           Allot one walk-in token after every X online tokens. This determines how many slots to skip before placing a walk-in patient.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="skippedTokenRecurrence"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Skipped Token Recurrence</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            min="1"
-                            {...field}
-                            onChange={e => field.onChange(parseInt(e.target.value, 10) || 1)}
-                            disabled={!isEditing || isSubmitting}
-                            value={field.value || ''}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Number of active patients to skip before rejoining a skipped token to the queue.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

@@ -107,7 +107,7 @@ export default function ClinicDetailsPage() {
         // Calculate revenue
         let revenue = 0;
         const completedByPatientAndDoctor: Record<string, Appointment[]> = {};
-        
+
         completed.forEach(apt => {
           const key = `${apt.patientId}-${apt.doctor}`;
           if (!completedByPatientAndDoctor[key]) {
@@ -134,7 +134,7 @@ export default function ClinicDetailsPage() {
               const prevDate = parseDateString(sortedAppts[index - 1].date);
               const currentDate = parseDateString(apt.date);
               const daysDiff = Math.floor((currentDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
-              
+
               if (daysDiff > freeFollowUpDays) {
                 revenue += consultationFee;
               }
@@ -172,16 +172,16 @@ export default function ClinicDetailsPage() {
     const trends: Array<{ date: string; count: number }> = [];
     const days = differenceInDays(dateRange.to, dateRange.from);
     const maxDays = days > 60 ? 30 : days;
-    
+
     const step = Math.max(1, Math.floor(days / maxDays));
     let currentDay = new Date(dateRange.from);
     let dayIndex = 0;
-    
+
     while (currentDay <= dateRange.to && dayIndex < maxDays) {
       const dayStart = startOfDay(currentDay);
       const dayEnd = new Date(dayStart);
       dayEnd.setHours(23, 59, 59, 999);
-      
+
       const dayAppointments = appointments.filter(apt => {
         try {
           let aptDate: Date | null = null;
@@ -197,16 +197,16 @@ export default function ClinicDetailsPage() {
         }
       });
 
-      trends.push({ 
-        date: format(currentDay, days > 60 ? 'MMM d' : 'MMM d'), 
-        count: dayAppointments.length 
+      trends.push({
+        date: format(currentDay, days > 60 ? 'MMM d' : 'MMM d'),
+        count: dayAppointments.length
       });
 
       // Skip days if range is large
       currentDay.setDate(currentDay.getDate() + step);
       dayIndex++;
     }
-    
+
     return trends;
   })();
 
@@ -250,8 +250,8 @@ export default function ClinicDetailsPage() {
           </div>
         </div>
         {clinic.logoUrl && (
-          <img 
-            src={clinic.logoUrl} 
+          <img
+            src={clinic.logoUrl}
             alt={clinic.name}
             className="w-20 h-20 object-cover rounded-lg border"
           />
@@ -331,9 +331,9 @@ export default function ClinicDetailsPage() {
             </div>
             {clinic.mapsLink && (
               <div>
-                <a 
-                  href={clinic.mapsLink} 
-                  target="_blank" 
+                <a
+                  href={clinic.mapsLink}
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-blue-600 hover:underline flex items-center gap-1"
                 >
@@ -480,10 +480,10 @@ export default function ClinicDetailsPage() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Area 
-                    type="monotone" 
-                    dataKey="count" 
-                    stroke="#8884d8" 
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    stroke="#8884d8"
                     fill="#8884d8"
                     fillOpacity={0.6}
                     name="Appointments"
@@ -584,7 +584,7 @@ export default function ClinicDetailsPage() {
                 while (currentMonth <= dateRange.to) {
                   const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
                   const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
-                  
+
                   const monthAppointments = appointments.filter(apt => {
                     try {
                       let aptDate: Date | null = null;
@@ -613,7 +613,7 @@ export default function ClinicDetailsPage() {
                         if (aptDate) {
                           patientFirstVisits.set(apt.patientId, aptDate);
                         }
-                      } catch {}
+                      } catch { }
                     }
                   });
 
@@ -635,7 +635,7 @@ export default function ClinicDetailsPage() {
                           returningPatients++;
                         }
                       }
-                    } catch {}
+                    } catch { }
                   });
 
                   // Calculate revenue for this month
@@ -663,7 +663,7 @@ export default function ClinicDetailsPage() {
                   const dayStart = startOfDay(currentDay);
                   const dayEnd = new Date(dayStart);
                   dayEnd.setHours(23, 59, 59, 999);
-                  
+
                   const dayAppointments = appointments.filter(apt => {
                     try {
                       let aptDate: Date | null = null;
@@ -714,21 +714,21 @@ export default function ClinicDetailsPage() {
                     return value;
                   }} />
                   <Legend />
-                  <Area 
+                  <Area
                     yAxisId="left"
-                    type="monotone" 
-                    dataKey="returningPatients" 
+                    type="monotone"
+                    dataKey="returningPatients"
                     stackId="1"
-                    stroke="#8884d8" 
+                    stroke="#8884d8"
                     fill="#8884d8"
                     fillOpacity={0.6}
                     name="Patients"
                   />
-                  <Area 
+                  <Area
                     yAxisId="right"
-                    type="monotone" 
-                    dataKey="revenue" 
-                    stroke="#82ca9d" 
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#82ca9d"
                     fill="#82ca9d"
                     fillOpacity={0.6}
                     name="Revenue (₹)"
@@ -758,7 +758,7 @@ export default function ClinicDetailsPage() {
               {doctors.map((doctor) => {
                 const doctorAppointments = appointments.filter(apt => apt.doctor === doctor.name);
                 const completed = doctorAppointments.filter(apt => apt.status === 'Completed').length;
-                
+
                 return (
                   <div key={doctor.id} className="p-4 border rounded-lg">
                     <div className="font-semibold">{doctor.name}</div>
@@ -797,9 +797,9 @@ export default function ClinicDetailsPage() {
           <CardContent>
             <div className="flex gap-4">
               {clinic.licenseUrl && (
-                <a 
-                  href={clinic.licenseUrl} 
-                  target="_blank" 
+                <a
+                  href={clinic.licenseUrl}
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-blue-600 hover:underline"
                 >
@@ -809,9 +809,9 @@ export default function ClinicDetailsPage() {
                 </a>
               )}
               {clinic.receptionPhotoUrl && (
-                <a 
-                  href={clinic.receptionPhotoUrl} 
-                  target="_blank" 
+                <a
+                  href={clinic.receptionPhotoUrl}
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-blue-600 hover:underline"
                 >
@@ -832,10 +832,6 @@ export default function ClinicDetailsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Skipped Token Recurrence</p>
-              <p className="font-medium">{clinic.skippedTokenRecurrence || 0}</p>
-            </div>
             <div>
               <p className="text-sm text-muted-foreground">Walk-in Token Allotment</p>
               <p className="font-medium">{clinic.walkInTokenAllotment || 0}</p>

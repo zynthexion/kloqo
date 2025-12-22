@@ -64,7 +64,6 @@ const signupSchema = z.object({
   clinicRegNumber: z.string().optional(),
   latitude: z.coerce.number().min(-90, "Invalid latitude").max(90, "Invalid latitude"),
   longitude: z.coerce.number().min(-180, "Invalid longitude").max(180, "Invalid longitude"),
-  skippedTokenRecurrence: z.coerce.number().min(2, "Value must be at least 2."),
   walkInTokenAllotment: z.coerce.number().min(2, "Value must be at least 2."),
 
   // Step 2
@@ -132,7 +131,6 @@ const defaultFormData: SignUpFormData = {
   clinicRegNumber: '',
   latitude: 0,
   longitude: 0,
-  skippedTokenRecurrence: 3,
   walkInTokenAllotment: 5,
 
   ownerName: "",
@@ -172,7 +170,7 @@ const defaultFormData: SignUpFormData = {
 };
 
 const stepFields: (keyof SignUpFormData)[][] = [
-  ['clinicName', 'clinicType', 'numDoctors', 'skippedTokenRecurrence', 'walkInTokenAllotment'], // Step 1, latitude/longitude are special
+  ['clinicName', 'clinicType', 'numDoctors', 'walkInTokenAllotment'], // Step 1, latitude/longitude are special
   ['ownerName', 'designation', 'mobileNumber', 'emailAddress', 'password'], // Step 2
   ['addressLine1', 'city', 'state', 'pincode'], // Step 3
   ['hours', 'avgPatientsPerDay'], // Step 4
@@ -384,7 +382,6 @@ export default function SignupPage() {
       ownerEmail: formData.emailAddress,
       latitude: formData.latitude,
       longitude: formData.longitude,
-      skippedTokenRecurrence: formData.skippedTokenRecurrence,
       walkInTokenAllotment: formData.walkInTokenAllotment,
       numDoctors: formData.numDoctors,
       currentDoctorCount: 0,
@@ -480,7 +477,7 @@ export default function SignupPage() {
         <aside className="w-1/4 bg-slate-100 p-8 flex flex-col justify-between">
           <div className="flex-grow flex flex-col overflow-hidden">
             <Link href="/" className="flex items-center gap-2 mb-12 flex-shrink-0">
-              <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full.png?alt=media&token=2f9b97ad-29ae-4812-b189-ba7291a1f005" alt="Kloqo Logo" width={120} height={30} />
+              <Image src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full%20(2).webp?alt=media&token=19a163b9-3243-402c-929e-cb99ddcae05c" alt="Kloqo Logo" width={120} height={30} />
             </Link>
             <div className="flex-grow overflow-y-auto pr-4">
               <StepperNav steps={steps} currentStep={currentStep} />

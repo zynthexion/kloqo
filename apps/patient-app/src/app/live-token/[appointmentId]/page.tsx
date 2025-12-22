@@ -183,8 +183,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         }
     }, []);
 
-    // Get clinic data for skippedTokenRecurrence
-    const [clinicData, setClinicData] = useState<{ skippedTokenRecurrence?: number } | null>(null);
+    // Get clinic data
+    const [clinicData, setClinicData] = useState<any | null>(null);
     useEffect(() => {
         if (!clinicId || !firestore) return;
 
@@ -193,13 +193,10 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 const clinicRef = doc(firestore, 'clinics', clinicId);
                 const clinicDoc = await getDoc(clinicRef);
                 if (clinicDoc.exists()) {
-                    setClinicData(clinicDoc.data() as { skippedTokenRecurrence?: number });
-                } else {
-                    setClinicData({ skippedTokenRecurrence: 3 }); // Default
+                    setClinicData(clinicDoc.data());
                 }
             } catch (error) {
                 console.error('Error fetching clinic data:', error);
-                setClinicData({ skippedTokenRecurrence: 3 }); // Default on error
             }
         };
 
@@ -224,7 +221,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 noShowDate = new Date(skippedAppointment.noShowTime as any);
             }
 
-            if (isPast(scheduledTime)) {
+            if (isAfter(now, scheduledTime)) {
                 // Current time past the 'time' -> noShowTime + 15 minutes
                 return addMinutes(noShowDate, 15);
             } else {
@@ -244,7 +241,6 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             return queueState?.arrivedQueue || [];
         }
 
-        const recurrence = clinicData.skippedTokenRecurrence || 3;
 
         // Get all appointments for this doctor and date (including your appointment)
         const relevantAppointments = allTodaysAppointments.filter(apt =>
@@ -1015,102 +1011,25 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
                 newTimeString = arriveByString;
             } else if (yourAppointment.status === 'Skipped') {
-                // For Skipped appointments, rejoin queue using simplified logic (no shifting)
-                const today = format(new Date(), 'd MMMM yyyy');
+                // For Skipped appointments, rejoin queue using deterministic logic
+                const now = new Date();
+                const appointmentDate = parse(yourAppointment.date, 'd MMMM yyyy', new Date());
+                const scheduledTime = parseTime(yourAppointment.time, appointmentDate);
 
-                // Get clinic details for skippedTokenRecurrence
-                if (!clinicId) {
-                    throw new Error('Clinic ID not available');
-                }
-                const clinicRef = doc(firestore, 'clinics', clinicId);
-                const clinicDoc = await getDoc(clinicRef);
-                const clinicData = clinicDoc.data();
-                const recurrence = clinicData?.skippedTokenRecurrence || 3;
+                let newTime: string;
 
-                // Get skipped appointment's original time
-                const skippedOriginalTime = parseAppointmentTime(yourAppointment);
-
-                // Get all appointments for the same doctor and date
-                const allAppointmentsQuery = query(
-                    collection(firestore, 'appointments'),
-                    where('doctor', '==', yourAppointment.doctor),
-                    where('date', '==', today)
-                );
-                const allAppointmentsSnapshot = await getDocs(allAppointmentsQuery);
-                const allAppointments = allAppointmentsSnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                } as Appointment));
-
-                // Get arrived queue: Confirmed appointments for same doctor and date, sorted by time
-                const arrivedQueue = allAppointments
-                    .filter(a =>
-                        a.doctor === yourAppointment.doctor &&
-                        a.date === today &&
-                        a.status === 'Confirmed' &&
-                        a.id !== yourAppointment.id // Exclude the skipped appointment itself
-                    )
-                    .sort((a, b) => {
-                        const timeA = parseAppointmentTime(a);
-                        const timeB = parseAppointmentTime(b);
-                        return timeA.getTime() - timeB.getTime();
-                    });
-
-                // Filter confirmed appointments to only those that come AFTER skipped appointment's original time
-                const appointmentsAfterSkipped = arrivedQueue.filter(a => {
-                    const appointmentTime = parseAppointmentTime(a);
-                    return appointmentTime.getTime() > skippedOriginalTime.getTime();
-                });
-
-                // Calculate base time based on skippedTokenRecurrence using filtered list
-                let baseTime: Date;
-                if (appointmentsAfterSkipped.length >= recurrence) {
-                    // Use the time of the appointment at position 'recurrence' (0-indexed: recurrence - 1) in filtered list
-                    const referenceAppointment = appointmentsAfterSkipped[recurrence - 1];
-                    baseTime = parseAppointmentTime(referenceAppointment);
-                } else if (appointmentsAfterSkipped.length > 0) {
-                    // Use the time of the last appointment in filtered list
-                    const lastAppointment = appointmentsAfterSkipped[appointmentsAfterSkipped.length - 1];
-                    baseTime = parseAppointmentTime(lastAppointment);
-                } else if (arrivedQueue.length > 0) {
-                    // No appointments after skipped time, use the last appointment in arrived queue
-                    const lastAppointment = arrivedQueue[arrivedQueue.length - 1];
-                    baseTime = parseAppointmentTime(lastAppointment);
+                if (isAfter(now, scheduledTime)) {
+                    // If rejoined after scheduled time, give noShowTime + 15 mins
+                    const noShowTime = parseTime(yourAppointment.noShowTime!, appointmentDate);
+                    newTime = format(addMinutes(noShowTime, 15), 'hh:mm a');
                 } else {
-                    // Arrived queue is empty, use current time + 1 minute
-                    baseTime = addMinutes(new Date(), 1);
+                    // If rejoined before scheduled time, give noShowTime
+                    newTime = yourAppointment.noShowTime!;
                 }
 
-                // Add 1 minute to base time
-                let newTime = addMinutes(baseTime, 1);
+                newTimeString = newTime;
 
-                // Check for existing rejoined appointments (status='Confirmed' AND has skippedAt field)
-                const rejoinedAppointments = allAppointments
-                    .filter(a =>
-                        a.doctor === yourAppointment.doctor &&
-                        a.date === today &&
-                        a.status === 'Confirmed' &&
-                        a.skippedAt && // Only appointments that were previously skipped
-                        a.id !== yourAppointment.id
-                    )
-                    .sort((a, b) => {
-                        // Sort by time (descending) to get the latest
-                        const timeA = parseAppointmentTime(a);
-                        const timeB = parseAppointmentTime(b);
-                        return timeB.getTime() - timeA.getTime();
-                    });
-
-                // If there are existing rejoined appointments, use the latest one's time + 1 minute
-                if (rejoinedAppointments.length > 0) {
-                    const latestRejoined = rejoinedAppointments[0];
-                    const latestRejoinedTime = parseAppointmentTime(latestRejoined);
-                    newTime = addMinutes(latestRejoinedTime, 1);
-                }
-
-                // Format the new time
-                newTimeString = format(newTime, 'hh:mm a');
-
-                // Update the skipped appointment: only change status and time, keep everything else (no shifting)
+                // Update the skipped appointment: only change status and time, keep everything else
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
                     time: newTimeString,

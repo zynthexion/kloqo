@@ -43,7 +43,7 @@ export function Logo({ className = "", width, height = 64 }: LogoProps) {
 
   return (
     <Image
-      src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full.png?alt=media&token=2f9b97ad-29ae-4812-b189-ba7291a1f005"
+      src="https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/Kloqo_Logo_full%20(2).webp?alt=media&token=19a163b9-3243-402c-929e-cb99ddcae05c"
       alt="Kloqo Logo"
       width={imageWidth}
       height={imageHeight}

@@ -333,125 +333,45 @@ export default function LiveDashboard() {
     startTransition(async () => {
       if (!clinicId) return;
 
-      const recurrence = clinicDetails?.skippedTokenRecurrence || 3;
-      const today = new Date();
-      const todayStr = format(today, 'd MMMM yyyy');
-
       try {
-        // Helper function to parse appointment time
-        const parseAppointmentTime = (apt: Appointment): Date => {
-          try {
-            const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-            return parseTime(apt.time, appointmentDate);
-          } catch {
-            return new Date(0); // Fallback for invalid dates
-          }
-        };
+        const now = new Date();
+        const scheduledTimeStr = appointment.time;
+        const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+        const scheduledTime = parseTime(scheduledTimeStr, appointmentDate);
 
-        // Get skipped appointment's original time
-        const skippedOriginalTime = parseAppointmentTime(appointment);
+        let newTimeStr: string;
 
-        // Get arrived queue: Confirmed appointments for same doctor and date, sorted by time
-        const arrivedQueue = appointments
-          .filter(a =>
-            a.doctor === appointment.doctor &&
-            a.date === todayStr &&
-            a.status === 'Confirmed' &&
-            a.id !== appointment.id // Exclude the skipped appointment itself
-          )
-          .sort((a, b) => {
-            const timeA = parseAppointmentTime(a);
-            const timeB = parseAppointmentTime(b);
-            return timeA.getTime() - timeB.getTime();
-          });
-
-        // Filter confirmed appointments to only those that come AFTER skipped appointment's original time
-        const appointmentsAfterSkipped = arrivedQueue.filter(a => {
-          const appointmentTime = parseAppointmentTime(a);
-          return appointmentTime.getTime() > skippedOriginalTime.getTime();
-        });
-
-        // Calculate base time based on skippedTokenRecurrence using filtered list
-        let baseTime: Date;
-        if (appointmentsAfterSkipped.length >= recurrence) {
-          // Use the time of the appointment at position 'recurrence' (0-indexed: recurrence - 1) in filtered list
-          const referenceAppointment = appointmentsAfterSkipped[recurrence - 1];
-          baseTime = parseAppointmentTime(referenceAppointment);
-        } else if (appointmentsAfterSkipped.length > 0) {
-          // Use the time of the last appointment in filtered list
-          const lastAppointment = appointmentsAfterSkipped[appointmentsAfterSkipped.length - 1];
-          baseTime = parseAppointmentTime(lastAppointment);
-        } else if (arrivedQueue.length > 0) {
-          // No appointments after skipped time, use the last appointment in arrived queue
-          const lastAppointment = arrivedQueue[arrivedQueue.length - 1];
-          baseTime = parseAppointmentTime(lastAppointment);
+        if (isAfter(now, scheduledTime)) {
+          // If rejoined after scheduled time, give noShowTime + 15 mins
+          const noShowTime = parseTime(appointment.noShowTime!, appointmentDate);
+          newTimeStr = format(addMinutes(noShowTime, 15), 'hh:mm a');
         } else {
-          // Arrived queue is empty, use current time + 1 minute
-          baseTime = addMinutes(today, 1);
+          // If rejoined before scheduled time, give noShowTime
+          newTimeStr = appointment.noShowTime!;
         }
 
-        // Add 1 minute to base time
-        let newTime = addMinutes(baseTime, 1);
-
-        // Check for existing rejoined appointments (status='Confirmed' AND has skippedAt field)
-        const rejoinedAppointments = appointments
-          .filter(a =>
-            a.doctor === appointment.doctor &&
-            a.date === todayStr &&
-            a.status === 'Confirmed' &&
-            a.skippedAt && // Only appointments that were previously skipped
-            a.id !== appointment.id
-          )
-          .sort((a, b) => {
-            // Sort by time (descending) to get the latest
-            const timeA = parseAppointmentTime(a);
-            const timeB = parseAppointmentTime(b);
-            return timeB.getTime() - timeA.getTime();
-          });
-
-        // If there are existing rejoined appointments, use the latest one's time + 1 minute
-        if (rejoinedAppointments.length > 0) {
-          const latestRejoined = rejoinedAppointments[0];
-          const latestRejoinedTime = parseAppointmentTime(latestRejoined);
-          newTime = addMinutes(latestRejoinedTime, 1);
-        }
-
-        // Format the new time
-        const newTimeString = format(newTime, 'hh:mm a');
-
-        // Update the skipped appointment: only change status and time, keep everything else
         const appointmentRef = doc(db, 'appointments', appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed',
-          time: newTimeString,
+          time: newTimeStr,
           updatedAt: serverTimestamp()
         });
 
         // Update local state
-        setAppointments(prev => {
-          return prev.map(a => {
-            if (a.id === appointment.id) {
-              return {
-                ...a,
-                status: 'Confirmed' as const,
-                time: newTimeString
-              };
-            }
-            return a;
-          });
-        });
+        setAppointments(prev => prev.map(a =>
+          a.id === appointment.id ? { ...a, status: 'Confirmed' as const, time: newTimeStr } : a
+        ));
 
         toast({
           title: "Patient Re-joined Queue",
-          description: `${appointment.patientName} has been added back to the queue at position after ${recurrence} patient(s).`
+          description: `${appointment.patientName} has been added back to the queue.`
         });
       } catch (error: any) {
         console.error("Error re-joining queue:", error);
-        const errorMessage = error?.message || "Could not re-join the patient to the queue.";
         toast({
           variant: "destructive",
           title: "Error",
-          description: errorMessage
+          description: "Could not re-join the patient to the queue."
         });
       }
     });

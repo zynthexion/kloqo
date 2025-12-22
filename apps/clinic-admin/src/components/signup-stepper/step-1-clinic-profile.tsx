@@ -198,20 +198,6 @@ export function Step1ClinicProfile() {
         />
         <FormField
           control={control}
-          name="skippedTokenRecurrence"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Skipped Token Recurrence</FormLabel>
-              <FormControl>
-                <Input type="number" min="2" placeholder="e.g., 3" {...field} value={field.value ?? ''} />
-              </FormControl>
-              <p className="text-xs text-muted-foreground">Call skipped token after these many tokens</p>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={control}
           name="walkInTokenAllotment"
           render={({ field }) => (
             <FormItem>

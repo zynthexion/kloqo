@@ -2988,6 +2988,15 @@ export async function calculateWalkInDetails(
   // Wait for all reservation checks to complete
   const reservationResults = await Promise.all(reservationChecks);
 
+  // DEBUG: Log what we're checking
+  console.log('[PREVIEW DEBUG] Checking reservations for:', {
+    doctor: doctor.name,
+    clinicId: doctor.clinicId,
+    date: dateStr,
+    maxSlots: maxSlotToCheck,
+    sampleReservationId: buildReservationDocId(doctor.clinicId || '', doctor.name, dateStr, 0)
+  });
+
   // Process reservation results
   reservationResults.forEach(({ slotIdx, snap }) => {
     if (!snap || !snap.exists()) return;
@@ -3020,6 +3029,16 @@ export async function calculateWalkInDetails(
         const reservedBy = data?.reservedBy as string | undefined;
         if (reservedBy !== 'appointment-booking') {
           reservedSlots.add(slotIdx);
+
+          // DEBUG: Log found reservation
+          console.log('[PREVIEW DEBUG] Found valid reservation:', {
+            slotIdx,
+            reservedBy,
+            ageInSeconds,
+            threshold,
+            status: data.status,
+            doctorName: data.doctorName
+          });
         }
       }
     } catch (e) {

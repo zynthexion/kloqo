@@ -464,14 +464,19 @@ export function computeWalkInSchedule({
       let targetPosition = -1;
 
       const advanceAfterAnchor = countAdvanceAfter(anchorPosition);
-      if (spacing > 0 && advanceAfterAnchor >= spacing) {
+
+      // CRITICAL FIX: Only apply spacing logic if there are advance appointments
+      // In walk-in-only scenarios, place walk-ins sequentially without spacing
+      const hasAdvanceAppointments = advanceAfterAnchor > 0;
+
+      if (hasAdvanceAppointments && spacing > 0 && advanceAfterAnchor >= spacing) {
         const nthAdvancePosition = findNthAdvanceAfter(anchorPosition, spacing);
         if (nthAdvancePosition !== -1) {
           targetPosition = nthAdvancePosition + 1;
         }
       }
 
-      if (targetPosition === -1) {
+      if (targetPosition === -1 && hasAdvanceAppointments) {
         const lastAdvancePosition = findLastAdvanceAfter(anchorPosition);
         if (lastAdvancePosition !== -1) {
           targetPosition = lastAdvancePosition + 1;

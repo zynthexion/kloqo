@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, ArrowLeft, UserPlus, Search, Link as LinkIcon } from 'lucide-react';
+import { Loader2, ArrowLeft, UserPlus, Search, Link as LinkIcon, Clock } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { collection, getDocs, doc, getDoc, query, where, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
@@ -25,6 +25,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { AddRelativeDialog } from '@/components/patients/add-relative-dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { format, addDays, isBefore, isAfter, startOfDay, addMinutes, subMinutes, isSameDay } from 'date-fns';
+import { parseTime, parseAppointmentDateTime } from '@/lib/utils';
+import { isSlotBlockedByLeave } from '@kloqo/shared-core';
 
 
 const formSchema = z.object({
@@ -75,6 +78,7 @@ function PhoneBookingDetailsContent() {
     const [primaryPatient, setPrimaryPatient] = useState<Patient | null>(null);
     const [relatives, setRelatives] = useState<Patient[]>([]);
     const [isAddRelativeDialogOpen, setIsAddRelativeDialogOpen] = useState(false);
+    const [nextSlotHint, setNextSlotHint] = useState<{ date: string, time: string, reportingTime: string } | null>(null);
 
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -116,6 +120,97 @@ function PhoneBookingDetailsContent() {
         };
         fetchDoctor();
     }, [doctorId, clinicId]);
+
+    useEffect(() => {
+        const findNextAvailableSlot = async () => {
+            if (!doctor || !clinicId) return;
+
+            setNextSlotHint(null);
+            const today = new Date();
+            const daysCheckLimit = (doctor as any).advanceBookingDays || 7;
+
+            for (let i = 0; i < daysCheckLimit; i++) {
+                const checkDate = addDays(today, i);
+                const dayOfWeek = format(checkDate, 'EEEE');
+                const availabilityForDay = (doctor.availabilitySlots || []).find(slot => slot.day === dayOfWeek);
+
+                if (!availabilityForDay || !availabilityForDay.timeSlots.length) continue;
+
+                // Check for extension logic (simplified for hint purpose, using primary slots mostly)
+                // Real-time slot calculation is complex, here we do a reasonable approximation for "next available"
+
+                // Fetch appointments for this day to check booking status
+                const dateStr = format(checkDate, 'd MMMM yyyy');
+                const q = query(
+                    collection(db, 'appointments'),
+                    where('doctor', '==', doctor.name),
+                    where('clinicId', '==', clinicId),
+                    where('date', '==', dateStr)
+                );
+
+                const snapshot = await getDocs(q);
+                const appointments = snapshot.docs.map(doc => doc.data() as any);
+                const bookedTimes = new Set(
+                    appointments
+                        .filter((apt: any) =>
+                            apt.status === 'Pending' ||
+                            apt.status === 'Confirmed' ||
+                            apt.status === 'Completed'
+                        )
+                        .map((apt: any) => {
+                            try {
+                                return parseAppointmentDateTime(apt.date, apt.time).getTime();
+                            } catch (e) { return 0; }
+                        })
+                );
+
+                const slotDuration = doctor.averageConsultingTime || 15;
+                let foundSlot: Date | null = null;
+
+                // Sort sessions by start time
+                const sortedSessions = [...availabilityForDay.timeSlots].sort((a, b) => {
+                    return parseTime(a.from, checkDate).getTime() - parseTime(b.from, checkDate).getTime();
+                });
+
+                for (const session of sortedSessions) {
+                    let currentTime = parseTime(session.from, checkDate);
+                    let endTime = parseTime(session.to, checkDate);
+
+                    while (isBefore(currentTime, endTime)) {
+                        const slotTime = new Date(currentTime);
+
+                        // Check if slot is in the future
+                        if (isAfter(slotTime, today)) {
+                            // Check if blocked by leave
+                            const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
+
+                            // Check if booked
+                            const isBooked = bookedTimes.has(slotTime.getTime());
+
+                            if (!isBlocked && !isBooked) {
+                                foundSlot = slotTime;
+                                break;
+                            }
+                        }
+                        currentTime = addMinutes(currentTime, slotDuration);
+                    }
+                    if (foundSlot) break;
+                }
+
+                if (foundSlot) {
+                    const reportingTime = subMinutes(foundSlot, 15);
+                    setNextSlotHint({
+                        date: isSameDay(foundSlot, today) ? 'Today' : format(foundSlot, 'd MMM'),
+                        time: format(foundSlot, 'hh:mm a'),
+                        reportingTime: format(reportingTime, 'hh:mm a')
+                    });
+                    return; // Found the earliest slot, exit
+                }
+            }
+        };
+
+        findNextAvailableSlot();
+    }, [doctor, clinicId]);
 
     const handlePatientSearch = useCallback(async (phone: string) => {
         if (phone.length < 10 || !clinicId) {
@@ -449,7 +544,7 @@ function PhoneBookingDetailsContent() {
                                     placeholder="Enter 10-digit phone number"
                                     value={phoneNumber}
                                     onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                                    className="flex-1 rounded-l-none bg-[#CADEED]"
+                                    className="flex-1 rounded-l-none bg-[#CADEED] pr-10"
                                     maxLength={10}
                                 />
                                 {isSearchingPatient ?
@@ -462,6 +557,19 @@ function PhoneBookingDetailsContent() {
                                 Send Link
                             </Button>
                         </div>
+                        {!phoneNumber && nextSlotHint && (
+                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex items-center gap-3 animate-in fade-in slide-in-from-top-1 mt-2">
+                                <div className="bg-emerald-100 p-2 rounded-full shrink-0">
+                                    <Clock className="h-4 w-4 text-emerald-600" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">Next Available Slot</p>
+                                    <p className="text-sm font-semibold text-emerald-900 leading-tight">
+                                        {nextSlotHint.date} <span className="text-emerald-400 font-light mx-1">|</span> <span className="font-normal text-emerald-800">Report by {nextSlotHint.reportingTime}</span>
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
                         {searchedPatients.length > 0 && (
                             <PatientSearchResults

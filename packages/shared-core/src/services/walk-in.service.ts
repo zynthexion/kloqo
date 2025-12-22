@@ -2923,6 +2923,15 @@ export async function calculateWalkInDetails(
   // ============================================================================
   // ORDER PROTECTION: Identify cancelled slots that MUST remain blocked
   // ============================================================================
+  // Include cancelled slots logic for bucket compensation
+  const oneHourAhead = addMinutes(now, 60);
+  const hasExistingWalkIns = activeWalkIns.length > 0;
+
+  // Calculate bucket count logic (same as appointment-service.ts)
+  const cancelledSlotsInWindow: Array<{ slotIndex: number; slotTime: Date }> = [];
+  let bucketCount = 0;
+
+  // Build set of slots with active appointments
   const slotsWithActiveAppointments = new Set<number>();
   appointments.forEach(appt => {
     if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
@@ -2938,13 +2947,13 @@ export async function calculateWalkInDetails(
     }))
     .filter(item => item.slotTime !== undefined);
 
+  // Restore variable initialization
   const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
     id: entry.id,
     slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
   }));
 
   // PREVIEW FIX: Add existing walk-ins as blocked appointments
-  // This tells the scheduler that these slots are already taken
   activeWalkIns.forEach(walkIn => {
     if (typeof walkIn.slotIndex === 'number') {
       blockedAdvanceAppointments.push({
@@ -2954,27 +2963,66 @@ export async function calculateWalkInDetails(
     }
   });
 
-  // Identify blocked cancelled slots (Order Protection)
-  const oneHourAhead = addMinutes(now, 60);
+  // Identify blocked cancelled slots (Order Protection) & Bucket Count
+  const cancelledSlotsInBucket = new Set<number>();
+
   appointments.forEach(appt => {
     if (
       (appt.status === 'Cancelled' || appt.status === 'No-show') &&
-      typeof appt.slotIndex === 'number' &&
-      !slotsWithActiveAppointments.has(appt.slotIndex)
+      typeof appt.slotIndex === 'number'
     ) {
       const slotMeta = slots[appt.slotIndex];
-      if (slotMeta && !isAfter(slotMeta.time, oneHourAhead)) {
-        // If a walk-in already exists AFTER this slot, this slot is BLOCKED for new walk-ins
-        const hasWalkInsAfter = activeWalkInsWithTimes.some(w => isAfter(w.slotTime!, slotMeta.time));
-        if (hasWalkInsAfter) {
-          blockedAdvanceAppointments.push({
-            id: `__blocked_cancelled_${appt.slotIndex}`,
-            slotIndex: appt.slotIndex
-          });
+      if (slotMeta) {
+        // For bucket count: Include past slots (within 1 hour window)
+        const isInBucketWindow = !isAfter(slotMeta.time, oneHourAhead);
+
+        if (isInBucketWindow) {
+          // Only process if there's no active appointment at this slot
+          if (!slotsWithActiveAppointments.has(appt.slotIndex)) {
+            const hasWalkInsAfter = activeWalkInsWithTimes.some(w => isAfter(w.slotTime!, slotMeta.time));
+
+            if (hasWalkInsAfter) {
+              // Cancelled slot with walk-ins after -> Bucket Credit
+              if (hasExistingWalkIns) {
+                bucketCount += 1;
+              }
+              cancelledSlotsInBucket.add(appt.slotIndex);
+              blockedAdvanceAppointments.push({
+                id: `__blocked_cancelled_${appt.slotIndex}`,
+                slotIndex: appt.slotIndex
+              });
+            } else {
+              // No walk-ins after -> Can be used directly
+              if (!hasExistingWalkIns && !isBefore(slotMeta.time, now)) {
+                cancelledSlotsInWindow.push({
+                  slotIndex: appt.slotIndex,
+                  slotTime: slotMeta.time,
+                });
+              }
+
+              // No walk-ins yet -> Count as potential bucket credit if not reused
+              if (!hasExistingWalkIns) {
+                const isNotInCancelledWindow = cancelledSlotsInWindow.every(
+                  cs => cs.slotIndex !== appt.slotIndex
+                );
+                if (isNotInCancelledWindow) {
+                  bucketCount += 1;
+                }
+              }
+            }
+          }
         }
       }
     }
   });
+
+  // Calculate effective bucket count
+  const walkInsOutsideAvailability = activeWalkIns.filter(appt => {
+    if (typeof appt.slotIndex !== 'number') return false;
+    return appt.slotIndex >= slots.length; // Outside availability
+  });
+  const usedBucketSlots = walkInsOutsideAvailability.length;
+  const firestoreBucketCount = Math.max(0, bucketCount - usedBucketSlots);
 
   // ============================================================================
   // PREVIEW ACCURACY FIX: Check existing reservations
@@ -3091,9 +3139,40 @@ export async function calculateWalkInDetails(
   }
 
   if (!newAssignment || chosenSlotIndex === -1) {
-    // If forceBook is enabled, create an overflow slot after the last booked token
-    if (forceBook) {
-      console.log('[FORCE BOOK] No slots available - creating overflow slot');
+    // Strategy 4: Bucket Compensation Check
+    // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
+    const allSlotsFilled = (() => {
+      const occupiedSlotsForCheck = new Set<number>();
+      appointments.forEach(appt => {
+        if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+          occupiedSlotsForCheck.add(appt.slotIndex);
+        }
+      });
+
+      for (let i = 0; i < slots.length; i++) {
+        if (isBefore(slots[i].time, now)) {
+          continue; // Skip past slots
+        }
+        // Skip cancelled slots in bucket - they're blocked, not available
+        if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) {
+          continue;
+        }
+        if (!occupiedSlotsForCheck.has(i)) {
+          return false; // Found an empty slot
+        }
+      }
+      return true; // All available future slots are occupied
+    })();
+
+    const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
+
+    // If forceBook is enabled OR bucket compensation is valid, create an overflow slot
+    if (forceBook || canUseBucketCompensation) {
+      if (forceBook) {
+        console.log('[FORCE BOOK] No slots available - creating overflow slot');
+      } else {
+        console.log('[BUCKET STRATEGY] Triggering overflow slot creation via bucket compensation');
+      }
 
       // Find the last slot index from all appointments and slots
       const allSlotIndices = [
@@ -3131,12 +3210,13 @@ export async function calculateWalkInDetails(
         allActiveStatuses.has(appointment.status)
       ).length;
 
-      console.log('[FORCE BOOK] Created overflow slot:', {
+      console.log('[OVERFLOW] Created overflow slot:', {
         slotIndex: overflowSlotIndex,
         time: format(overflowTime, 'hh:mm a'),
         sessionIndex: lastSessionIndex,
         numericToken,
-        patientsAhead
+        patientsAhead,
+        reason: forceBook ? 'ForceBook' : 'BucketCompensation'
       });
 
       return {
@@ -3146,7 +3226,7 @@ export async function calculateWalkInDetails(
         slotIndex: overflowSlotIndex,
         sessionIndex: lastSessionIndex,
         actualSlotTime: overflowTime,
-        isForceBooked: true,
+        isForceBooked: true, // Mark as force booked so UI accepts it (it's valid "overflow")
       };
     }
 

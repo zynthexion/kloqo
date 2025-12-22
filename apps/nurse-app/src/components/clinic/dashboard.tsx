@@ -171,6 +171,7 @@ export default function ClinicDashboard() {
         noShowTime: data.noShowTime,
         sex: data.sex || 'Male',
         communicationPhone: data.communicationPhone || data.phone,
+        isRescheduled: data.isRescheduled,
       } as Appointment);
     });
 

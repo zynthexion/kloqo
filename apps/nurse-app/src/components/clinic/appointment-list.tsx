@@ -270,7 +270,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             <div className="flex justify-between items-center">
                               <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
                                 {appt.date && `${appt.date} - `}
-                                {appt.status === 'Confirmed' ? appt.time : getDisplayTime(appt)}
+                                {['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)}
                               </Badge>
                               {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
@@ -328,7 +328,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                               <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-2">
                                   <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
-                                    #{appt.tokenNumber} - {appt.patientName}
+                                    {['Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.patientName : `#${appt.tokenNumber} - ${appt.patientName}`}
                                   </p>
                                   {appt.skippedAt && (
                                     <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">

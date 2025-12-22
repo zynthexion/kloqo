@@ -4219,9 +4219,9 @@ export default function AppointmentsPage() {
                                 <TableCell>{appointment.doctor}</TableCell>
                                 <TableCell>{appointment.department}</TableCell>
                                 <TableCell>{format(parse(appointment.date, "d MMMM yyyy", new Date()), "MMM d, yy")}</TableCell>
-                                <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
+                                <TableCell>{['Completed', 'Confirmed', 'Cancelled', 'No-show'].includes(appointment.status) ? appointment.time : getDisplayTimeForAppointment(appointment)}</TableCell>
                                 <TableCell>{appointment.bookedVia}</TableCell>
-                                <TableCell>{appointment.tokenNumber}</TableCell>
+                                <TableCell>{['Completed', 'Cancelled', 'No-show'].includes(appointment.status) ? '-' : appointment.tokenNumber}</TableCell>
                                 <TableCell className="text-right">
                                   {appointment.status === 'Pending' || appointment.status === 'Skipped' ? (
                                     <DropdownMenu>

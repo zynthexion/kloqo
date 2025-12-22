@@ -44,12 +44,6 @@ export default function ClinicHeader({
 
     const utilityMenuItems = [
         {
-            icon: Coffee,
-            title: 'Break / Late',
-            action: onScheduleBreakClick,
-            disabled: !selectedDoctor,
-        },
-        {
             icon: CalendarX,
             title: 'Leave',
             action: onMarkLeaveClick,

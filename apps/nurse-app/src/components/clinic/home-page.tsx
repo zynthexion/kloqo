@@ -293,7 +293,7 @@ export default function HomePage() {
 
           <div className="flex flex-col flex-1 justify-center">
 
-            <div className="flex-1 flex flex-col justify-center items-center gap-6">
+            <div className="relative flex-1 flex flex-col justify-center items-center gap-6">
               {mainMenuItems.map((item, index) => (
                 <div
                   key={index}
@@ -315,6 +315,28 @@ export default function HomePage() {
                   </div>
                 </div>
               ))}
+
+              {/* Modern Circular Coffee Icon - Positioned between cards */}
+              {selectedDoctor && (
+                <button
+                  onClick={handleScheduleBreak}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-50 group"
+                  aria-label="Schedule Break"
+                >
+                  <div className="relative w-24 h-24 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 hover:shadow-amber-500/50 hover:translate-x-2">
+                    {/* Glow effect */}
+                    <div className="absolute inset-0 rounded-full bg-amber-300 opacity-0 group-hover:opacity-30 blur-xl transition-opacity duration-300"></div>
+
+                    {/* Coffee Icon - Flipped so handle points left */}
+                    <div className="absolute inset-0 flex items-center justify-center scale-x-[-1]">
+                      <Coffee className="h-10 w-10 text-white drop-shadow-lg" strokeWidth={2.5} />
+                    </div>
+
+                    {/* Ripple effect on hover */}
+                    <div className="absolute inset-0 rounded-full border-2 border-white/30 group-hover:scale-110 transition-transform duration-300"></div>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </main>

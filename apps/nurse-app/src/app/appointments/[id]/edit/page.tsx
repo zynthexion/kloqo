@@ -111,10 +111,20 @@ export default function EditAppointmentPage({ params }: EditAppointmentPageProps
                 if (newSlotParam) {
                     const newDate = parseISO(newSlotParam);
                     setDisplayDate(format(newDate, "d MMMM yyyy"));
-                    setDisplayTime(format(newDate, "hh:mm a"));
+                    // Show reporting time (15 minutes before appointment)
+                    const reportingTime = subMinutes(newDate, 15);
+                    setDisplayTime(format(reportingTime, "hh:mm a"));
                 } else {
                     setDisplayDate(appointmentData.date || null);
-                    setDisplayTime(appointmentData.time || null);
+                    // Calculate reporting time: arriveByTime - 15 minutes
+                    if (appointmentData.arriveByTime) {
+                        const appointmentDate = parse(appointmentData.date || '', 'd MMMM yyyy', new Date());
+                        const arriveByTime = parseTime(appointmentData.arriveByTime, appointmentDate);
+                        const reportingTime = subMinutes(arriveByTime, 15);
+                        setDisplayTime(format(reportingTime, "hh:mm a"));
+                    } else {
+                        setDisplayTime(null);
+                    }
                 }
 
                 let patientData: Patient | null = null;

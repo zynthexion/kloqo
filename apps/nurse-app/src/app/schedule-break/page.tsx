@@ -190,6 +190,60 @@ function ScheduleBreakContent() {
     const [shouldCancelExtension, setShouldCancelExtension] = useState(true);
     const [shouldOpenSlots, setShouldOpenSlots] = useState(true);
 
+    // Calculate if and how much extension is needed by appointments
+    const extensionUtilization = useMemo(() => {
+        if (!currentSession?.originalEnd || !selectedDate || !doctor) {
+            return { needed: false, maxExtensionNeeded: 0, currentExtensionDuration: 0 };
+        }
+
+        // If originalEnd and effectiveEnd are the same, there is no extension
+        if (!currentSession.effectiveEnd || currentSession.effectiveEnd.getTime() === currentSession.originalEnd.getTime()) {
+            return { needed: false, maxExtensionNeeded: 0, currentExtensionDuration: 0 };
+        }
+
+        const originalEnd = currentSession.originalEnd;
+        const currentExtensionDuration = differenceInMinutes(currentSession.effectiveEnd, originalEnd);
+        const dateStr = format(selectedDate, 'd MMMM yyyy');
+
+        let maxExtensionNeeded = 0;
+        let needed = false;
+
+        appointments.forEach(appt => {
+            // Filter for current session active appointments
+            if (appt.doctor !== doctor.name ||
+                appt.date !== dateStr ||
+                appt.sessionIndex !== currentSession.sessionIndex) return;
+
+            if (['Cancelled', 'No-show'].includes(appt.status)) return;
+
+            // Check if appointment ends after the ORIGINAL session end
+            const apptTimeStr = appt.arriveByTime || appt.time;
+            const apptStart = parseTime(apptTimeStr, selectedDate);
+            const apptEnd = addMinutes(apptStart, doctor.averageConsultingTime || 15);
+
+            if (isAfter(apptEnd, originalEnd)) {
+                needed = true;
+                const extensionNeeded = differenceInMinutes(apptEnd, originalEnd);
+                if (extensionNeeded > maxExtensionNeeded) {
+                    maxExtensionNeeded = extensionNeeded;
+                }
+            }
+        });
+
+        return { needed, maxExtensionNeeded, currentExtensionDuration };
+    }, [currentSession, appointments, selectedDate, doctor]);
+
+    // Update effect to handle default toggle state based on utilization
+    useEffect(() => {
+        if (extensionUtilization.maxExtensionNeeded >= extensionUtilization.currentExtensionDuration && extensionUtilization.currentExtensionDuration > 0) {
+            // Fully needed: Must keep extension (so Cancel = false)
+            setShouldCancelExtension(false);
+        } else {
+            // Partial or None: Default to Cancel (true)
+            setShouldCancelExtension(true);
+        }
+    }, [extensionUtilization, cancelPrompt]); // Re-run when prompt opens or util changes
+
     const performBreakCancellation = useCallback((breakSlotsToCancel: number[], breakToRemove?: BreakPeriod) => {
         if (!doctor || !clinicId || breakSlotsToCancel.length === 0 || !breakToRemove) {
             return;
@@ -378,11 +432,24 @@ function ScheduleBreakContent() {
                     description: 'The break has been successfully removed.',
                 });
 
-                // Refresh UI
+                // Refresh UI - fetch fresh doctor and appointments data
                 const finalSnap = await getDoc(doctorRef);
                 if (finalSnap.exists()) {
                     setDoctor({ id: finalSnap.id, ...finalSnap.data() } as Doctor);
                 }
+
+                // Refresh appointments to show updated status
+                const dateStr = format(selectedDate, 'd MMMM yyyy');
+                const appointmentsQuery = query(
+                    collection(db, "appointments"),
+                    where("doctor", "==", doctor.name),
+                    where("clinicId", "==", clinicId),
+                    where("date", "==", dateStr)
+                );
+                const appointmentsSnapshot = await getDocs(appointmentsQuery);
+                const fetchedAppointments = appointmentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Appointment));
+                setAppointments(fetchedAppointments);
+
                 setBreakStartSlot(null);
                 setBreakEndSlot(null);
             }
@@ -1309,20 +1376,39 @@ function ScheduleBreakContent() {
 
                         <div className="space-y-6 py-4">
                             {currentSession && currentSession.effectiveEnd.getTime() !== currentSession.originalEnd.getTime() && (
-                                <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
-                                    <div className="space-y-0.5">
-                                        <Label className="text-base font-semibold">Cancel session extension</Label>
-                                        <p className="text-sm text-muted-foreground">
-                                            Remove the extra time added to the session's end for this break.
+                                extensionUtilization.maxExtensionNeeded >= extensionUtilization.currentExtensionDuration ? (
+                                    // Case 1: Fully utilized. Hide toggle, show message.
+                                    <div className="p-3 rounded-lg border bg-blue-50 text-blue-900 text-sm">
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-semibold">Session extension active</span>
+                                            <span className="text-xs bg-blue-200 px-2 py-0.5 rounded text-blue-800">Required</span>
+                                        </div>
+                                        <p className="mt-1">
+                                            The session extension ({extensionUtilization.currentExtensionDuration} min) is fully required by existing appointments and cannot be removed.
                                         </p>
                                     </div>
-                                    <Switch
-                                        checked={shouldCancelExtension}
-                                        onCheckedChange={setShouldCancelExtension}
-                                        labelOn="YES"
-                                        labelOff="NO"
-                                    />
-                                </div>
+                                ) : (
+                                    // Case 2: Partial or None. Show Toggle.
+                                    <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">
+                                        <div className="space-y-0.5">
+                                            <Label className="text-base font-semibold">Cancel session extension</Label>
+                                            <p className="text-sm text-muted-foreground">
+                                                Remove the extra time added to the session's end for this break.
+                                                {extensionUtilization.needed && (
+                                                    <span className="block text-yellow-600 font-medium mt-1">
+                                                        Note: Appointments use {extensionUtilization.maxExtensionNeeded} min of the extension. It will be trimmed to fit them.
+                                                    </span>
+                                                )}
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={shouldCancelExtension}
+                                            onCheckedChange={setShouldCancelExtension}
+                                            labelOn="YES"
+                                            labelOff="NO"
+                                        />
+                                    </div>
+                                )
                             )}
 
                             <div className="flex items-start justify-between space-x-4 p-3 rounded-lg border bg-muted/30">

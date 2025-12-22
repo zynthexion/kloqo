@@ -1673,11 +1673,22 @@ export default function DoctorsPage() {
       const updatedDoctor = {
         ...selectedDoctor,
         breakPeriods,
-
+        availabilityExtensions
       };
       setSelectedDoctor(updatedDoctor);
       setDoctors(prev => prev.map(d => d.id === updatedDoctor.id ? updatedDoctor : d));
       setExistingBreaks(remainingBreaks);
+
+      // Refresh appointments to show updated status
+      const appointmentsQuery = query(
+        collection(db, "appointments"),
+        where("doctor", "==", selectedDoctor.name),
+        where("clinicId", "==", selectedDoctor.clinicId),
+        where("date", "==", dateStr)
+      );
+      const appointmentsSnapshot = await getDocs(appointmentsQuery);
+      const fetchedAppointments = appointmentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Appointment));
+      setAppointments(fetchedAppointments);
 
     } catch (error) {
       console.error("Error cancelling break:", error);

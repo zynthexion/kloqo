@@ -134,6 +134,7 @@ type AppointmentFormValues = z.infer<typeof formSchema>;
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MAX_VISIBLE_SLOTS = 6;
+const SWIPE_COOLDOWN_MS = 120000;
 
 type WalkInEstimate = {
   estimatedTime: Date;
@@ -354,6 +355,7 @@ export default function AppointmentsPage() {
   const [appointmentToComplete, setAppointmentToComplete] = useState<Appointment | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showVisualView, setShowVisualView] = useState(false);
+  const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
 
   const [linkChannel, setLinkChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   const [isPreviewingWalkIn, setIsPreviewingWalkIn] = useState(false);
@@ -369,6 +371,18 @@ export default function AppointmentsPage() {
     const timerId = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timerId);
   }, []);
+
+  // Completion cooldown timer
+  useEffect(() => {
+    if (!swipeCooldownUntil) return;
+    const remaining = swipeCooldownUntil - Date.now();
+    if (remaining <= 0) {
+      setSwipeCooldownUntil(null);
+      return;
+    }
+    const timer = setTimeout(() => setSwipeCooldownUntil(null), remaining);
+    return () => clearTimeout(timer);
+  }, [swipeCooldownUntil]);
 
   // Check if Confirm Arrival button should be shown (show for all pending appointments)
   const shouldShowConfirmArrival = useCallback((appointment: Appointment): boolean => {
@@ -2292,8 +2306,10 @@ export default function AppointmentsPage() {
 
         await updateDoc(appointmentRef, {
           status: 'Completed',
-          completedAt: serverTimestamp()
+          completedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         });
+        setSwipeCooldownUntil(Date.now() + SWIPE_COOLDOWN_MS);
 
         // Increment consultation counter
         try {
@@ -2648,6 +2664,11 @@ export default function AppointmentsPage() {
           : appointmentTime;
 
         // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
+        // EXCEPT: Show raw time for Confirmed appointments (Arrived section)
+        if (appointment.status === 'Confirmed') {
+          return format(adjustedTime, 'hh:mm a');
+        }
+
         const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
         return format(finalTime, 'hh:mm a');
       }
@@ -2660,6 +2681,11 @@ export default function AppointmentsPage() {
           : appointmentTime;
 
         // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
+        // EXCEPT: Show raw time for Confirmed appointments (Arrived section)
+        if (appointment.status === 'Confirmed') {
+          return format(adjustedTime, 'hh:mm a');
+        }
+
         const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
         return format(finalTime, 'hh:mm a');
       }
@@ -4321,16 +4347,23 @@ export default function AppointmentsPage() {
                                       .filter(apt => apt.status === 'Confirmed')
                                       .map((appointment, index) => {
                                         const isBuffer = isInBufferQueue(appointment);
+                                        const isRejoined = !!appointment.skippedAt;
                                         return (
                                           <TableRow
                                             key={`${appointment.id}-${index}`}
                                             className={cn(
-                                              isBuffer && "bg-yellow-100 dark:bg-yellow-900/30"
+                                              isBuffer && "bg-yellow-100 dark:bg-yellow-900/30",
+                                              isRejoined && "bg-amber-500/50"
                                             )}
                                           >
                                             <TableCell className="font-medium">
                                               <div className="flex items-center gap-2">
                                                 {appointment.patientName}
+                                                {isRejoined && (
+                                                  <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                    S
+                                                  </Badge>
+                                                )}
                                                 {isBuffer && (
                                                   <Badge variant="outline" className="text-xs bg-yellow-200 border-yellow-400">
                                                     Buffer

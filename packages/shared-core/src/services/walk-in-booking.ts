@@ -17,6 +17,7 @@ import { format, parse, addMinutes, subMinutes, differenceInMinutes, isSameDay, 
 import { getServerFirebaseApp } from '@kloqo/shared-firebase';
 import { calculateWalkInDetails } from './walk-in.service';
 import { generateNextTokenAndReserveSlot } from './appointment-service';
+import { getClinicNow, getClinicDayOfWeek, getClinicDateString } from '../utils/date-utils';
 
 import type { Doctor } from '@kloqo/shared-types';
 
@@ -32,7 +33,7 @@ function buildSessionBreakIntervalsFromPeriods(
     sessionIndex: number | null | undefined
 ): BreakInterval[] {
     if (!doctor?.breakPeriods || !referenceDate || sessionIndex == null) return [];
-    const dateKey = format(referenceDate, 'd MMMM yyyy');
+    const dateKey = getClinicDateString(referenceDate);
     const breaksForDate = doctor.breakPeriods[dateKey] || [];
     return breaksForDate
         .filter((bp: any) => bp.sessionIndex === sessionIndex)
@@ -68,7 +69,7 @@ function getSessionEndForDate(
 ): Date | null {
     if (!doctor?.availabilitySlots || !referenceDate || sessionIndex == null) return null;
 
-    const dayOfWeek = format(referenceDate, 'EEEE');
+    const dayOfWeek = getClinicDayOfWeek(referenceDate);
     const availabilityForDay = doctor.availabilitySlots.find((slot: any) => slot.day === dayOfWeek);
     if (!availabilityForDay?.timeSlots?.length) return null;
     if (sessionIndex < 0 || sessionIndex >= availabilityForDay.timeSlots.length) return null;
@@ -76,7 +77,7 @@ function getSessionEndForDate(
     const session = availabilityForDay.timeSlots[sessionIndex];
     let sessionEnd = parse(session.to, 'hh:mm a', referenceDate);
 
-    const dateKey = format(referenceDate, 'd MMMM yyyy');
+    const dateKey = getClinicDateString(referenceDate);
     const extensions = (doctor as any).availabilityExtensions as
         | { [date: string]: { sessions: Array<{ sessionIndex: number; newEndTime?: string; totalExtendedBy?: number }> } }
         | undefined;
@@ -129,8 +130,8 @@ export async function handleWalkInBooking(payload: WalkInPayload) {
         throw new WalkInBookingError('Missing required fields', 400, 'MISSING_FIELDS');
     }
 
-    const appointmentDate = new Date();
-    const appointmentDateStr = format(appointmentDate, 'd MMMM yyyy');
+    const appointmentDate = getClinicNow();
+    const appointmentDateStr = getClinicDateString(appointmentDate);
 
     const duplicateCheckQuery = query(
         collection(firestore, 'appointments'),

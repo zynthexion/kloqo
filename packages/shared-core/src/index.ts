@@ -11,6 +11,7 @@ export * from './utils/break-helpers';
 export { previewWalkInPlacement, calculateWalkInDetails } from './services/walk-in.service';
 export * from './services/walk-in-scheduler';
 
+export * from './utils/date-utils';
 export * from './utils/errors';
 export * from './utils/error-emitter';
 

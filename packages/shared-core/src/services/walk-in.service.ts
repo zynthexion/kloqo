@@ -4,6 +4,7 @@ import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
+import { getClinicNow, getClinicDayOfWeek, getClinicDateString } from '../utils/date-utils';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
@@ -62,7 +63,7 @@ async function loadDoctorAndSlots(
     throw new Error('Doctor availability information is missing.');
   }
 
-  const dayOfWeek = format(date, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(date);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
@@ -74,7 +75,7 @@ async function loadDoctorAndSlots(
   let slotIndex = 0;
 
   // Check for availability extension (session-specific)
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const extensionForDate = doctor.availabilityExtensions?.[dateStr];
 
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
@@ -119,7 +120,7 @@ async function fetchDayAppointments(
   doctorName: string,
   date: Date
 ): Promise<Appointment[]> {
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const appointmentsRef = collection(firestore, 'appointments');
   const appointmentsQuery = query(
     appointmentsRef,
@@ -2821,7 +2822,7 @@ export async function calculateWalkInDetails(
   actualSlotTime: Date;
   isForceBooked?: boolean;
 }> {
-  const now = new Date();
+  const now = getClinicNow();
   const date = now;
 
   const { slots } = await loadDoctorAndSlots(
@@ -2999,7 +3000,7 @@ export async function calculateWalkInDetails(
       }
 
       // Determine session index (use last session)
-      const dayOfWeek = format(date, 'EEEE');
+      const dayOfWeek = getClinicDayOfWeek(date);
       const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
       const lastSessionIndex = availabilityForDay?.timeSlots?.length
         ? availabilityForDay.timeSlots.length - 1

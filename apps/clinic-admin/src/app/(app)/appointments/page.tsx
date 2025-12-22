@@ -4361,8 +4361,8 @@ export default function AppointmentsPage() {
                                               <div className="flex items-center gap-2">
                                                 {appointment.patientName}
                                                 {appointment.skippedAt && (
-                                                  <Badge variant="outline" className="text-xs bg-amber-200 border-amber-400 font-bold">
-                                                    S
+                                                  <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                    Late
                                                   </Badge>
                                                 )}
                                                 {isBuffer && (

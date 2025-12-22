@@ -331,8 +331,8 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                                     #{appt.tokenNumber} - {appt.patientName}
                                   </p>
                                   {appt.skippedAt && (
-                                    <Badge variant="outline" className="text-xs bg-amber-200 border-amber-400 font-bold">
-                                      S
+                                    <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                      Late
                                     </Badge>
                                   )}
                                 </div>

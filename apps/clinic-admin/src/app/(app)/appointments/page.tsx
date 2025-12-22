@@ -1868,7 +1868,7 @@ export default function AppointmentsPage() {
             sessionIndex: sessionIndex,
             createdAt: serverTimestamp(), // New appointment has new createdAt
             updatedAt: serverTimestamp(),
-            isRescheduled: isRescheduling ? true : undefined,
+            isRescheduled: isRescheduling ? true : false,
             cutOffTime: cutOffTime,
             noShowTime: noShowTime,
             ...(inheritedDelay > 0 && { delay: inheritedDelay }),

@@ -2958,6 +2958,83 @@ export async function calculateWalkInDetails(
     }
   });
 
+  // ============================================================================
+  // PREVIEW ACCURACY FIX: Check existing reservations
+  // ============================================================================
+  // Read existing slot reservations to match booking behavior
+  // This ensures preview shows accurate time by accounting for reserved slots
+  const reservedSlots = new Set<number>();
+  const maxSlotToCheck = Math.min(slots.length + 50, 200); // Check reasonable range
+  const dateStr = getClinicDateString(date);
+
+  // Batch read reservations for better performance
+  const reservationChecks: Promise<{ slotIdx: number; snap: DocumentSnapshot }>[] = [];
+
+  for (let slotIdx = 0; slotIdx < maxSlotToCheck; slotIdx++) {
+    const reservationId = buildReservationDocId(
+      doctor.clinicId || '',
+      doctor.name,
+      dateStr,
+      slotIdx
+    );
+
+    reservationChecks.push(
+      getDoc(doc(firestore, 'slot-reservations', reservationId))
+        .then(snap => ({ slotIdx, snap }))
+        .catch(() => ({ slotIdx, snap: null as any }))
+    );
+  }
+
+  // Wait for all reservation checks to complete
+  const reservationResults = await Promise.all(reservationChecks);
+
+  // Process reservation results
+  reservationResults.forEach(({ slotIdx, snap }) => {
+    if (!snap || !snap.exists()) return;
+
+    try {
+      const data = snap.data();
+      const reservedAt = data?.reservedAt;
+
+      if (!reservedAt) return;
+
+      // Parse reservation time
+      let reservedTime: Date | null = null;
+      if (typeof reservedAt.toDate === 'function') {
+        reservedTime = reservedAt.toDate();
+      } else if (reservedAt instanceof Date) {
+        reservedTime = reservedAt;
+      } else if (reservedAt.seconds) {
+        reservedTime = new Date(reservedAt.seconds * 1000);
+      }
+
+      if (!reservedTime) return;
+
+      // Check if reservation is still valid (not stale)
+      const ageInSeconds = (now.getTime() - reservedTime.getTime()) / 1000;
+      const isBooked = data.status === 'booked';
+      const threshold = isBooked ? 300 : 30; // 5 minutes for booked, 30 seconds for temporary
+
+      if (ageInSeconds <= threshold) {
+        // Skip reservations from advance booking (they don't block walk-ins in actual booking)
+        const reservedBy = data?.reservedBy as string | undefined;
+        if (reservedBy !== 'appointment-booking') {
+          reservedSlots.add(slotIdx);
+        }
+      }
+    } catch (e) {
+      // Ignore parsing errors, continue with other slots
+    }
+  });
+
+  // Add reserved slots to blocked appointments so scheduler avoids them
+  reservedSlots.forEach(slotIdx => {
+    blockedAdvanceAppointments.push({
+      id: `__reserved_${slotIdx}`,
+      slotIndex: slotIdx
+    });
+  });
+
   let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
   try {

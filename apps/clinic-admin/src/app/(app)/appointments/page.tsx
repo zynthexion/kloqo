@@ -134,7 +134,7 @@ type AppointmentFormValues = z.infer<typeof formSchema>;
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MAX_VISIBLE_SLOTS = 6;
-const SWIPE_COOLDOWN_MS = 120000;
+const SWIPE_COOLDOWN_MS = 2 * 60 * 1000;
 
 type WalkInEstimate = {
   estimatedTime: Date;
@@ -354,8 +354,8 @@ export default function AppointmentsPage() {
   const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
   const [appointmentToComplete, setAppointmentToComplete] = useState<Appointment | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [showVisualView, setShowVisualView] = useState(false);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
+  const [showVisualView, setShowVisualView] = useState(false);
 
   const [linkChannel, setLinkChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   const [isPreviewingWalkIn, setIsPreviewingWalkIn] = useState(false);
@@ -372,16 +372,14 @@ export default function AppointmentsPage() {
     return () => clearInterval(timerId);
   }, []);
 
-  // Completion cooldown timer
+  // Cooldown effect
   useEffect(() => {
-    if (!swipeCooldownUntil) return;
-    const remaining = swipeCooldownUntil - Date.now();
-    if (remaining <= 0) {
+    if (swipeCooldownUntil === null) return;
+    const remaining = Math.max(0, swipeCooldownUntil - Date.now());
+    const timeout = window.setTimeout(() => {
       setSwipeCooldownUntil(null);
-      return;
-    }
-    const timer = setTimeout(() => setSwipeCooldownUntil(null), remaining);
-    return () => clearTimeout(timer);
+    }, remaining);
+    return () => clearTimeout(timeout);
   }, [swipeCooldownUntil]);
 
   // Check if Confirm Arrival button should be shown (show for all pending appointments)
@@ -2306,10 +2304,8 @@ export default function AppointmentsPage() {
 
         await updateDoc(appointmentRef, {
           status: 'Completed',
-          completedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          completedAt: serverTimestamp()
         });
-        setSwipeCooldownUntil(Date.now() + SWIPE_COOLDOWN_MS);
 
         // Increment consultation counter
         try {
@@ -2349,6 +2345,8 @@ export default function AppointmentsPage() {
           title: "Appointment Marked as Completed",
           description: delayMinutes > 0 ? `Consultation exceeded the average by ${delayMinutes} minute${delayMinutes === 1 ? "" : "s"}.` : undefined
         });
+
+        setSwipeCooldownUntil(Date.now() + SWIPE_COOLDOWN_MS);
       } catch (error) {
         console.error("Error completing appointment:", error);
         toast({ variant: "destructive", title: "Error", description: "Failed to mark as completed." });
@@ -2645,6 +2643,9 @@ export default function AppointmentsPage() {
 
   // Helper function to get display time with break offsets
   const getDisplayTimeForAppointment = useCallback((appointment: Appointment): string => {
+    if (appointment.status === 'Confirmed') {
+      return appointment.time || '';
+    }
     try {
       const appointmentDate = parse(appointment.date, "d MMMM yyyy", new Date());
       const appointmentTime = parseDateFns(appointment.time, "hh:mm a", appointmentDate);
@@ -2664,11 +2665,6 @@ export default function AppointmentsPage() {
           : appointmentTime;
 
         // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
-        // EXCEPT: Show raw time for Confirmed appointments (Arrived section)
-        if (appointment.status === 'Confirmed') {
-          return format(adjustedTime, 'hh:mm a');
-        }
-
         const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
         return format(finalTime, 'hh:mm a');
       }
@@ -2681,11 +2677,6 @@ export default function AppointmentsPage() {
           : appointmentTime;
 
         // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
-        // EXCEPT: Show raw time for Confirmed appointments (Arrived section)
-        if (appointment.status === 'Confirmed') {
-          return format(adjustedTime, 'hh:mm a');
-        }
-
         const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
         return format(finalTime, 'hh:mm a');
       }
@@ -4329,9 +4320,16 @@ export default function AppointmentsPage() {
                             <div className="space-y-6 p-4">
                               {/* Arrived Section (Confirmed) */}
                               <div>
-                                <div className="mb-3 flex items-center gap-2">
-                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                  <h3 className="font-semibold text-sm">Arrived ({todaysAppointments.filter(apt => apt.status === 'Confirmed').length})</h3>
+                                <div className="mb-3 flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                    <h3 className="font-semibold text-sm">Arrived ({todaysAppointments.filter(apt => apt.status === 'Confirmed').length})</h3>
+                                  </div>
+                                  {swipeCooldownUntil !== null && (
+                                    <div className="text-[10px] text-amber-600 font-medium px-2 bg-amber-50 rounded border border-amber-200 animate-pulse">
+                                      Compliance check: Completion enabled in {Math.ceil((swipeCooldownUntil - Date.now()) / 1000)}s
+                                    </div>
+                                  )}
                                 </div>
                                 <Table>
                                   <TableHeader>
@@ -4347,20 +4345,19 @@ export default function AppointmentsPage() {
                                       .filter(apt => apt.status === 'Confirmed')
                                       .map((appointment, index) => {
                                         const isBuffer = isInBufferQueue(appointment);
-                                        const isRejoined = !!appointment.skippedAt;
                                         return (
                                           <TableRow
                                             key={`${appointment.id}-${index}`}
                                             className={cn(
                                               isBuffer && "bg-yellow-100 dark:bg-yellow-900/30",
-                                              isRejoined && "bg-amber-500/50"
+                                              appointment.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50"
                                             )}
                                           >
                                             <TableCell className="font-medium">
                                               <div className="flex items-center gap-2">
                                                 {appointment.patientName}
-                                                {isRejoined && (
-                                                  <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                {appointment.skippedAt && (
+                                                  <Badge variant="outline" className="text-xs bg-amber-200 border-amber-400 font-bold">
                                                     S
                                                   </Badge>
                                                 )}
@@ -4385,15 +4382,19 @@ export default function AppointmentsPage() {
                                                             size="icon"
                                                             className="p-0 h-auto text-amber-600 hover:text-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                                             onClick={() => handleSkip(appointment)}
-                                                            disabled={!isDoctorInConsultation}
+                                                            disabled={!isDoctorInConsultation || swipeCooldownUntil !== null}
                                                           >
                                                             <SkipForward className="h-5 w-5" />
                                                           </Button>
                                                         </div>
                                                       </TooltipTrigger>
-                                                      {!isDoctorInConsultation && (
+                                                      {(!isDoctorInConsultation || swipeCooldownUntil !== null) && (
                                                         <TooltipContent>
-                                                          <p>Doctor is not in consultation.</p>
+                                                          <p>
+                                                            {!isDoctorInConsultation
+                                                              ? "Doctor is not in consultation."
+                                                              : "Please wait for compliance cooldown."}
+                                                          </p>
                                                         </TooltipContent>
                                                       )}
                                                     </Tooltip>
@@ -4408,15 +4409,19 @@ export default function AppointmentsPage() {
                                                           size="icon"
                                                           className="p-0 h-auto text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                                           onClick={() => setAppointmentToComplete(appointment)}
-                                                          disabled={!isDoctorInConsultation}
+                                                          disabled={!isDoctorInConsultation || swipeCooldownUntil !== null}
                                                         >
                                                           <CheckCircle2 className="h-5 w-5" />
                                                         </Button>
                                                       </div>
                                                     </TooltipTrigger>
-                                                    {!isDoctorInConsultation && (
+                                                    {(!isDoctorInConsultation || swipeCooldownUntil !== null) && (
                                                       <TooltipContent>
-                                                        <p>Doctor is not in consultation.</p>
+                                                        <p>
+                                                          {!isDoctorInConsultation
+                                                            ? "Doctor is not in consultation."
+                                                            : "Please wait for compliance cooldown."}
+                                                        </p>
                                                       </TooltipContent>
                                                     )}
                                                   </Tooltip>

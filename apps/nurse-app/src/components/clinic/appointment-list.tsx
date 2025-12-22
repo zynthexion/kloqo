@@ -248,7 +248,8 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                       isSwiping && 'text-white',
                       !isSwiping && "border-border shadow-sm",
                       !isSwiping && isBuffer && "bg-yellow-100 dark:bg-yellow-900/30 border-yellow-400",
-                      !isSwiping && !isBuffer && bgColor
+                      !isSwiping && appt.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50 border-amber-400",
+                      !isSwiping && !isBuffer && !appt.skippedAt && bgColor
                     )}
                     style={getSwipeStyle(appt.id)}
                     onMouseDown={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
@@ -269,7 +270,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             <div className="flex justify-between items-center">
                               <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
                                 {appt.date && `${appt.date} - `}
-                                {getDisplayTime(appt)}
+                                {appt.status === 'Confirmed' ? appt.time : getDisplayTime(appt)}
                               </Badge>
                               {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
@@ -325,9 +326,16 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             </div>
                             <div className="flex justify-between items-start mt-1">
                               <div className="flex items-center gap-2">
-                                <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
-                                  #{appt.tokenNumber} - {appt.patientName}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
+                                    #{appt.tokenNumber} - {appt.patientName}
+                                  </p>
+                                  {appt.skippedAt && (
+                                    <Badge variant="outline" className="text-xs bg-amber-200 border-amber-400 font-bold">
+                                      S
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
                             </div>
 

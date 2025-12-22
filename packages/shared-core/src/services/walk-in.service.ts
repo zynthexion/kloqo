@@ -3006,14 +3006,7 @@ export async function calculateWalkInDetails(
   // Wait for all reservation checks to complete
   const reservationResults = await Promise.all(reservationChecks);
 
-  // DEBUG: Log what we're checking
-  console.log('[PREVIEW DEBUG] Checking reservations for:', {
-    doctor: doctor.name,
-    clinicId: doctor.clinicId,
-    date: dateStr,
-    maxSlots: maxSlotToCheck,
-    sampleReservationId: buildReservationDocId(doctor.clinicId || '', doctor.name, dateStr, 0)
-  });
+
 
   // Process reservation results
   reservationResults.forEach(({ slotIdx, snap }) => {
@@ -3048,15 +3041,7 @@ export async function calculateWalkInDetails(
         if (reservedBy !== 'appointment-booking') {
           reservedSlots.add(slotIdx);
 
-          // DEBUG: Log found reservation
-          console.log('[PREVIEW DEBUG] Found valid reservation:', {
-            slotIdx,
-            reservedBy,
-            ageInSeconds,
-            threshold,
-            status: data.status,
-            doctorName: data.doctorName
-          });
+
         }
       }
     } catch (e) {
@@ -3072,39 +3057,9 @@ export async function calculateWalkInDetails(
     });
   });
 
-  // DEBUG: Log reserved slots found
-  if (reservedSlots.size > 0) {
-    console.log('[PREVIEW DEBUG] Reserved slots found:', {
-      reservedSlots: Array.from(reservedSlots),
-      blockedCount: blockedAdvanceAppointments.length,
-      doctor: doctor.name,
-      date: getClinicDateString(date)
-    });
-  }
-
   let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
-  // DEBUG: Log scheduler input
-  console.log('[PREVIEW DEBUG] Calling scheduler with:', {
-    slotsCount: slots.length,
-    walkInTokenAllotment: walkInTokenAllotment || 0,
-    blockedAdvanceCount: blockedAdvanceAppointments.length,
-    blockedAdvanceDetails: blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })),
-    walkInCandidatesCount: activeWalkInCandidates.length,
-    walkInCandidatesDetails: activeWalkInCandidates.map(w => ({
-      id: w.id,
-      numericToken: w.numericToken,
-      currentSlotIndex: 'currentSlotIndex' in w ? w.currentSlotIndex : undefined
-    }))
-  });
 
-  console.log('[PREVIEW DEBUG] Walk-in candidates:', JSON.stringify(
-    activeWalkInCandidates.map(w => ({
-      id: w.id,
-      token: w.numericToken,
-      currentSlot: 'currentSlotIndex' in w ? w.currentSlotIndex : undefined
-    })), null, 2
-  ));
 
   try {
     schedule = computeWalkInSchedule({
@@ -3132,14 +3087,7 @@ export async function calculateWalkInDetails(
     chosenSessionIndex = newAssignment.sessionIndex;
     chosenTime = newAssignment.slotTime;
 
-    // DEBUG: Log scheduler assignment
-    console.log('[PREVIEW DEBUG] Scheduler assigned slot:', {
-      slotIndex: chosenSlotIndex,
-      slotTime: format(chosenTime, 'hh:mm a'),
-      sessionIndex: chosenSessionIndex,
-      doctor: doctor.name,
-      allAssignments: schedule?.assignments.length
-    });
+
   }
 
   if (!newAssignment || chosenSlotIndex === -1) {

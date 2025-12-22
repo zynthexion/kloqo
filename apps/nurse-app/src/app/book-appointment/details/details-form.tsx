@@ -892,6 +892,17 @@ function AppointmentDetailsFormContent() {
                                     <p className="font-semibold">{getArriveByTime(format(bookingDate, "hh:mm a"), bookingDate)}</p>
                                 </div>
                             </div>
+                            {doctor.consultationFee && (
+                                <div className="flex items-center gap-4 pt-4 border-t">
+                                    <div className="h-5 w-5 flex items-center justify-center text-muted-foreground">
+                                        ₹
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Consultation Fee</p>
+                                        <p className="font-semibold text-lg">₹{doctor.consultationFee}</p>
+                                    </div>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </div>

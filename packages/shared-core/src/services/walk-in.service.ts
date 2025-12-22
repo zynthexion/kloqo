@@ -2900,11 +2900,14 @@ export async function calculateWalkInDetails(
 
 
   const activeWalkInCandidates = [
+    // CRITICAL FIX: Don't include currentSlotIndex for existing walk-ins in PREVIEW
+    // This prevents the scheduler from trying to keep them in past slots
+    // which would push the new walk-in too far into the future
     ...activeWalkIns.map(appointment => ({
       id: appointment.id,
       numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : Number(appointment.numericToken) || 0,
       createdAt: toDate(appointment.createdAt),
-      currentSlotIndex: appointment.slotIndex,
+      // Don't include currentSlotIndex - let scheduler place all walk-ins fresh
     })),
     {
       id: '__new_walk_in__',

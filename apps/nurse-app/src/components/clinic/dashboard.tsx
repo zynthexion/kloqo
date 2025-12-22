@@ -417,11 +417,11 @@ export default function ClinicDashboard() {
         }
 
         let newTimeDate: Date;
-        if (isPast(scheduledTime)) {
-          // Current time past the 'time' -> noShowTime + 15 minutes
+        if (isAfter(now, scheduledTime)) {
+          // Current time past the original slot time -> penalty (noShowTime + 15 mins)
           newTimeDate = addMinutes(noShowDate, 15);
         } else {
-          // Current time didn't pass 'time' -> noShowTime
+          // Current time before original slot time -> use noShowTime (no penalty)
           newTimeDate = noShowDate;
         }
 

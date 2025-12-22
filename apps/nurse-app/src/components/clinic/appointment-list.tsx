@@ -269,7 +269,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             <div className="flex justify-between items-center">
                               <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
                                 {appt.date && `${appt.date} - `}
-                                {getDisplayTime(appt)}
+                                {appt.status === 'Confirmed' ? appt.time : getDisplayTime(appt)}
                               </Badge>
                               {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (

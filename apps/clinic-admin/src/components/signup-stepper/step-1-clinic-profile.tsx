@@ -203,7 +203,7 @@ export function Step1ClinicProfile() {
             <FormItem>
               <FormLabel>Walk-in Token Allotment</FormLabel>
               <FormControl>
-                <Input type="number" min="2" placeholder="e.g., 5" {...field} value={field.value ?? ''} />
+                <Input type="number" min="2" max="10" placeholder="e.g., 5" {...field} value={field.value ?? ''} />
               </FormControl>
               <p className="text-xs text-muted-foreground">Allot one walk-in token after every 'X' advanced tokens</p>
               <FormMessage />

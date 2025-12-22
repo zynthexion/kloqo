@@ -8,10 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import type { SignUpFormData } from '@/app/(public)/signup/page';
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '../ui/form';
 import { Button } from '../ui/button';
-import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Loader2, AlertCircle, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from 'firebase/auth';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 declare global {
@@ -22,7 +23,7 @@ declare global {
 }
 
 export function Step2OwnerInfo({ onVerified }: { onVerified: () => void }) {
-  const { control, watch, formState: { errors }, setValue } = useFormContext<SignUpFormData>();
+  const { control, watch, formState: { errors }, setValue, setError, clearErrors, getValues } = useFormContext<SignUpFormData>();
   const { toast } = useToast();
 
   const recaptchaContainerRef = useRef<HTMLDivElement>(null);
@@ -33,6 +34,7 @@ export function Step2OwnerInfo({ onVerified }: { onVerified: () => void }) {
   const [isSending, setIsSending] = useState(false);
   const [captchaFailed, setCaptchaFailed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
 
   const mobileNumber = watch('mobileNumber');
   const isMobileNumberValid = !errors.mobileNumber && mobileNumber?.length === 10;
@@ -109,6 +111,7 @@ export function Step2OwnerInfo({ onVerified }: { onVerified: () => void }) {
     try {
       await window.confirmationResult.confirm(otp);
       toast({ title: "Verification Successful", description: "Your mobile number has been verified." });
+      setIsVerified(true);
       onVerified();
       setOtpSent(false); // Hide OTP UI
     } catch (error) {
@@ -126,6 +129,32 @@ export function Step2OwnerInfo({ onVerified }: { onVerified: () => void }) {
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, ''); // Remove non-digit characters
     setValue('mobileNumber', value.slice(0, 10)); // Limit to 10 digits
+  };
+
+  const handleEmailBlur = async () => {
+    const email = getValues('emailAddress');
+    if (!email || errors.emailAddress) return;
+
+    try {
+      const q = query(
+        collection(db, 'users'),
+        where('email', '==', email),
+        where('role', '==', 'clinicAdmin')
+      );
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        setError('emailAddress', {
+          type: 'manual',
+          message: 'This email is already registered as a Clinic Admin. Please use a different email.',
+        });
+      } else {
+        clearErrors('emailAddress'); // Clear error if email is unique
+      }
+    } catch (error) {
+      console.error("Error checking email uniqueness:", error);
+      // Optionally handle error, e.g., show a toast or ignore
+    }
   };
 
 
@@ -201,11 +230,17 @@ export function Step2OwnerInfo({ onVerified }: { onVerified: () => void }) {
                       />
                     </FormControl>
                   </div>
-                  {!otpSent && (
+                  {!otpSent && !isVerified && (
                     <Button type="button" onClick={handleSendOtp} disabled={!isMobileNumberValid || isSending}>
                       {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                       Send OTP
                     </Button>
+                  )}
+                  {isVerified && (
+                    <div className="flex items-center text-green-600 font-medium">
+                      <CheckCircle2 className="mr-2 h-5 w-5" />
+                      Verified
+                    </div>
                   )}
                 </div>
                 <FormMessage />
@@ -244,7 +279,10 @@ export function Step2OwnerInfo({ onVerified }: { onVerified: () => void }) {
             <FormItem>
               <FormLabel>Email Address <span className="text-destructive">*</span></FormLabel>
               <FormControl>
-                <Input type="email" placeholder="clinic@carewell.in" {...field} />
+                <Input type="email" placeholder="clinic@carewell.in" {...field} onBlur={(e) => {
+                  field.onBlur(); // Call original onBlur from react-hook-form
+                  handleEmailBlur();
+                }} />
               </FormControl>
               <FormMessage />
             </FormItem>

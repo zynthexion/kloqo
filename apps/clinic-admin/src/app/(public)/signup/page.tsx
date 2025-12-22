@@ -66,7 +66,7 @@ const signupSchema = z.object({
   clinicRegNumber: z.string().optional().transform(v => v ? toUpperCase(v) : v),
   latitude: z.coerce.number().min(-90, "Invalid latitude").max(90, "Invalid latitude"),
   longitude: z.coerce.number().min(-180, "Invalid longitude").max(180, "Invalid longitude"),
-  walkInTokenAllotment: z.coerce.number().min(2, "Value must be at least 2."),
+  walkInTokenAllotment: z.coerce.number().min(2, "Value must be at least 2.").max(10, "Value cannot exceed 10."),
 
   // Step 2
   ownerName: z.string()

@@ -62,6 +62,7 @@ import { AddRelativeDialog } from "@/components/patients/add-relative-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { errorEmitter } from "@/firebase/error-emitter";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -4326,9 +4327,12 @@ export default function AppointmentsPage() {
                                     <h3 className="font-semibold text-sm">Arrived ({todaysAppointments.filter(apt => apt.status === 'Confirmed').length})</h3>
                                   </div>
                                   {swipeCooldownUntil !== null && (
-                                    <div className="text-[10px] text-amber-600 font-medium px-2 bg-amber-50 rounded border border-amber-200 animate-pulse">
-                                      Compliance check: Completion enabled in {Math.ceil((swipeCooldownUntil - Date.now()) / 1000)}s
-                                    </div>
+                                    <Alert className="mb-4 bg-amber-50 border-amber-200">
+                                      <Clock className="h-4 w-4 text-amber-600" />
+                                      <AlertDescription className="text-amber-800 text-sm">
+                                        Completion button is temporarily disabled for 2 minutes after each completion.
+                                      </AlertDescription>
+                                    </Alert>
                                   )}
                                 </div>
                                 <Table>

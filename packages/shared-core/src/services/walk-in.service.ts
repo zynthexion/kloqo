@@ -3066,6 +3066,20 @@ export async function calculateWalkInDetails(
 
   let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
+  // DEBUG: Log scheduler input
+  console.log('[PREVIEW DEBUG] Calling scheduler with:', {
+    slotsCount: slots.length,
+    walkInTokenAllotment: walkInTokenAllotment || 0,
+    blockedAdvanceCount: blockedAdvanceAppointments.length,
+    blockedAdvanceDetails: blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })),
+    walkInCandidatesCount: activeWalkInCandidates.length,
+    walkInCandidatesDetails: activeWalkInCandidates.map(w => ({
+      id: w.id,
+      numericToken: w.numericToken,
+      currentSlotIndex: w.currentSlotIndex
+    }))
+  });
+
   try {
     schedule = computeWalkInSchedule({
       slots,

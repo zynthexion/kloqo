@@ -61,7 +61,6 @@ export function useDoctorStatusUpdater() {
         const appointmentsQuery = query(
           collection(db, "appointments"),
           where("clinicId", "==", clinicId),
-          where("date", "==", todayStr),
           where("status", "in", ACTIVE_APPOINTMENT_STATUSES)
         );
         const [doctorsSnapshot, appointmentsSnapshot] = await Promise.all([
@@ -92,10 +91,6 @@ export function useDoctorStatusUpdater() {
         let batchHasWrites = false;
 
         for (const doctor of doctors) {
-          if (doctor.consultationStatus !== 'In') {
-            continue;
-          }
-
           const todaysAvailability = doctor.availabilitySlots?.find(s =>
             s.day.toLowerCase() === todayDay.toLowerCase()
           );
@@ -144,6 +139,10 @@ export function useDoctorStatusUpdater() {
               }
             }
           });
+
+          if (doctor.consultationStatus !== 'In') {
+            continue;
+          }
 
           let isWithinAnySlot = false;
           if (todaysAvailability?.timeSlots?.length) {

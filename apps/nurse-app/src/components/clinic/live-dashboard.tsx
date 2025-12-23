@@ -341,13 +341,16 @@ export default function LiveDashboard() {
 
         let newTimeStr: string;
 
+        const noShowTime = (appointment.noShowTime as any)?.toDate
+          ? (appointment.noShowTime as any).toDate()
+          : parseTime(appointment.noShowTime!, appointmentDate);
+
         if (isAfter(now, scheduledTime)) {
           // If rejoined after scheduled time, give noShowTime + 15 mins
-          const noShowTime = parseTime(appointment.noShowTime!, appointmentDate);
           newTimeStr = format(addMinutes(noShowTime, 15), 'hh:mm a');
         } else {
           // If rejoined before scheduled time, give noShowTime
-          newTimeStr = appointment.noShowTime!;
+          newTimeStr = format(noShowTime, 'hh:mm a');
         }
 
         const appointmentRef = doc(db, 'appointments', appointment.id);

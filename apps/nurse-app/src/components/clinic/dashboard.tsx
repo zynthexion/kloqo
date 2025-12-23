@@ -4,7 +4,7 @@
 import { useState, useMemo, useEffect, useCallback, useTransition } from 'react';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { format, isPast, addMinutes, parse } from 'date-fns';
+import { format, isPast, addMinutes, parse, isAfter } from 'date-fns';
 import { collection, getDocs, query, onSnapshot, doc, updateDoc, Query, where, writeBatch, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -409,13 +409,10 @@ export default function ClinicDashboard() {
         const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
         const scheduledTime = parseTime(appointment.time, appointmentDate);
 
-        // Handle noShowTime as Firestore Timestamp or Date
-        let noShowDate: Date;
-        if ((appointment.noShowTime as any)?.toDate) {
-          noShowDate = (appointment.noShowTime as any).toDate();
-        } else {
-          noShowDate = new Date(appointment.noShowTime as any);
-        }
+        // Handle noShowTime as Firestore Timestamp or string
+        const noShowDate = (appointment.noShowTime as any)?.toDate
+          ? (appointment.noShowTime as any).toDate()
+          : parseTime(appointment.noShowTime!, appointmentDate);
 
         let newTimeDate: Date;
         if (isAfter(now, scheduledTime)) {

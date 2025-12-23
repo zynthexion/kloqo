@@ -1468,10 +1468,22 @@ export async function prepareAdvanceShift({
   const existingReservations = new Map<number, Date>();
   const staleReservationsToDelete: DocumentReference[] = [];
 
+  const reservationReadPromises: Promise<DocumentSnapshot>[] = [];
+  const reservationRefs: DocumentReference[] = [];
+
   for (let slotIdx = 0; slotIdx <= maxSlotToRead; slotIdx += 1) {
     const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIdx);
     const reservationRef = doc(firestore, 'slot-reservations', reservationId);
-    const reservationSnapshot = await transaction.get(reservationRef);
+    reservationRefs.push(reservationRef);
+    reservationReadPromises.push(transaction.get(reservationRef));
+  }
+
+  const reservationSnapshots = await Promise.all(reservationReadPromises);
+
+  for (let i = 0; i < reservationSnapshots.length; i += 1) {
+    const reservationSnapshot = reservationSnapshots[i];
+    const reservationRef = reservationRefs[i];
+    const slotIdx = i;
 
     if (reservationSnapshot.exists()) {
       const reservationData = reservationSnapshot.data();

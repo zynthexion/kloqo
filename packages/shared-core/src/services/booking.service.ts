@@ -155,6 +155,7 @@ export async function completeStaffWalkInBooking(
             effectiveAppointments,
             totalSlots: doctorData.slots.length,
             newWalkInNumericToken: nextWalkInNumericToken,
+            forceBook: isForceBooked,
         });
 
         if (!shiftPlan.newAssignment) {
@@ -357,6 +358,7 @@ export async function completePatientWalkInBooking(
             effectiveAppointments,
             totalSlots: doctorData.slots.length,
             newWalkInNumericToken: nextWalkInNumericToken,
+            forceBook: false,
         });
 
         if (!shiftPlan.newAssignment) {

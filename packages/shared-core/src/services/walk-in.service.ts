@@ -1393,6 +1393,7 @@ export async function prepareAdvanceShift({
   effectiveAppointments,
   totalSlots,
   newWalkInNumericToken,
+  forceBook,
 }: {
   transaction: Transaction;
   firestore: Firestore;
@@ -1406,6 +1407,7 @@ export async function prepareAdvanceShift({
   effectiveAppointments: Appointment[];
   totalSlots: number;
   newWalkInNumericToken: number;
+  forceBook?: boolean;
 }): Promise<{
   newAssignment: SchedulerAssignment | null;
   reservationDeletes: DocumentReference[];
@@ -2166,7 +2168,8 @@ export async function prepareAdvanceShift({
 
   // Strategy 4: If normal scheduling fails and all slots are filled, check bucket count
   // Bucket count is calculated on-the-fly, so we can use it directly
-  if (!scheduleAttempt && allSlotsFilled && hasExistingWalkIns && firestoreBucketCount > 0) {
+  // OR if forceBook is true - manually force an overflow slot
+  if (!scheduleAttempt && ((allSlotsFilled && hasExistingWalkIns && firestoreBucketCount > 0) || forceBook)) {
     // CRITICAL: Re-calculate bucket count within transaction to prevent concurrent usage
     // Count walk-ins placed outside availability (they're "using" bucket slots)
     const walkInsOutsideAvailabilityInTx = effectiveAppointments.filter(appt => {
@@ -2181,7 +2184,8 @@ export async function prepareAdvanceShift({
     const effectiveBucketCountInTx = Math.max(0, bucketCount - usedBucketSlotsInTx);
 
     // If bucket count is now 0, another concurrent request used it - fail and retry
-    if (effectiveBucketCountInTx <= 0) {
+    // skip this check if forceBook is true
+    if (!forceBook && effectiveBucketCountInTx <= 0) {
       console.warn('[Walk-in Scheduling] Bucket count became 0 during transaction - concurrent request used it', {
         originalBucketCount: firestoreBucketCount,
         bucketCountInTx: effectiveBucketCountInTx,

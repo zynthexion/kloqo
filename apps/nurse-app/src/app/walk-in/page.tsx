@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking } from '@kloqo/shared-core';
 
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, type BreakInterval } from '@kloqo/shared-core';
@@ -850,9 +850,7 @@ function WalkInRegistrationContent() {
   );
 
   const handleProceedToToken = async () => {
-    if (isSubmitting) {
-      return;
-    }
+    if (isSubmitting) return;
 
     if (!appointmentToSave || !doctor || !clinicId) {
       toast({ variant: 'destructive', title: 'Error', description: 'No appointment data to save.' });
@@ -862,350 +860,59 @@ function WalkInRegistrationContent() {
     setIsSubmitting(true);
 
     try {
-      const bookingDate = new Date();
-      const reservation = await generateNextTokenAndReserveSlot(
-        db, // CRITICAL: First parameter must be firestore instance
+      const result = await completeStaffWalkInBooking(db, {
         clinicId,
-        doctor.name,
-        bookingDate,
-        'W',
-        {
-          slotIndex: appointmentToSave.slotIndex,
-          doctorId: doctor.id,
-          isForceBooked: appointmentToSave.isForceBooked
-        }
-      );
-
-      // Use the time directly from the reservation (already calculated, including for bucket slots)
-      // For bucket compensation slots (outside availability), resolveSlotDetails would fail
-      // but generateNextTokenAndReserveSlot already calculates the correct time
-      let appointmentTimeDate: Date;
-      let sessionIndexForAppointment: number;
-
-      if (reservation.time) {
-        // Time is provided - use it directly (this handles bucket slots outside availability)
-        const appointmentDateObj = parse(format(bookingDate, 'd MMMM yyyy'), 'd MMMM yyyy', bookingDate);
-        appointmentTimeDate = parseTime(reservation.time, appointmentDateObj);
-        sessionIndexForAppointment = reservation.sessionIndex;
-      } else {
-        // Fallback: try to resolve from slotIndex if time not provided
-        const slotDetails = resolveSlotDetails(reservation.slotIndex, bookingDate);
-        if (!slotDetails) {
-          throw new Error('Unable to resolve doctor availability for the selected slot.');
-        }
-        appointmentTimeDate = slotDetails.time;
-        sessionIndexForAppointment = slotDetails.sessionIndex;
-      }
-
-      // Use session-aware break intervals and validation
-      const appointmentDateOnly = parse(format(bookingDate, 'd MMMM yyyy'), 'd MMMM yyyy', bookingDate);
-      const sessionBreakIntervals = getSessionBreakIntervals(doctor, appointmentDateOnly, sessionIndexForAppointment);
-      const adjustedAppointmentTime = sessionBreakIntervals.length > 0
-        ? applyBreakOffsets(appointmentTimeDate, sessionBreakIntervals)
-        : appointmentTimeDate;
-
-      // Validate that appointment end time (adjustedAppointmentTime + consultationTime) doesn't exceed session end
-      const sessionEffectiveEnd = getSessionEnd(doctor, appointmentDateOnly, sessionIndexForAppointment);
-      // Only check availability end if NOT force booked
-      if (sessionEffectiveEnd && !appointmentToSave?.isForceBooked) {
-        const consultationTime = doctor.averageConsultingTime || 15;
-        const appointmentEndTime = addMinutes(adjustedAppointmentTime, consultationTime);
-        if (isAfter(appointmentEndTime, sessionEffectiveEnd)) {
-          if (reservation.reservationId) {
-            await releaseReservation(reservation.reservationId);
-          }
-          toast({
-            variant: 'destructive',
-            title: 'Booking Not Allowed',
-            description: `This walk-in time (~${format(adjustedAppointmentTime, 'hh:mm a')}) is outside the doctor's availability (ends at ${format(sessionEffectiveEnd, 'hh:mm a')}).`,
-          });
-          setIsSubmitting(false);
-          return;
-        }
-      }
-      const adjustedTimeStr = format(adjustedAppointmentTime, 'hh:mm a');
-      const cutOffTime = subMinutes(adjustedAppointmentTime, 15);
-      const noShowTime = addMinutes(adjustedAppointmentTime, 15);
-
-      const appointmentDateStr = format(bookingDate, 'd MMMM yyyy');
-      const appointmentsCollection = collection(db, 'appointments');
-      const newDocRef = doc(appointmentsCollection);
-      const reservationId = reservation.reservationId;
-
-      const appointmentData: Appointment = {
-        id: newDocRef.id,
+        doctor,
+        patientId: appointmentToSave.patientId!,
         patientName: appointmentToSave.patientName,
         age: appointmentToSave.age,
-        place: appointmentToSave.place,
         sex: appointmentToSave.sex,
-        communicationPhone: appointmentToSave.communicationPhone,
-        patientId: appointmentToSave.patientId,
-        doctorId: doctor.id,
-        doctor: doctor.name,
-        department: doctor.department,
-        bookedVia: 'Walk-in',
-        date: appointmentDateStr,
-        time: adjustedTimeStr,
-        arriveByTime: adjustedTimeStr,
-        status: 'Confirmed',
-        tokenNumber: reservation.tokenNumber,
-        numericToken: reservation.numericToken,
-        clinicId,
-        slotIndex: reservation.slotIndex,
-        sessionIndex: sessionIndexForAppointment,
-        createdAt: serverTimestamp(),
-        cutOffTime,
-        noShowTime,
-      };
-
-      // CRITICAL: Check for existing appointments at this slot before creating
-      // This prevents duplicate bookings from concurrent requests
-      const existingAppointmentsQuery = query(
-        collection(db, 'appointments'),
-        where('clinicId', '==', clinicId),
-        where('doctor', '==', doctor.name),
-        where('date', '==', appointmentDateStr),
-        where('slotIndex', '==', reservation.slotIndex)
-      );
-      const existingAppointmentsSnapshot = await getDocs(existingAppointmentsQuery);
-      const existingActiveAppointments = existingAppointmentsSnapshot.docs.filter(docSnap => {
-        const data = docSnap.data();
-        return (data.status === 'Pending' || data.status === 'Confirmed');
+        place: appointmentToSave.place,
+        phone: appointmentToSave.communicationPhone,
+        isForceBooked: appointmentToSave.isForceBooked,
       });
 
-      if (existingActiveAppointments.length > 0) {
-        console.error(`[NURSE WALK-IN DEBUG] ⚠️ DUPLICATE DETECTED - Appointment already exists at slotIndex ${reservation.slotIndex}`, {
-          existingAppointmentIds: existingActiveAppointments.map(docSnap => docSnap.id),
-          timestamp: new Date().toISOString()
-        });
-        toast({
-          variant: "destructive",
-          title: "Slot Already Booked",
-          description: "This time slot was just booked by someone else. Please try again.",
-        });
-        setIsSubmitting(false);
-        return;
-      }
+      if (result.success) {
+        setGeneratedToken(result.tokenNumber);
+        setIsEstimateModalOpen(false);
+        setIsTokenModalOpen(true);
 
-      // Get references to existing appointments to verify in transaction
-      const existingAppointmentRefs = existingActiveAppointments.map(docSnap =>
-        doc(db, 'appointments', docSnap.id)
-      );
+        // Send notification (fire and forget)
+        try {
+          const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
+          const clinicName = clinicDoc.exists() ? clinicDoc.data().name : 'The Clinic';
 
-      // CRITICAL: Use transaction to atomically claim reservation and create appointment
-      // The reservation document acts as a lock - only one transaction can delete it
-      // This prevents race conditions across different browsers/devices
-      try {
-        await runTransaction(db, async (transaction) => {
-          console.log(`[NURSE WALK-IN DEBUG] Transaction STARTED`, {
-            reservationId,
-            appointmentId: newDocRef.id,
-            slotIndex: reservation.slotIndex,
-            timestamp: new Date().toISOString()
-          });
+          const appointmentDateObj = new Date();
+          const appointmentDateStr = format(appointmentDateObj, 'd MMMM yyyy');
 
-          const reservationRef = doc(db, 'slot-reservations', reservationId);
-          const reservationDoc = await transaction.get(reservationRef);
-
-          console.log(`[NURSE WALK-IN DEBUG] Reservation check result`, {
-            reservationId,
-            exists: reservationDoc.exists(),
-            data: reservationDoc.exists() ? reservationDoc.data() : null,
-            timestamp: new Date().toISOString()
-          });
-
-          if (!reservationDoc.exists()) {
-            // Reservation was already claimed by another request - slot is taken
-            console.error(`[NURSE WALK-IN DEBUG] Reservation does NOT exist - already claimed`, {
-              reservationId,
-              timestamp: new Date().toISOString()
-            });
-            const conflictError = new Error('Reservation already claimed by another booking');
-            (conflictError as { code?: string }).code = 'SLOT_ALREADY_BOOKED';
-            throw conflictError;
-          }
-
-          // Verify the reservation matches our slot
-          const reservationData = reservationDoc.data();
-          console.log(`[NURSE WALK-IN DEBUG] Verifying reservation match`, {
-            reservationSlotIndex: reservationData?.slotIndex,
-            expectedSlotIndex: reservation.slotIndex,
-            reservationClinicId: reservationData?.clinicId,
-            expectedClinicId: clinicId,
-            reservationDoctor: reservationData?.doctorName,
-            expectedDoctor: doctor.name,
-            timestamp: new Date().toISOString()
-          });
-
-          if (reservationData?.slotIndex !== reservation.slotIndex ||
-            reservationData?.clinicId !== clinicId ||
-            reservationData?.doctorName !== doctor.name) {
-            console.error(`[NURSE WALK-IN DEBUG] Reservation mismatch`, {
-              reservationData,
-              expected: { slotIndex: reservation.slotIndex, clinicId, doctorName: doctor.name }
-            });
-            const conflictError = new Error('Reservation does not match booking details');
-            (conflictError as { code?: string }).code = 'RESERVATION_MISMATCH';
-            throw conflictError;
-          }
-
-          // CRITICAL: Verify no appointment exists at this slotIndex by reading the documents we found
-          // This ensures we see the latest state even if appointments were created between our query and transaction
-          if (existingAppointmentRefs.length > 0) {
-            const existingAppointmentSnapshots = await Promise.all(
-              existingAppointmentRefs.map(ref => transaction.get(ref))
-            );
-            const stillActive = existingAppointmentSnapshots.filter(snap => {
-              if (!snap.exists()) return false;
-              const data = snap.data() as Appointment;
-              return (data.status === 'Pending' || data.status === 'Confirmed');
-            });
-
-            if (stillActive.length > 0) {
-              console.error(`[NURSE WALK-IN DEBUG] ⚠️ DUPLICATE DETECTED IN TRANSACTION - Appointment exists at slotIndex ${reservation.slotIndex}`, {
-                existingAppointmentIds: stillActive.map(snap => snap.id),
-                timestamp: new Date().toISOString()
-              });
-              const conflictError = new Error('An appointment already exists at this slot');
-              (conflictError as { code?: string }).code = 'SLOT_ALREADY_BOOKED';
-              throw conflictError;
-            }
-          }
-
-          console.log(`[NURSE WALK-IN DEBUG] No existing appointment found - deleting reservation and creating appointment`, {
-            reservationId,
-            appointmentId: newDocRef.id,
-            slotIndex: reservation.slotIndex,
-            timestamp: new Date().toISOString()
-          });
-
-          // ⚠️⚠️⚠️ RESERVATION UPDATE DEBUG ⚠️⚠️⚠️
-          console.error(`[RESERVATION DELETION TRACKER] ✅ NURSE APP - UPDATING slot-reservation (NOT deleting)`, {
-            app: 'kloqo-nurse',
-            page: 'walk-in/page.tsx',
-            action: 'transaction.update(reservationRef, {status: "booked"})',
-            reservationId: reservationId,
-            reservationPath: reservationRef.path,
-            reservationData: reservation,
-            appointmentId: newDocRef.id,
-            appointmentToken: appointmentData.tokenNumber,
-            slotIndex: reservation.slotIndex,
-            timestamp: new Date().toISOString(),
-            stackTrace: new Error().stack
-          });
-
-          // CRITICAL: Mark reservation as booked instead of deleting it
-          // This acts as a persistent lock to prevent race conditions where other clients
-          // might miss the new appointment and try to claim the "free" slot
-          transaction.update(reservationRef, {
-            status: 'booked',
-            appointmentId: newDocRef.id,
-            bookedAt: serverTimestamp()
-          });
-
-          // Create appointment atomically in the same transaction
-          transaction.set(newDocRef, appointmentData);
-
-          console.log(`[NURSE WALK-IN DEBUG] Transaction operations queued - about to commit`, {
-            reservationUpdated: true,
-            appointmentCreated: true,
-            timestamp: new Date().toISOString()
-          });
-        });
-
-        // ⚠️⚠️⚠️ RESERVATION UPDATE DEBUG ⚠️⚠️⚠️
-        console.error(`[RESERVATION DELETION TRACKER] ✅ NURSE APP - Transaction COMMITTED (reservation was updated to booked)`, {
-          app: 'kloqo-nurse',
-          page: 'walk-in/page.tsx',
-          reservationId: reservationId,
-          appointmentId: newDocRef.id,
-          appointmentToken: appointmentData.tokenNumber,
-          slotIndex: reservation.slotIndex,
-          timestamp: new Date().toISOString()
-        });
-
-        console.log(`[NURSE WALK-IN DEBUG] Transaction COMMITTED successfully`, {
-          appointmentId: newDocRef.id,
-          slotIndex: reservation.slotIndex,
-          timestamp: new Date().toISOString()
-        });
-      } catch (error: any) {
-        console.error(`[NURSE WALK-IN DEBUG] Transaction FAILED`, {
-          errorMessage: error.message,
-          errorCode: error.code,
-          errorName: error.name,
-          reservationId,
-          timestamp: new Date().toISOString()
-        });
-
-        if (error.code === 'SLOT_ALREADY_BOOKED' || error.code === 'RESERVATION_MISMATCH') {
-          toast({
-            variant: "destructive",
-            title: "Slot Already Booked",
-            description: "This time slot was just booked by someone else. Please try again.",
-          });
-          setIsSubmitting(false);
-          return;
+          sendAppointmentBookedByStaffNotification({
+            firestore: db,
+            patientId: appointmentToSave.patientId!,
+            appointmentId: result.appointmentId,
+            doctorName: doctor.name,
+            clinicName: clinicName,
+            date: appointmentDateStr,
+            time: format(new Date(result.estimatedTime), 'hh:mm a'),
+            tokenNumber: result.tokenNumber,
+            bookedBy: 'nurse',
+            arriveByTime: format(new Date(result.estimatedTime), 'hh:mm a'),
+          }).catch(err => console.error('Failed to send walk-in notification:', err));
+        } catch (err) {
+          console.error('Error preparing notification:', err);
         }
 
-        const permissionError = new FirestorePermissionError({
-          path: 'appointments',
-          operation: 'create',
-          requestResourceData: appointmentData,
-        });
-        errorEmitter.emit('permission-error', permissionError);
-        throw error;
+        setTimeout(() => {
+          setIsTokenModalOpen(false);
+          router.push('/appointments');
+        }, 5000);
       }
-
-      if (appointmentToSave.patientId) {
-        const patientRef = doc(db, 'patients', appointmentToSave.patientId);
-        await updateDoc(patientRef, {
-          visitHistory: arrayUnion(newDocRef.id),
-          totalAppointments: increment(1),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      // Reservation is already deleted inside the transaction, no need to delete again
-
-      setGeneratedToken(reservation.tokenNumber);
-      setIsEstimateModalOpen(false);
-      setIsTokenModalOpen(true);
-
-      // Send notification (fire and forget)
-      try {
-        const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
-        const clinicName = clinicDoc.exists() ? clinicDoc.data().name : 'The Clinic';
-
-        sendAppointmentBookedByStaffNotification({
-          firestore: db,
-          patientId: appointmentToSave.patientId!,
-          appointmentId: newDocRef.id,
-          doctorName: doctor.name,
-          clinicName: clinicName,
-          date: appointmentDateStr,
-          time: adjustedTimeStr,
-          tokenNumber: reservation.tokenNumber,
-          bookedBy: 'nurse',
-          arriveByTime: adjustedTimeStr
-        }).catch(err => console.error('Failed to send walk-in notification:', err));
-      } catch (err) {
-        console.error('Error preparing notification:', err);
-      }
-
-      setTimeout(() => {
-        setIsTokenModalOpen(false);
-        router.push('/appointments');
-      }, 5000);
     } catch (error: any) {
-      if (error.name !== 'FirestorePermissionError') {
-        console.error('Failed to confirm walk-in registration:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: (error as Error).message || 'Could not confirm the registration.',
-        });
-      }
+      console.error('Failed to confirm walk-in registration:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Could not confirm the registration.',
+      });
     } finally {
       setIsSubmitting(false);
     }

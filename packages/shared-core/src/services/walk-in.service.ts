@@ -12,18 +12,18 @@ const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const RESERVATION_CONFLICT_CODE = 'slot-reservation-conflict';
 
-interface DailySlot {
+export interface DailySlot {
   index: number;
   time: Date;
   sessionIndex: number;
 }
 
-interface LoadedDoctor {
+export interface LoadedDoctor {
   doctor: Doctor;
   slots: DailySlot[];
 }
 
-async function loadDoctorAndSlots(
+export async function loadDoctorAndSlots(
   firestore: Firestore,
   clinicId: string,
   doctorName: string,
@@ -114,7 +114,7 @@ async function loadDoctorAndSlots(
   return { doctor, slots };
 }
 
-async function fetchDayAppointments(
+export async function fetchDayAppointments(
   firestore: Firestore,
   clinicId: string,
   doctorName: string,
@@ -132,7 +132,7 @@ async function fetchDayAppointments(
   return snapshot.docs.map(docRef => ({ id: docRef.id, ...docRef.data() } as Appointment));
 }
 
-function buildOccupiedSlotSet(appointments: Appointment[]): Set<number> {
+export function buildOccupiedSlotSet(appointments: Appointment[]): Set<number> {
   const occupied = new Set<number>();
 
   appointments.forEach(appointment => {
@@ -158,7 +158,7 @@ function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
  * This dynamically adjusts as time passes - reserved slots are recalculated based on remaining future slots
  * Returns a Set of slot indices that are reserved for walk-ins
  */
-function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date()): Set<number> {
+export function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date()): Set<number> {
   const reservedSlots = new Set<number>();
 
   // Group slots by sessionIndex
@@ -201,7 +201,7 @@ type CandidateOptions = {
   walkInSpacing?: number;
 };
 
-function buildCandidateSlots(
+export function buildCandidateSlots(
   type: 'A' | 'W',
   slots: DailySlot[],
   now: Date,
@@ -377,12 +377,12 @@ function buildCandidateSlots(
   return candidates;
 }
 
-interface TokenCounterState {
+export interface TokenCounterState {
   nextNumber: number;
   exists: boolean;
 }
 
-async function prepareNextTokenNumber(
+export async function prepareNextTokenNumber(
   transaction: Transaction,
   counterRef: DocumentReference
 ): Promise<TokenCounterState> {
@@ -399,7 +399,7 @@ async function prepareNextTokenNumber(
   return { nextNumber: 1, exists: false };
 }
 
-function commitNextTokenNumber(
+export function commitNextTokenNumber(
   transaction: Transaction,
   counterRef: DocumentReference,
   state: TokenCounterState
@@ -466,7 +466,7 @@ export async function generateNextToken(
   return tokenNumber;
 }
 
-function buildReservationDocId(
+export function buildReservationDocId(
   clinicId: string,
   doctorName: string,
   dateStr: string,
@@ -628,7 +628,7 @@ export async function generateNextTokenAndReserveSlot(
       const transactionPromise = runTransaction(firestore, async transaction => {
         console.log(`[BOOKING DEBUG] Request ${requestId}: Transaction STARTED (attempt ${attempt + 1})`, {
           timestamp: new Date().toISOString(),
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
+          userAgent: typeof (globalThis as any).navigator !== 'undefined' ? (globalThis as any).navigator.userAgent : 'unknown'
         });
 
         // CRITICAL: Only prepare counter for walk-ins, not for advance bookings
@@ -932,6 +932,7 @@ export async function generateNextTokenAndReserveSlot(
           const candidates = buildCandidateSlots(type, slots, now, occupiedSlots, appointmentData.slotIndex, {
             appointments: effectiveAppointments,
           });
+
 
           console.log(`[BOOKING DEBUG] Request ${requestId}: Candidate slots generated`, {
             totalCandidates: candidates.length,
@@ -1330,15 +1331,18 @@ export async function generateNextTokenAndReserveSlot(
         hasCode: typeof (error as { code?: string }).code === 'string',
         errorCode: (error as { code?: string }).code,
         errorMessage: error instanceof Error ? error.message : String(error),
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
-        isSafari: typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+        userAgent: typeof (globalThis as any).navigator !== 'undefined' ? (globalThis as any).navigator.userAgent : 'unknown',
+        isMobileExcludingTablet: typeof (globalThis as any).navigator !== 'undefined' &&
+          ((globalThis as any).navigator.userAgent.includes('Mobile') || (globalThis as any).navigator.userAgent.includes('Android')) &&
+          !((globalThis as any).navigator.userAgent.includes('iPad') || (globalThis as any).navigator.userAgent.includes('PlayBook') || (globalThis as any).navigator.userAgent.includes('Tablet')),
+        isSafari: typeof (globalThis as any).navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test((globalThis as any).navigator.userAgent)
       });
 
       // Check if this is a timeout error (Safari-specific)
       if (error instanceof Error && error.message.includes('timeout')) {
         console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ TIMEOUT DETECTED - This may be a Safari-specific issue`, {
           errorMessage: error.message,
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
+          userAgent: typeof (globalThis as any).navigator !== 'undefined' ? (globalThis as any).navigator.userAgent : 'unknown'
         });
       }
 
@@ -1376,7 +1380,7 @@ export async function generateNextTokenAndReserveSlot(
   throw new Error('No available slots match the booking rules.');
 }
 
-async function prepareAdvanceShift({
+export async function prepareAdvanceShift({
   transaction,
   firestore,
   clinicId,
@@ -1403,7 +1407,7 @@ async function prepareAdvanceShift({
   totalSlots: number;
   newWalkInNumericToken: number;
 }): Promise<{
-  newAssignment: { slotIndex: number; slotTime: Date; sessionIndex: number } | null;
+  newAssignment: SchedulerAssignment | null;
   reservationDeletes: DocumentReference[];
   appointmentUpdates: Array<{
     docRef: DocumentReference;

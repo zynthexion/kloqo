@@ -1016,18 +1016,17 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 const appointmentDate = parse(yourAppointment.date, 'd MMMM yyyy', new Date());
                 const scheduledTime = parseTime(yourAppointment.time, appointmentDate);
 
-                let newTime: string;
+                const noShowTime = (yourAppointment.noShowTime as any)?.toDate
+                    ? (yourAppointment.noShowTime as any).toDate()
+                    : parseTime(yourAppointment.noShowTime!, appointmentDate);
 
                 if (isAfter(now, scheduledTime)) {
                     // If rejoined after scheduled time, give noShowTime + 15 mins
-                    const noShowTime = parseTime(yourAppointment.noShowTime!, appointmentDate);
-                    newTime = format(addMinutes(noShowTime, 15), 'hh:mm a');
+                    newTimeString = format(addMinutes(noShowTime, 15), 'hh:mm a');
                 } else {
                     // If rejoined before scheduled time, give noShowTime
-                    newTime = yourAppointment.noShowTime!;
+                    newTimeString = format(noShowTime, 'hh:mm a');
                 }
-
-                newTimeString = newTime;
 
                 // Update the skipped appointment: only change status and time, keep everything else
                 await updateDoc(appointmentRef, {

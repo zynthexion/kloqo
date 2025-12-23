@@ -640,12 +640,9 @@ function ConfirmArrivalPage() {
         const scheduledTime = parseTime(appointment.time, appointmentDate);
 
         // Convert noShowTime to Date
-        let noShowDate: Date;
-        if ((appointment.noShowTime as any).toDate) {
-          noShowDate = (appointment.noShowTime as any).toDate();
-        } else {
-          noShowDate = new Date(appointment.noShowTime as any);
-        }
+        const noShowDate = (appointment.noShowTime as any)?.toDate
+          ? (appointment.noShowTime as any).toDate()
+          : parseTime(appointment.noShowTime!, appointmentDate);
 
         let newTime: Date;
         if (isAfter(now, scheduledTime)) {

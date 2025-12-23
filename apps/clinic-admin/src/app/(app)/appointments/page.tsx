@@ -2443,15 +2443,19 @@ export default function AppointmentsPage() {
 
       try {
         const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
-        const scheduledTime = parseTime(appointment.time, appointmentDate);
 
-        // Handle noShowTime as Firestore Timestamp or Date
-        let noShowDate: Date;
-        if ((appointment.noShowTime as any)?.toDate) {
-          noShowDate = (appointment.noShowTime as any).toDate();
-        } else {
-          noShowDate = new Date(appointment.noShowTime as any);
-        }
+        // Handle time as string or Firestore Timestamp
+        const scheduledTimeStr = typeof appointment.time === 'string'
+          ? appointment.time
+          : (appointment.time as any)?.toDate
+            ? format((appointment.time as any).toDate(), 'hh:mm a')
+            : '';
+        const scheduledTime = parseTimeUtil(scheduledTimeStr, appointmentDate);
+
+        // Handle noShowTime as Firestore Timestamp or string
+        const noShowDate = (appointment.noShowTime as any)?.toDate
+          ? (appointment.noShowTime as any).toDate()
+          : parseTimeUtil(appointment.noShowTime!, appointmentDate);
 
         let newTimeDate: Date;
         if (isAfter(now, scheduledTime)) {

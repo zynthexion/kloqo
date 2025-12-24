@@ -194,9 +194,11 @@ export const parseAppointmentDateTime = (dateStr: string, timeStr: string): Date
   }
 };
 
+import { getClinicNow, getClinicDayOfWeek } from "@kloqo/shared-core";
+
 export const isWithinBookingWindow = (doctor: Doctor): boolean => {
-  const now = new Date();
-  const todayStr = format(now, 'EEEE');
+  const now = getClinicNow();
+  const todayStr = getClinicDayOfWeek(now);
   const todaysAvailability = doctor.availabilitySlots?.find(slot => slot.day === todayStr);
 
   if (!todaysAvailability || !todaysAvailability.timeSlots.length) {

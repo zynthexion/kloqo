@@ -11,7 +11,7 @@ import { isToday } from 'date-fns/isToday';
 import { isPast } from 'date-fns/isPast';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { collection, onSnapshot, query, where, DocumentData, QuerySnapshot, doc, getDoc, limit, orderBy } from 'firebase/firestore';
-import { compareAppointments } from '@kloqo/shared-core';
+import { compareAppointments, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
 
 const getGeolocationErrorMessage = (error: unknown) => {
     return (
@@ -580,7 +580,8 @@ function HomePageContent() {
 
 
     const isAnyDoctorAvailableToday = useMemo(() => {
-        const todayStr = format(new Date(), 'EEEE');
+        const now = getClinicNow();
+        const todayStr = getClinicDayOfWeek(now);
         return effectiveUserDoctors.some(doctor =>
             doctor.availabilitySlots?.some(slot => slot.day === todayStr)
         );
@@ -588,8 +589,8 @@ function HomePageContent() {
 
     useEffect(() => {
         if (!firestore || !clinicIds || clinicIds.length === 0) return;
-
-        const todayStr = format(new Date(), "d MMMM yyyy");
+        const now = getClinicNow();
+        const todayStr = getClinicDateString(now);
         // Try to use optimized query with orderBy and limit
         // If it fails (no index or missing field), fall back to simple query
         let appointmentsQuery = query(

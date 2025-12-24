@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { format, parse, subMinutes, addMinutes, isBefore, isAfter } from 'date-fns';
-import { Loader2, Plus, CheckCircle2, X, Clock, Calendar, Users, Radio, Hourglass } from 'lucide-react';
+import { format, parse, addMinutes, isBefore, isAfter } from 'date-fns';
+import { Loader2, Plus, CheckCircle2, X, Clock, Calendar, Users, Radio } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -23,12 +23,12 @@ import { useUser } from '@/firebase/auth/use-user';
 import { useFirestore } from '@/firebase';
 import { getPatientListFromCache, savePatientListToCache } from '@/lib/patient-cache';
 import { useLanguage } from '@/contexts/language-context';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, setDoc, arrayUnion, DocumentReference, writeBatch, getDoc, Firestore, increment, deleteDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, writeBatch, getDoc, runTransaction, serverTimestamp, arrayUnion, deleteDoc } from 'firebase/firestore';
 import type { Doctor, Patient, Appointment } from '@/lib/types';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { isWithinBookingWindow, buildBreakIntervals, applyBreakOffsets, parseTime as parseTimeUtil } from '@/lib/utils';
-import { getSessionEnd, getSessionBreakIntervals, calculateWalkInDetails, capitalizeFirstLetter, capitalizeWords } from '@kloqo/shared-core';
+import { getSessionEnd, getSessionBreakIntervals, calculateWalkInDetails, capitalizeWords, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
 
 
 const createFormSchema = (t: any) => z.object({
@@ -106,7 +106,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 return null;
             }
 
-            const dayOfWeek = format(appointmentDate, 'EEEE');
+            const dayOfWeek = getClinicDayOfWeek(appointmentDate);
             const availabilityForDay = selectedDoctor.availabilitySlots.find(session => session.day === dayOfWeek);
             if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
                 return null;
@@ -143,7 +143,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
             return { hasSlots: false as const };
         }
 
-        const todayDay = format(new Date(), 'EEEE');
+        const clinicNow = getClinicNow();
+        const todayDay = getClinicDayOfWeek(clinicNow);
         const todaysAvailability = selectedDoctor.availabilitySlots.find(slot => slot.day === todayDay);
 
         if (!todaysAvailability || !todaysAvailability.timeSlots?.length) {
@@ -446,7 +447,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     console.log(`[WALK-IN DEBUG] ${bookingRequestId}: Significant change detected - updating estimate and requiring re-confirmation`);
 
                     // Update the displayed estimate (apply session break offsets)
-                    const appointmentDate = parse(format(new Date(), 'd MMMM yyyy'), 'd MMMM yyyy', new Date());
+                    const now = getClinicNow();
+                    const appointmentDate = parse(getClinicDateString(now), "d MMMM yyyy", new Date());
                     const sessionBreaks = freshDetails.sessionIndex !== undefined && freshDetails.sessionIndex !== null
                         ? getSessionBreakIntervals(selectedDoctor, appointmentDate, freshDetails.sessionIndex)
                         : [];
@@ -542,7 +544,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 setGeneratedToken(result.tokenNumber);
             }
             if (result?.estimatedTime) {
-                const appointmentDate = parse(format(new Date(), 'd MMMM yyyy'), 'd MMMM yyyy', new Date());
+                const now = getClinicNow();
+                const appointmentDate = parse(getClinicDateString(now), 'd MMMM yyyy', new Date());
                 const sessionBreaks = result?.estimatedDetails?.sessionIndex !== undefined && result?.estimatedDetails?.sessionIndex !== null
                     ? getSessionBreakIntervals(selectedDoctor, appointmentDate, result.estimatedDetails.sessionIndex)
                     : [];
@@ -793,7 +796,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 console.log(`[WALK-IN DEBUG] [onSubmit] Patient batch committed, patientId: ${patientForAppointmentId}`);
 
                 // Check for duplicate booking
-                const appointmentDateStr = format(new Date(), "d MMMM yyyy");
+                const now = getClinicNow();
+                const appointmentDateStr = getClinicDateString(now);
                 console.log(`[WALK-IN DEBUG] [onSubmit] Checking for duplicate appointments...`, {
                     patientId: patientForAppointmentId,
                     doctor: selectedDoctor.name,
@@ -870,7 +874,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
 
                 try {
                     const estimatedDetails = await calculateWalkInDetails(firestore, selectedDoctor, walkInTokenAllotment, walkInCapacityThreshold);
-                    const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
+                    const now = getClinicNow();
+                    const appointmentDate = parse(getClinicDateString(now), "d MMMM yyyy", new Date());
                     const breakIntervals = buildBreakIntervals(selectedDoctor, appointmentDate);
                     const sessionBreaks = estimatedDetails.sessionIndex !== undefined && estimatedDetails.sessionIndex !== null
                         ? getSessionBreakIntervals(selectedDoctor, appointmentDate, estimatedDetails.sessionIndex)
@@ -1409,7 +1414,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                             let availabilityEndLabel = availabilityEnd ? format(availabilityEnd, 'hh:mm a') : '';
 
                             if (!availabilityEnd && selectedDoctor.availabilitySlots?.length) {
-                                const dayStr = format(appointmentDate, 'EEEE');
+                                const dayStr = getClinicDayOfWeek(appointmentDate);
                                 const availabilityForDay = selectedDoctor.availabilitySlots.find(s => s.day === dayStr);
                                 if (availabilityForDay && availabilityForDay.timeSlots.length > 0) {
                                     const lastSessionIndex = availabilityForDay.timeSlots.length - 1;

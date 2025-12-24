@@ -35,7 +35,7 @@ import { useLanguage } from '@/contexts/language-context';
 import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { computeQueues, type QueueState, compareAppointments } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
 import { useToast } from '@/hooks/use-toast';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -2230,7 +2230,8 @@ function LiveTokenPage() {
 
         if (!firestore || targetClinicIds.length === 0) return;
 
-        const todayStr = format(new Date(), "d MMMM yyyy");
+        const now = getClinicNow();
+        const todayStr = getClinicDateString(now);
         const appointmentsQuery = query(
             collection(firestore, 'appointments'),
             where("clinicId", "in", targetClinicIds),
@@ -2259,7 +2260,8 @@ function LiveTokenPage() {
             return;
         }
 
-        const todayStr = format(new Date(), "d MMMM yyyy");
+        const now = getClinicNow();
+        const todayStr = getClinicDateString(now);
         const appointmentDateStr = activeAppointment.date;
 
         if (appointmentDateStr === todayStr) {
@@ -2302,7 +2304,8 @@ function LiveTokenPage() {
     const allRelevantAppointments = useMemo(() => {
         if (!activeAppointment) return allClinicAppointments;
 
-        const todayStr = format(new Date(), "d MMMM yyyy");
+        const now = getClinicNow();
+        const todayStr = getClinicDateString(now);
         if (activeAppointment.date === todayStr) {
             return allClinicAppointments;
         }

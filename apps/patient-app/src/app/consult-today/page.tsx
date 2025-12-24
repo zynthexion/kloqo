@@ -26,7 +26,7 @@ import { doc, getDoc } from 'firebase/firestore';
 const loadQRScanner = () => import('html5-qrcode').then(module => module.Html5Qrcode);
 import { format, addMinutes, isBefore, isAfter, subMinutes, isWithinInterval, set } from 'date-fns';
 import { parseTime } from '@/lib/utils';
-import { getSessionEnd } from '@kloqo/shared-core';
+import { getSessionEnd, getClinicNow, getClinicDayOfWeek } from '@kloqo/shared-core';
 import { BottomNav } from '@/components/bottom-nav';
 import { FullScreenLoader } from '@/components/full-screen-loader';
 
@@ -351,8 +351,8 @@ function ConsultTodayContent() {
     const isWalkInAvailable = (doctor: Doctor): boolean => {
         if (!doctor.availabilitySlots?.length) return false;
 
-        const now = new Date();
-        const todayDay = format(now, 'EEEE');
+        const now = getClinicNow();
+        const todayDay = getClinicDayOfWeek(now);
         const todaysAvailability = doctor.availabilitySlots.find(s => s.day === todayDay);
 
         if (!todaysAvailability || todaysAvailability.timeSlots.length === 0) return false;

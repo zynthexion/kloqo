@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, limit } from 'firebase/firestore';
-import { compareAppointments } from '@kloqo/shared-core';
+import { compareAppointments, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
 import { format, parse, subMinutes, addMinutes, isBefore, isAfter, differenceInMinutes } from 'date-fns';
 import { getArriveByTime, getArriveByTimeFromAppointment, getActualAppointmentTime, parseTime } from '@/lib/utils';
 import { Loader2, MapPin, CheckCircle2, Clock, AlertCircle, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
@@ -88,8 +88,8 @@ async function calculateSkippedTokenRejoinSlot(
   time: string;
   sessionIndex: number;
 }> {
-  const dateStr = format(date, 'd MMMM yyyy');
-  const dayOfWeek = format(date, 'EEEE');
+  const dateStr = getClinicDateString(date);
+  const dayOfWeek = getClinicDayOfWeek(date);
   const slotDuration = doctor.averageConsultingTime || 15;
 
   // Get confirmed appointments (Pending or Confirmed) sorted by slotIndex
@@ -112,7 +112,7 @@ async function calculateSkippedTokenRejoinSlot(
 
   // Calculate target position based on confirmed appointments
   let targetSlotIndex: number;
-  const now = new Date();
+  const now = getClinicNow();
 
   if (confirmedAppointments.length === 0) {
     // No confirmed appointments - place at next immediate slot
@@ -249,7 +249,7 @@ function ConfirmArrivalPage() {
   useEffect(() => {
     if (!firestore || !user?.patientId || !clinicId) return;
 
-    const today = format(new Date(), 'd MMMM yyyy');
+    const today = getClinicDateString(getClinicNow());
 
     const fetchFamilyAppointments = async () => {
       try {
@@ -417,7 +417,7 @@ function ConfirmArrivalPage() {
 
   // Get pending appointments with cutOffTime in next 2 hours (from database only)
   const pendingAppointments = useMemo(() => {
-    const now = new Date();
+    const now = getClinicNow();
     return appointments
       .filter(apt => {
         if (apt.status !== 'Pending') return false;
@@ -488,7 +488,7 @@ function ConfirmArrivalPage() {
 
     if (!pendingOrSkipped.length) return false;
 
-    const now = new Date();
+    const now = getClinicNow();
 
     return pendingOrSkipped.some(apt => {
       // Skipped appointments can always rejoin - no time restriction
@@ -607,7 +607,7 @@ function ConfirmArrivalPage() {
       const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
       const appointmentTime = parseTime(appointment.time, appointmentDate);
       const reportingTime = subMinutes(appointmentTime, 15);
-      const now = new Date();
+      const now = getClinicNow();
 
       if (appointment.status === 'Pending') {
         // For Pending appointments, only allow confirmation before 15-minute mark
@@ -635,7 +635,7 @@ function ConfirmArrivalPage() {
           throw new Error('Appointment missing noShowTime. Cannot rejoin automatically.');
         }
 
-        const now = new Date();
+        const now = getClinicNow();
         const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
         const scheduledTime = parseTime(appointment.time, appointmentDate);
 
@@ -688,7 +688,7 @@ function ConfirmArrivalPage() {
     try {
       const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
       const appointmentTime = parseTime(appointment.time, appointmentDate);
-      const now = new Date();
+      const now = getClinicNow();
 
       // Check if it's before appointment time
       if (isAfter(now, appointmentTime)) {

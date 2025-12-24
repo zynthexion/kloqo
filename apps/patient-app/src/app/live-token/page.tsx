@@ -14,8 +14,11 @@ import { Button } from '@/components/ui/button';
 import type { Appointment } from '@/lib/types';
 import { LottieAnimation } from '@/components/lottie-animation';
 import emptyStateAnimation from '@/lib/animations/empty-state.json';
+import { getClinicNow } from '@kloqo/shared-core';
+import { isSameDay } from 'date-fns';
 
 function computeUpcomingAppointments(appointments: Appointment[]) {
+    const now = getClinicNow();
     return appointments
         .filter(a => {
             if (a.status === 'Cancelled' || a.status === 'Completed') {
@@ -27,7 +30,7 @@ function computeUpcomingAppointments(appointments: Appointment[]) {
             } catch {
                 appointmentDate = new Date(a.date);
             }
-            return isToday(appointmentDate) || !isPast(appointmentDate);
+            return isSameDay(appointmentDate, now) || !isPast(appointmentDate);
         })
         .sort((a, b) => {
             try {
@@ -41,7 +44,7 @@ function computeUpcomingAppointments(appointments: Appointment[]) {
                 if (a.tokenNumber?.startsWith('A') && b.tokenNumber?.startsWith('W')) return -1;
                 if (a.tokenNumber?.startsWith('W') && b.tokenNumber?.startsWith('A')) return 1;
                 return (parseInt(a.tokenNumber?.replace(/[A-W]/g, '') || '0', 10) -
-                        parseInt(b.tokenNumber?.replace(/[A-W]/g, '') || '0', 10));
+                    parseInt(b.tokenNumber?.replace(/[A-W]/g, '') || '0', 10));
             } catch {
                 return 0;
             }

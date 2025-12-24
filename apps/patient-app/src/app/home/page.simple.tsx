@@ -15,6 +15,7 @@ import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
 import { useDoctors, type Doctor } from '@/firebase/firestore/use-doctors';
 import { useAppointments, type Appointment } from '@/firebase/firestore/use-appointments';
+import { getClinicNow, getClinicDayOfWeek } from '@kloqo/shared-core';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase/auth/use-user';
@@ -167,7 +168,8 @@ function HomePageContent() {
     const { appointments, loading: appointmentsLoading } = useAppointments(user?.phoneNumber);
 
     const isAnyDoctorAvailableToday = useMemo(() => {
-        const todayStr = format(new Date(), 'EEEE');
+        const now = getClinicNow();
+        const todayStr = getClinicDayOfWeek(now);
         return doctors.some(doctor =>
             doctor.availabilitySlots?.some(slot => slot.day === todayStr) ?? false
         );

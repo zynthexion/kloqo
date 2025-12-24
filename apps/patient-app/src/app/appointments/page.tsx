@@ -45,7 +45,8 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import type { Appointment, Doctor } from '@/lib/types';
 import { sendAppointmentCancelledNotification } from '@/lib/notification-service';
 import nextDynamic from 'next/dynamic';
-import { previewWalkInPlacement, compareAppointments } from '@kloqo/shared-core';
+import { previewWalkInPlacement, compareAppointments, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
+import { isSameDay } from 'date-fns';
 
 const ReviewPrompt = nextDynamic(
     () => import('@/components/review-prompt').then(mod => mod.ReviewPrompt),
@@ -456,10 +457,12 @@ function AppointmentsPage() {
     }, [appointments, cachedAppointments]);
 
     const isAppointmentForToday = (dateStr: string) => {
+        const now = getClinicNow();
         try {
-            return isToday(parse(dateStr, "d MMMM yyyy", new Date()));
+            const appointmentDate = parse(dateStr, "d MMMM yyyy", new Date());
+            return isSameDay(appointmentDate, now);
         } catch {
-            return isToday(new Date(dateStr));
+            return isSameDay(new Date(dateStr), now);
         }
     };
 
@@ -501,7 +504,8 @@ function AppointmentsPage() {
         } catch {
             date = new Date(a.date);
         }
-        return isPast(date) && !isToday(date);
+        const now = getClinicNow();
+        return isPast(date) && !isSameDay(date, now);
     });
 
     // AuthGuard handles authentication redirects

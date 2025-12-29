@@ -70,7 +70,7 @@ export async function completeStaffWalkInBooking(
 
     const now = getClinicNow();
     const date = inputDate || now;
-    const dateStr = getClinicDateString(date);
+    const dateStr = format(date, 'd MMMM yyyy');
 
     // 1. Parallel Pre-fetch (Consistent Reads)
     // These are outside the transaction but help fail fast or provide data for the transaction
@@ -269,7 +269,7 @@ export async function completePatientWalkInBooking(
 
     const now = getClinicNow();
     const date = now;
-    const dateStr = getClinicDateString(date);
+    const dateStr = format(date, 'd MMMM yyyy');
 
     // 1. Parallel Pre-fetch
     const clinicRef = doc(firestore, 'clinics', clinicId);

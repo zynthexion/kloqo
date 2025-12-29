@@ -63,7 +63,7 @@ export async function loadDoctorAndSlots(
     throw new Error('Doctor availability information is missing.');
   }
 
-  const dayOfWeek = getClinicDayOfWeek(date);
+  const dayOfWeek = format(date, 'EEEE');
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
@@ -75,7 +75,7 @@ export async function loadDoctorAndSlots(
   let slotIndex = 0;
 
   // Check for availability extension (session-specific)
-  const dateStr = getClinicDateString(date);
+  const dateStr = format(date, 'd MMMM yyyy');
   const extensionForDate = doctor.availabilityExtensions?.[dateStr];
 
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
@@ -120,7 +120,7 @@ export async function fetchDayAppointments(
   doctorName: string,
   date: Date
 ): Promise<Appointment[]> {
-  const dateStr = getClinicDateString(date);
+  const dateStr = format(date, 'd MMMM yyyy');
   const appointmentsRef = collection(firestore, 'appointments');
   const appointmentsQuery = query(
     appointmentsRef,
@@ -3051,7 +3051,7 @@ export async function calculateWalkInDetails(
   // This ensures preview shows accurate time by accounting for reserved slots
   const reservedSlots = new Set<number>();
   const maxSlotToCheck = Math.min(slots.length + 50, 200); // Check reasonable range
-  const dateStr = getClinicDateString(date);
+  const dateStr = format(date, 'd MMMM yyyy');
 
   // Batch read reservations for better performance
   const reservationChecks: Promise<{ slotIdx: number; snap: DocumentSnapshot }>[] = [];
@@ -3245,7 +3245,7 @@ export async function calculateWalkInDetails(
       }
 
       // Determine session index (use last session)
-      const dayOfWeek = getClinicDayOfWeek(date);
+      const dayOfWeek = format(date, 'EEEE');
       const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
       const lastSessionIndex = availabilityForDay?.timeSlots?.length
         ? availabilityForDay.timeSlots.length - 1

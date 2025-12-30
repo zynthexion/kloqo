@@ -93,11 +93,11 @@ function isWithinBreak(currentTime: Date, breakIntervals: BreakInterval[]): bool
   });
 }
 
-// Calculate doctor delay: minutes since availability start while doctor is not 'In'
-// Accounts for breaks: if breaks start at/before session start, delay calculation starts after breaks end
+// Calculate doctor delay: accounts for both initial lateness and consultation pace
 function calculateDoctorDelay(
   doctor: Doctor,
-  now: Date
+  now: Date,
+  completedCount: number = 0
 ): { delayMinutes: number; availabilityStartTime: Date | null } {
   const currentDay = format(now, 'EEEE');
   const todaysAvailability = doctor.availabilitySlots?.find(
@@ -108,7 +108,7 @@ function calculateDoctorDelay(
     return { delayMinutes: 0, availabilityStartTime: null };
   }
 
-  // Get the first session start time (when availability begins)
+  // Get the first session start time
   const firstSession = todaysAvailability.timeSlots[0];
   let baseAvailabilityStartTime: Date;
   try {
@@ -118,43 +118,53 @@ function calculateDoctorDelay(
     return { delayMinutes: 0, availabilityStartTime: null };
   }
 
-  // Get break intervals for today to find effective consultation start time
   const breakIntervals = buildBreakIntervals(doctor, now);
 
-  // Find breaks that start at or before the first session start time
-  // The effective consultation start time is after all such breaks end
+  // Find breaks that started at or before session start
   let effectiveStartTime = baseAvailabilityStartTime;
-  if (breakIntervals.length > 0) {
-    // Find breaks that overlap with or start before the session start
-    const relevantBreaks = breakIntervals.filter(interval =>
-      interval.start.getTime() <= baseAvailabilityStartTime.getTime() ||
-      (interval.start.getTime() <= baseAvailabilityStartTime.getTime() + 60000 && // within 1 minute
-        interval.end.getTime() > baseAvailabilityStartTime.getTime())
-    );
+  const initialBreaks = breakIntervals.filter(interval =>
+    interval.start.getTime() <= baseAvailabilityStartTime.getTime() + 60000 // within 1 minute
+  );
 
-    // If there are breaks at the start, use the latest break end time as effective start
-    if (relevantBreaks.length > 0) {
-      const latestBreakEnd = relevantBreaks.reduce((latest, interval) =>
-        interval.end.getTime() > latest.getTime() ? interval.end : latest,
-        relevantBreaks[0].end
-      );
-      effectiveStartTime = latestBreakEnd;
-      console.log(`[Delay Calculation] Doctor ${doctor.name}: Base start ${format(baseAvailabilityStartTime, 'hh:mm a')}, Break ends at ${format(latestBreakEnd, 'hh:mm a')}, Effective start: ${format(effectiveStartTime, 'hh:mm a')}`);
-    }
+  if (initialBreaks.length > 0) {
+    const latestInitialBreakEnd = initialBreaks.reduce((latest, interval) =>
+      interval.end.getTime() > latest.getTime() ? interval.end : latest,
+      initialBreaks[0].end
+    );
+    effectiveStartTime = latestInitialBreakEnd;
   }
 
-  // If current time is before effective start time (after breaks), no delay
+  // If current time is before session start, no delay
   if (isBefore(now, effectiveStartTime)) {
     return { delayMinutes: 0, availabilityStartTime: effectiveStartTime };
   }
 
-  // If doctor is already 'In', no delay
-  if (doctor.consultationStatus === 'In') {
-    return { delayMinutes: 0, availabilityStartTime: effectiveStartTime };
-  }
+  // Calculate total break duration passed since session start
+  const passedBreakMinutes = breakIntervals.reduce((total, interval) => {
+    // Only count breaks that happen AFTER the effective session start and have started by NOW
+    if (isAfter(interval.start, effectiveStartTime) || interval.start.getTime() === effectiveStartTime.getTime()) {
+      if (isBefore(interval.start, now)) {
+        const breakEnd = isBefore(interval.end, now) ? interval.end : now;
+        return total + Math.max(0, differenceInMinutes(breakEnd, interval.start));
+      }
+    }
+    return total;
+  }, 0);
 
-  // Calculate delay: minutes since effective consultation start (after breaks) while doctor is not 'In'
-  const delayMinutes = differenceInMinutes(now, effectiveStartTime);
+  let delayMinutes = 0;
+
+  if (doctor.consultationStatus !== 'In') {
+    // Phase 1: Doctor Lateness (minutes since start - initial breaks)
+    delayMinutes = differenceInMinutes(now, effectiveStartTime);
+  } else {
+    // Phase 2: Pace Delay (actual elapsed - expected work - passed breaks)
+    const avgTime = doctor.averageConsultingTime || 5;
+    const expectedWorkMinutes = completedCount * avgTime;
+    const actualElapsedMinutes = differenceInMinutes(now, effectiveStartTime);
+
+    // PaceDelay = elapsed - work - breaks
+    delayMinutes = actualElapsedMinutes - expectedWorkMinutes - passedBreakMinutes;
+  }
 
   return {
     delayMinutes: Math.max(0, delayMinutes),
@@ -345,39 +355,66 @@ export function useAppointmentStatusUpdater() {
         const q = query(doctorsRef, where('clinicId', '==', clinicId));
         const doctorsSnapshot = await getDocs(q);
         const now = new Date();
+        const todayStr = format(now, 'd MMMM yyyy');
 
         for (const doctorDoc of doctorsSnapshot.docs) {
           const doctor = { id: doctorDoc.id, ...doctorDoc.data() } as Doctor;
 
-          // Check if current time is within a break - if so, clear delays and skip updates
-          const breakIntervals = buildBreakIntervals(doctor, now);
-          console.log(`[Break Check] Doctor: ${doctor.name}, Current time: ${format(now, 'hh:mm a')}, Break intervals: ${breakIntervals.length}`);
-          if (isWithinBreak(now, breakIntervals)) {
-            console.log(`[Break Protection] Doctor ${doctor.name} is in break period - clearing all delays`);
-            // Clear any existing delays by setting to 0
-            await updateAppointmentsWithDelay(clinicId, doctor.id, 0, doctor);
-            console.log(`[Break Protection] Delays cleared for doctor ${doctor.name} - skipping further updates during break`);
-            continue; // Skip this doctor, don't update appointments during breaks
+          // 1. Fetch completed appointments count for today
+          const completedQuery = query(
+            collection(db, 'appointments'),
+            where('clinicId', '==', clinicId),
+            where('doctor', '==', doctor.name),
+            where('date', '==', todayStr),
+            where('status', '==', 'Completed')
+          );
+          const completedSnapshot = await getDocs(completedQuery);
+          const completedCount = completedSnapshot.size;
+
+          // 2. Fetch current stored delay from one active appointment to check threshold
+          const activeApptQuery = query(
+            collection(db, 'appointments'),
+            where('clinicId', '==', clinicId),
+            where('doctorId', '==', doctor.id),
+            where('date', '==', todayStr),
+            where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
+          );
+          const activeApptSnapshot = await getDocs(activeApptQuery);
+          let currentStoredDelay = 0;
+          if (!activeApptSnapshot.empty) {
+            currentStoredDelay = activeApptSnapshot.docs[0].data().doctorDelayMinutes || 0;
           }
-          console.log(`[Break Check] Doctor ${doctor.name} not in break - proceeding`);
 
-          const { delayMinutes, availabilityStartTime } = calculateDoctorDelay(doctor, now);
+          const breakIntervals = buildBreakIntervals(doctor, now);
+          if (isWithinBreak(now, breakIntervals)) {
+            if (currentStoredDelay > 0) {
+              console.log(`[Break Protection] Doctor ${doctor.name} is in break period - clearing all delays`);
+              await updateAppointmentsWithDelay(clinicId, doctor.id, 0, doctor);
+            }
+            continue;
+          }
 
-          // Only add delay if doctor is not 'In' and availability has started
-          if (delayMinutes > 0 && availabilityStartTime) {
-            // Check if we're still within the consultation window
+          const { delayMinutes, availabilityStartTime } = calculateDoctorDelay(doctor, now, completedCount);
+
+          const delayDiff = Math.abs(delayMinutes - currentStoredDelay);
+          const shouldUpdate =
+            (currentStoredDelay === 0 && delayMinutes >= 5) ||
+            (currentStoredDelay > 0 && delayMinutes === 0) ||
+            (delayDiff >= 5);
+
+          if (!shouldUpdate) continue;
+
+          if (availabilityStartTime) {
             const currentDay = format(now, 'EEEE');
             const todaysAvailability = doctor.availabilitySlots?.find(
               slot => slot.day.toLowerCase() === currentDay.toLowerCase()
             );
 
             if (todaysAvailability && todaysAvailability.timeSlots?.length > 0) {
-              // Get the last session end time to check if we're still in consultation window.
-              // Prefer today's availability extension end time (per session) when present.
               const lastSessionIndex = todaysAvailability.timeSlots.length - 1;
               const lastSession = todaysAvailability.timeSlots[lastSessionIndex];
               let availabilityEndTime: Date;
-              const todayKey = format(now, 'd MMMM yyyy');
+              const todayKey = todayStr;
               const todayExtension = (doctor as any)?.availabilityExtensions?.[todayKey];
               const matchingSessionExtension = todayExtension?.sessions?.find?.(
                 (s: any) => s?.sessionIndex === lastSessionIndex
@@ -385,34 +422,20 @@ export function useAppointmentStatusUpdater() {
               try {
                 if (matchingSessionExtension?.newEndTime) {
                   availabilityEndTime = parse(matchingSessionExtension.newEndTime, 'hh:mm a', now);
-                  console.log(`[Delay Window] Using session extension end ${matchingSessionExtension.newEndTime} for doctor ${doctor.name} (session ${lastSessionIndex})`);
                 } else if (todayExtension?.newEndTime) {
                   availabilityEndTime = parse(todayExtension.newEndTime, 'hh:mm a', now);
-                  console.log(`[Delay Window] Using day extension end ${todayExtension.newEndTime} for doctor ${doctor.name}`);
                 } else {
                   availabilityEndTime = parseTime(lastSession.to, now);
-                  console.log(`[Delay Window] Using base session end ${lastSession.to} for doctor ${doctor.name}`);
                 }
               } catch {
-                console.warn(`[Delay Window] Could not parse availability end for doctor ${doctor.name} (session ${lastSessionIndex}). Skipping delay update.`);
-                continue; // Skip if we can't parse end time
+                continue;
               }
 
-              // Only apply delay if we're still within the consultation window
               if (isBefore(now, availabilityEndTime) || now.getTime() === availabilityEndTime.getTime()) {
-                // Store doctor delay separately (for display only)
-                // Status transitions (Pending → Skipped → No-show) always use ORIGINAL cutOffTime/noShowTime
-                await updateAppointmentsWithDelay(
-                  clinicId,
-                  doctor.id,
-                  delayMinutes, // Total delay in minutes (stored in doctorDelayMinutes field)
-                  doctor
-                );
-                console.log(`[Delay Update] Added ${delayMinutes} minute doctor delay to appointments for doctor ${doctor.name} (consultation started at ${format(availabilityStartTime, 'hh:mm a')}, current time: ${format(now, 'hh:mm a')}). Delay added to cutOffTime and noShowTime.`);
-              } else {
-                // Consultation window has ended, clear the delay
+                await updateAppointmentsWithDelay(clinicId, doctor.id, delayMinutes, doctor);
+                console.log(`[Pace Delay] Updated doctor ${doctor.name} delay to ${delayMinutes}m (Completions: ${completedCount}, Prev: ${currentStoredDelay}m)`);
+              } else if (currentStoredDelay > 0) {
                 await updateAppointmentsWithDelay(clinicId, doctor.id, 0, doctor);
-                console.log(`[Delay Update] Consultation window ended at ${format(availabilityEndTime, 'hh:mm a')} for doctor ${doctor.name}. Clearing delay to 0.`);
               }
             }
           }
@@ -422,19 +445,21 @@ export function useAppointmentStatusUpdater() {
       }
     };
 
-    // Set up the real-time listener
+    // Set up the real-time listeners
+    let unsubscribe: () => void = () => { };
+    let doctorsUnsubscribe: () => void = () => { };
+    let intervalId: NodeJS.Timeout;
+
     const userDocRef = doc(db, "users", user.uid);
     getDoc(userDocRef).then(userDocSnap => {
       const clinicId = userDocSnap.data()?.clinicId;
       if (clinicId) {
-        // Query for both Pending and Skipped appointments
         const q = query(
           collection(db, "appointments"),
           where("clinicId", "==", clinicId),
           where("status", "in", ["Pending", "Skipped"])
         );
 
-        // Run immediately on mount to check current statuses
         getDocs(q).then(snapshot => {
           const appointmentsToCheck = snapshot.docs.map(doc => ({
             id: doc.id,
@@ -443,8 +468,7 @@ export function useAppointmentStatusUpdater() {
           checkAndUpdateStatuses(appointmentsToCheck);
         });
 
-        // Listen for real-time changes
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        unsubscribe = onSnapshot(q, (snapshot) => {
           const appointmentsToCheck = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
@@ -452,23 +476,15 @@ export function useAppointmentStatusUpdater() {
           checkAndUpdateStatuses(appointmentsToCheck);
         });
 
-        // Run delay check immediately on mount
         checkAndUpdateDelays(clinicId);
 
-        // Set up real-time listener for doctor status changes
-        // This ensures delays stop immediately when doctor goes 'In'
         const doctorsRef = collection(db, 'doctors');
         const doctorsQuery = query(doctorsRef, where('clinicId', '==', clinicId));
-        const doctorsUnsubscribe = onSnapshot(doctorsQuery, (doctorsSnapshot) => {
-          // When doctor status changes, immediately recalculate delays
-          // If doctor goes 'In', delays will stop; if doctor goes 'Out' during consultation, delays will resume
+        doctorsUnsubscribe = onSnapshot(doctorsQuery, () => {
           checkAndUpdateDelays(clinicId);
         });
 
-        // Set an interval to re-run the check periodically, as a fallback for time passing
-        // Reduced to 30 seconds for more responsive updates while app is open
-        const intervalId = setInterval(() => {
-          // Re-fetch to check for time-based status changes
+        intervalId = setInterval(() => {
           getDocs(q).then(snapshot => {
             const appointmentsToCheck = snapshot.docs.map(doc => ({
               id: doc.id,
@@ -476,18 +492,15 @@ export function useAppointmentStatusUpdater() {
             } as Appointment));
             checkAndUpdateStatuses(appointmentsToCheck);
           });
-          // Check and update appointment delays based on doctor consultation status
           checkAndUpdateDelays(clinicId);
-        }, 30000); // Check every 30 seconds for more responsive updates while app is open
-
-        // Cleanup function
-        return () => {
-          unsubscribe();
-          doctorsUnsubscribe();
-          clearInterval(intervalId);
-        };
+        }, 30000);
       }
     });
 
+    return () => {
+      unsubscribe();
+      doctorsUnsubscribe();
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [user]);
 }

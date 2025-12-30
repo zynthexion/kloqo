@@ -143,8 +143,29 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     // Queue state using standardized queue management service
     const [queueState, setQueueState] = useState<QueueState | null>(null);
 
+    // Live Doctor Status Listener (Surgical Fix)
+    const [liveDoctor, setLiveDoctor] = useState<Doctor | null>(null);
+
     useEffect(() => {
-        if (!yourAppointment || !doctorId || !clinicId || !doctor || !firestore) return;
+        if (!doctorId || !clinicId || !firestore) return;
+
+        const doctorRef = doc(firestore, 'doctors', doctorId);
+        const unsubscribe = onSnapshot(doctorRef, (docSnap) => {
+            if (docSnap.exists()) {
+                setLiveDoctor({ id: docSnap.id, ...docSnap.data() } as Doctor);
+            }
+        }, (error) => {
+            console.error("Error listening to doctor status:", error);
+        });
+
+        return () => unsubscribe();
+    }, [doctorId, clinicId, firestore]);
+
+    // Use liveDoctor if available, otherwise fallback to prop doctor
+    const currentDoctor = liveDoctor || doctor;
+
+    useEffect(() => {
+        if (!yourAppointment || !doctorId || !clinicId || !currentDoctor || !firestore) return;
 
         const computeQueueState = async () => {
             try {
@@ -620,23 +641,27 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         return delayMap.get(yourAppointment.id) || 0;
     }, [delayMap, yourAppointment]);
 
-    // Calculate estimated wait time (after doctor and yourDelay are defined)
-    // Note: patientsAhead includes the current token (index 0), but current token is already being processed
-    // So we subtract 1 from patientsAhead to get only the people who need full consultation slots
-    const estimatedWaitTime = useMemo(() => {
-        if (!yourAppointment || !doctor) return 0;
-        const avgTime = doctor.averageConsultingTime || 5;
-        // Subtract 1 because the current token (patientsAhead = 0) is already being processed
-        const actualPatientsAhead = Math.max(0, patientsAhead - 1);
-        return actualPatientsAhead * avgTime + yourDelay;
-    }, [patientsAhead, doctor, yourAppointment, yourDelay]);
-
+    // Calculate estimated wait time (Surgical Fix: Simple difference between scheduled time and current time)
     // Calculate estimated consultation time based on scheduled time and total delay
     const totalDelayMinutes = useMemo(() => {
         if (!yourAppointment) return yourDelay;
         const doctorDelay = yourAppointment.doctorDelayMinutes || 0;
         return Math.max(0, yourDelay + doctorDelay);
     }, [yourAppointment, yourDelay]);
+
+    const estimatedWaitTime = useMemo(() => {
+        if (!yourAppointment) return 0;
+        try {
+            const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
+            // Include doctor delay in the wait time calculation
+            const adjustedAppointmentTime = addMinutes(appointmentDateTime, totalDelayMinutes);
+            const diff = differenceInMinutes(adjustedAppointmentTime, currentTime);
+            return Math.max(0, diff);
+        } catch (error) {
+            console.error('Error calculating simple wait time:', error);
+            return 0;
+        }
+    }, [yourAppointment, currentTime, totalDelayMinutes]);
 
     const estimatedConsultationTime = useMemo(() => {
         if (!yourAppointment) return null;
@@ -648,22 +673,22 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         }
     }, [yourAppointment, totalDelayMinutes]);
 
-    const isDoctorIn = doctor?.consultationStatus === 'In';
+    const isDoctorIn = currentDoctor?.consultationStatus === 'In';
 
     const doctorStatusInfo = useMemo(() => {
-        if (!yourAppointment || !doctor?.availabilitySlots) {
+        if (!yourAppointment || !currentDoctor?.availabilitySlots) {
             return { isLate: false, isBreak: false, isAffected: false };
         }
 
         try {
             const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
             const dateKey = format(appointmentDateTime, 'd MMMM yyyy');
-            const breaks = doctor.breakPeriods?.[dateKey] || [];
+            const breaks = currentDoctor.breakPeriods?.[dateKey] || [];
 
             if (breaks.length === 0) return { isLate: false, isBreak: false, isAffected: false };
 
             const dayOfWeek = format(appointmentDateTime, 'EEEE');
-            const dayAvailability = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
+            const dayAvailability = currentDoctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
             if (!dayAvailability || !dayAvailability.timeSlots.length) return { isLate: false, isBreak: false, isAffected: false };
 
             const firstSession = dayAvailability.timeSlots[0];
@@ -692,14 +717,14 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         } catch {
             return { isLate: false, isBreak: false, isAffected: false };
         }
-    }, [yourAppointment, doctor]);
+    }, [yourAppointment, currentDoctor]);
 
     const breakMinutes = useMemo(() => {
-        if (!yourAppointment || !doctor?.breakPeriods) return 0;
+        if (!yourAppointment || !currentDoctor?.breakPeriods) return 0;
         try {
             const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
             const dateKey = format(appointmentDateTime, 'd MMMM yyyy');
-            const breaks = doctor.breakPeriods[dateKey] || [];
+            const breaks = currentDoctor.breakPeriods[dateKey] || [];
 
             if (breaks.length === 0) return 0;
 
@@ -717,7 +742,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         } catch {
             return 0;
         }
-    }, [yourAppointment, doctor, currentTime]);
+    }, [yourAppointment, currentDoctor, currentTime]);
 
     const confirmedStatusBanner = useMemo(() => {
         if (yourAppointment?.status !== 'Confirmed') return null;
@@ -1176,62 +1201,20 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     const doctorDelayMinutes = yourAppointment?.doctorDelayMinutes || 0;
 
     const confirmedEstimatedWaitMinutes = useMemo(() => {
-        if (!yourAppointment || yourAppointment.status !== 'Confirmed' || !doctor) return 0;
-        const avgTime = doctor.averageConsultingTime || 5;
-        const queueWait = tokensAheadForConfirmed * avgTime;
+        if (!yourAppointment || yourAppointment.status !== 'Confirmed') return 0;
 
-        if (isDoctorIn) {
-            if (breakMinutes > 0) {
-                return Math.max(0, breakMinutes + queueWait);
-            }
-            return Math.max(0, queueWait);
+        try {
+            const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
+            // Include doctor delay in the wait time calculation
+            const adjustedAppointmentTime = addMinutes(appointmentDateTime, totalDelayMinutes);
+            const diff = differenceInMinutes(adjustedAppointmentTime, currentTime);
+            return Math.max(0, diff);
+        } catch (error) {
+            console.error('Error calculating confirmed wait time:', error);
+            return 0;
         }
+    }, [yourAppointment, currentTime, totalDelayMinutes]);
 
-        const appointmentDate = parse(yourAppointment.date, "d MMMM yyyy", new Date());
-        const todaysSlots = doctor.availabilitySlots?.find(slot => slot.day === format(appointmentDate, 'EEEE'))?.timeSlots ?? [];
-        const breakIntervalsForDay = buildBreakIntervals(doctor, appointmentDate);
-
-        const nextSessionStart = todaysSlots.reduce<Date | null>((next, timeSlot) => {
-            try {
-                let sessionStart = parse(timeSlot.from, "hh:mm a", appointmentDate);
-
-                // If a break overlaps the session start (including breaks that begin at availability start),
-                // shift the effective start to the break end.
-                const overlappingBreak = breakIntervalsForDay.find(interval =>
-                    sessionStart.getTime() >= interval.start.getTime() &&
-                    sessionStart.getTime() < interval.end.getTime()
-                );
-                if (overlappingBreak) {
-                    sessionStart = overlappingBreak.end;
-                }
-
-                if (sessionStart.getTime() <= currentTime.getTime()) {
-                    return next;
-                }
-                if (!next || sessionStart < next) {
-                    return sessionStart;
-                }
-                return next;
-            } catch {
-                return next;
-            }
-        }, null);
-
-        // Avoid double-counting break and next-session gap. Use the longer of the two waits.
-        let minutesUntilNextSession = 0;
-        if (nextSessionStart) {
-            try {
-                minutesUntilNextSession = Math.max(0, differenceInMinutes(nextSessionStart, currentTime));
-            } catch {
-                minutesUntilNextSession = 0;
-            }
-        }
-
-        const minutesUntilBreakEnds = Math.max(0, breakMinutes);
-        const additionalWait = Math.max(minutesUntilNextSession, minutesUntilBreakEnds);
-
-        return queueWait + additionalWait;
-    }, [yourAppointment, doctor, tokensAheadForConfirmed, breakMinutes, isDoctorIn, currentTime]);
 
     const BottomMessage = () => {
         const reportingLabel = language === 'ml'
@@ -1311,16 +1294,32 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             );
         }
 
-        // Priority 3: If consultation started and multiple people ahead, show estimated waiting time in minutes
+        // Priority 3: If consultation started and multiple people ahead, show estimated waiting time
         if (shouldShowQueueInfo && patientsAhead > 1) {
-            const avgConsultTime = doctor?.averageConsultingTime || 5;
-            const waitMinutes = Math.max(1, Math.round(Math.max(0, patientsAhead) * avgConsultTime));
+            const waitMinutes = estimatedWaitTime;
             const waitTitle = language === 'ml'
                 ? 'ഏകദേശ കാത്തിരിപ്പ് സമയം'
                 : 'Estimated waiting time';
-            const waitLabel = language === 'ml'
-                ? `${waitMinutes} ${t.liveToken.minutes || 'min'}`
-                : `${waitMinutes} ${t.liveToken.minutes || 'min'}`;
+            const mins = Math.max(1, Math.round(waitMinutes));
+            const hours = Math.floor(mins / 60);
+            const remainingMinutes = mins % 60;
+            let waitLabel: string;
+
+            if (mins >= 60) {
+                const hourPart = language === 'ml'
+                    ? `${hours} ${t.liveToken.hours}`
+                    : `${hours} ${t.liveToken.hours}`;
+                const minutePart = remainingMinutes > 0
+                    ? language === 'ml'
+                        ? ` ${remainingMinutes} ${t.liveToken.minutes}`
+                        : ` ${remainingMinutes} ${t.liveToken.minutes}`
+                    : '';
+                waitLabel = `${hourPart}${minutePart}`;
+            } else {
+                waitLabel = language === 'ml'
+                    ? `${mins} ${t.liveToken.minutes}`
+                    : `${mins} ${t.liveToken.minutes}`;
+            }
             return (
                 <div className="w-full text-center py-4">
                     <div className="bg-green-100 text-green-800 animate-pulse rounded-full px-4 py-3 flex flex-col items-center justify-center gap-1">

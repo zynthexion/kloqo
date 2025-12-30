@@ -378,17 +378,39 @@ function BookingSummaryPage() {
                     console.error('Error calculating times for new appointment:', error);
                 }
 
-                await setDoc(newAppointmentRef, appointmentData as any);
+                // ⚠️ CRITICAL: Refactored to use transaction for atomicity (matches Clinic App)
+                try {
+                    await runTransaction(firestore, async (transaction) => {
+                        const reservationRef = doc(firestore, 'slot-reservations', tokenData.reservationId);
+                        const reservationDoc = await transaction.get(reservationRef);
 
-                // 2. Mark OLD appointment as Cancelled
-                await updateDoc(appointmentRef, {
-                    status: 'Cancelled',
-                    cancellationReason: 'Rescheduled',
-                    isRescheduled: true,
-                    updatedAt: serverTimestamp(),
-                });
+                        // 1. Mark OLD appointment as Cancelled
+                        transaction.update(appointmentRef, {
+                            status: 'Cancelled',
+                            cancellationReason: 'Rescheduled',
+                            isRescheduled: true,
+                            updatedAt: serverTimestamp(),
+                        });
 
-                await releaseReservation(tokenData.reservationId, 2000);
+                        // 2. Update OLD reservation or create new booked entry
+                        // Note: If Edit mode used same slot, it might still have a reservationId
+                        if (reservationDoc.exists()) {
+                            transaction.update(reservationRef, {
+                                status: 'booked',
+                                appointmentId: newAppointmentRef.id,
+                                bookedAt: serverTimestamp()
+                            });
+                        }
+
+                        // 3. Create NEW appointment document
+                        transaction.set(newAppointmentRef, appointmentData);
+                    });
+                } catch (txError: any) {
+                    console.error('Error in reschedule transaction:', txError);
+                    // Try to release the reservation if the transaction failed
+                    await releaseReservation(tokenData.reservationId);
+                    throw txError;
+                }
 
                 // Send rescheduled notification
                 if (user?.dbUserId && (oldDate !== appointmentDateStr || oldTime !== actualTime)) {
@@ -1049,10 +1071,25 @@ function BookingSummaryPage() {
                         stackTrace: new Error().stack
                     });
 
-                    // CRITICAL: Delete the reservation as part of the transaction
-                    // This ensures only ONE request can successfully claim it
-                    // If multiple requests try simultaneously, only one can delete the reservation
-                    transaction.delete(reservationRef);
+                    // ⚠️⚠️⚠️ RESERVATION PERSISTENCE TRACKER ⚠️⚠️⚠️
+                    console.error(`[RESERVATION TRACKER] ✅ PATIENT APP - MARKING slot-reservation as booked`, {
+                        app: 'kloqo-app',
+                        page: 'book-appointment/summary/page.tsx (advance booking)',
+                        action: 'transaction.update(reservationRef, {status: "booked"})',
+                        reservationId: reservationRef.id,
+                        appointmentId: appointmentRef.id,
+                        token: finalAppointmentData.tokenNumber,
+                        timestamp: new Date().toISOString()
+                    });
+
+                    // CRITICAL: Mark the reservation as booked instead of deleting it
+                    // This prevents "ghost" reservations from being re-created if the page re-renders
+                    // or if generateNextTokenAndReserveSlot is called again redundantly.
+                    transaction.update(reservationRef, {
+                        status: 'booked',
+                        appointmentId: appointmentRef.id,
+                        bookedAt: serverTimestamp()
+                    });
 
 
                     // Create appointment atomically in the same transaction

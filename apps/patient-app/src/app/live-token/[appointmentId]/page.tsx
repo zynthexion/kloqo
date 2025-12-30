@@ -724,6 +724,10 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 const end = parseISO(bp.endTime);
                 const start = parseISO(bp.startTime);
                 if (isAfter(end, now) && isBefore(start, now)) {
+                    // Skip if the appointment was scheduled before this break started
+                    if (isBefore(appointmentDateTime, start)) {
+                        continue;
+                    }
                     return Math.max(0, differenceInMinutes(end, now));
                 }
             }

@@ -253,10 +253,9 @@ export async function shiftAppointmentsForNewBreak(
         }
 
         // Check if we need to proceed with shifting
-        if (dynamicShiftAmount === 0 && displacedAppointments.length === 0 && reactivatedCount === 0) {
-            console.log('[BREAK SERVICE] Redundant break. No changes.');
-            return;
-        }
+        // Note: We no longer return early here if dynamicShiftAmount === 0 
+        // because we still need to create dummy appointments for empty slots 
+        // to block the backend scheduler from booking into the break.
 
 
         // 3. SHIFT PHASE

@@ -146,17 +146,20 @@ export async function POST(request: NextRequest) {
           }
         });
 
+        // Create data payload with all necessary info (including title/body)
+        // This makes it a "Data-Only" message so the browser doesn't auto-show a notification
+        // The Service Worker will handle display manually to prevent duplicates
+        const messagePayload = {
+          ...stringifiedData,
+          title: finalTitle,
+          body: finalBody,
+          icon: '/icons/icon-192x192.png',
+        };
+
         const message = {
-          notification: { title: finalTitle, body: finalBody },
-          data: stringifiedData,
+          data: messagePayload,
           token: fcmToken,
           webpush: {
-            notification: {
-              title: finalTitle,
-              body: finalBody,
-              icon: '/icons/icon-192x192.png',
-              badge: '/icons/icon-192x192.png',
-            },
             fcmOptions: {
               link: targetUrl
             }

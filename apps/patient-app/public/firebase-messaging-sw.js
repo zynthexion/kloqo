@@ -44,12 +44,15 @@ messaging.onBackgroundMessage((payload) => {
   console.log('📨 Background message received via onBackgroundMessage:', payload);
   console.log('📨 Has notification object:', !!payload.notification);
 
-  if (!payload.notification) {
-    console.warn('⚠️ Payload has no notification object, cannot show notification');
+  if (!payload.notification && !payload.data) {
+    console.warn('⚠️ Payload has no notification or data object, cannot show notification');
     return Promise.resolve();
   }
 
-  const notificationTitle = payload.notification.title || 'Kloqo';
+  // Support both notification payload and data-only payload
+  const notificationTitle = payload.notification?.title || payload.data?.title || 'Kloqo';
+  const notificationBody = payload.notification?.body || payload.data?.body || 'You have a new notification';
+  const notificationIcon = payload.notification?.icon || '/icons/icon-192x192.png';
 
   // Use unique tag to prevent duplicates
   // Include notification type in tag to make it unique even for same appointmentId
@@ -69,7 +72,7 @@ messaging.onBackgroundMessage((payload) => {
 
   console.log('📨 Preparing notification:', {
     title: notificationTitle,
-    body: payload.notification.body,
+    body: notificationBody,
     tag: uniqueTag,
     type: notificationType,
     appointmentId: appointmentId || 'none',
@@ -111,8 +114,8 @@ messaging.onBackgroundMessage((payload) => {
   }
 
   const notificationOptions = {
-    body: payload.notification.body || 'You have a new notification',
-    icon: payload.notification.icon || '/icons/icon-192x192.png',
+    body: notificationBody,
+    icon: notificationIcon,
     badge: '/icons/icon-192x192.png',
     tag: uniqueTag, // Unique tag prevents duplicate notifications
     requireInteraction: false,
@@ -188,6 +191,7 @@ messaging.onBackgroundMessage((payload) => {
         errorName: error.name,
         notificationTitle,
         hasNotification: !!payload.notification,
+        hasData: !!payload.data,
         hasRegistration: !!self.registration
       });
       notificationShownForCurrentPush = false;

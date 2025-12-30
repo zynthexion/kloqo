@@ -96,7 +96,7 @@ export async function sendNotificationToPatient(params: {
         let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
         if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-            baseUrl = 'http://localhost:3002'; // Patient app likely on 3002 (Clinic=3000, Nurse=3001)
+            baseUrl = 'http://localhost:3000'; // Patient app likely on 3000 (default)
         }
 
         // Fallback or default
@@ -159,12 +159,19 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, bookedBy, arriveByTime } = params;
 
     // Always display user time based on arriveByTime - 15 minutes (or time - 15 if arriveByTime missing)
+    // EXCEPTION: For "Walk-in" (W) tokens, display the exact time as they are already at the clinic.
     let displayTime = time;
     try {
-        const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
-        const baseTime = parseTime(arriveByTime || time, appointmentDate);
-        const shownTime = subMinutes(baseTime, 15);
-        displayTime = format(shownTime, 'hh:mm a');
+        if (tokenNumber && tokenNumber.startsWith('W')) {
+            // For Walk-in, show the exact time (which is the estimated start time)
+            displayTime = time;
+        } else {
+            // For regular tokens, show reporting time (15 mins early)
+            const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
+            const baseTime = parseTime(arriveByTime || time, appointmentDate);
+            const shownTime = subMinutes(baseTime, 15);
+            displayTime = format(shownTime, 'hh:mm a');
+        }
     } catch (error) {
         console.error('Error calculating displayTime for booking notification:', error);
     }

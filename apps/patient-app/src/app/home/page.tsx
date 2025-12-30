@@ -1163,12 +1163,6 @@ function HomePageContent() {
                 const modeToUse = scanMode || 'consult';
                 if (modeToUse === 'consult') {
                     router.push(`/consult-today?clinicId=${clinicId}`);
-                    toast({
-                        title: language === 'ml' ? 'സ്കാൻ ചെയ്തു' : 'Scanned',
-                        description: language === 'ml'
-                            ? 'ഡോക്ടറെ തിരഞ്ഞെടുക്കുന്നു...'
-                            : 'Loading doctors...',
-                    });
                 } else {
                     router.push(`/confirm-arrival?clinic=${clinicId}`);
                     toast({

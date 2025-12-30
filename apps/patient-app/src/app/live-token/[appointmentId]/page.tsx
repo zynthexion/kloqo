@@ -36,7 +36,6 @@ import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { computeQueues, type QueueState, compareAppointments, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
-import { useToast } from '@/hooks/use-toast';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371e3;
@@ -107,7 +106,6 @@ function getReportByTimeLabel(appointment: Appointment | null, doctor?: Doctor |
 const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors, currentTime, t, departments, language, onAppointmentConfirmed }: { yourAppointment: Appointment, allTodaysAppointments: Appointment[], doctors: Doctor[], currentTime: Date, t: any, departments: any[], language: 'en' | 'ml', onAppointmentConfirmed?: (appointmentId: string) => void }) => {
     const firestore = useFirestore();
     const router = useRouter();
-    const { toast } = useToast();
 
     const reportingLabel = language === 'ml'
         ? 'ക്ലിനിക്കിൽ റിപ്പോർട്ട് ചെയ്യേണ്ട സമയം'
@@ -400,14 +398,6 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         }
     }, [yourAppointment]);
 
-    // Track position changes for message display
-    const previousPositionRef = useRef<number | null>(null);
-    const previousStatusRef = useRef<string | null>(null);
-    const previousIsInBufferRef = useRef<boolean>(false);
-    const [positionChangeMessage, setPositionChangeMessage] = useState<{
-        type: 'improved' | 'worsened' | 'buffer' | 'next' | 'status' | null;
-        text: string;
-    } | null>(null);
 
     // 2. The current token is always the first in the master queue
     const currentTokenAppointment = useMemo(() => masterQueue[0] || null, [masterQueue]);
@@ -1032,7 +1022,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     status: 'Confirmed',
                     updatedAt: serverTimestamp()
                 });
-                // Get the appointment time to display in toast message
+                // Get the appointment time
                 const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
                 newTimeString = arriveByString;
             } else if (yourAppointment.status === 'Skipped') {
@@ -1068,27 +1058,6 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             }
 
             setLocationStatus('success');
-
-            // Prepare toast message based on status
-            let toastTitle: string;
-            let toastDescription: string;
-
-            if (newTimeString) {
-                // For both skipped and pending appointments, use the same message format with time
-                toastTitle = language === 'ml' ? 'ചെക്ക്-ഇൻ വിജയകരം' : 'Check-in Successful';
-                toastDescription = language === 'ml'
-                    ? `നിങ്ങളെ ക്യൂവിൽ ചേർത്തിട്ടുണ്ട്. ഡോക്ടറെ കാണാനുള്ള സമയം: ${newTimeString}`
-                    : `You have been added to the queue. Time to see the doctor: ${newTimeString}`;
-            } else {
-                // Fallback for other statuses (shouldn't normally happen)
-                toastTitle = language === 'ml' ? 'ഉപസ്ഥിതി സ്ഥിരീകരിച്ചു' : 'Arrival confirmed';
-                toastDescription = language === 'ml' ? 'ദയവായി നിങ്ങളുടെ വാരം കാത്തിരിക്കൂ.' : 'Please wait for your turn.';
-            }
-
-            toast({
-                title: toastTitle,
-                description: toastDescription,
-            });
             onAppointmentConfirmed?.(yourAppointment.id);
         } catch (err: any) {
             console.error('Error confirming arrival', err);
@@ -1097,97 +1066,6 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             setIsConfirmingInline(false);
         }
     };
-
-    // Detect position changes and update messages
-    useEffect(() => {
-        if (!yourAppointment || !shouldShowQueueInfo) {
-            previousPositionRef.current = null;
-            previousStatusRef.current = null;
-            previousIsInBufferRef.current = false;
-            setPositionChangeMessage(null);
-            return;
-        }
-
-        const currentStatus = yourAppointment.status;
-        const currentPosition = patientsAhead;
-        const currentIsInBuffer = isInBufferQueue;
-
-        // Initialize refs on first render
-        if (previousPositionRef.current === null) {
-            previousPositionRef.current = currentPosition;
-            previousStatusRef.current = currentStatus;
-            previousIsInBufferRef.current = currentIsInBuffer;
-            return;
-        }
-
-        const prevPosition = previousPositionRef.current;
-        const prevStatus = previousStatusRef.current;
-        const prevIsInBuffer = previousIsInBufferRef.current;
-
-        // Check for status change (Pending -> Confirmed)
-        if (prevStatus === 'Pending' && currentStatus === 'Confirmed') {
-            setPositionChangeMessage({
-                type: 'status',
-                text: language === 'ml'
-                    ? 'നിങ്ങൾ എത്തിയതായി സ്ഥിരീകരിച്ചു! ക്യൂവിൽ ചേർന്നു.'
-                    : 'Arrival confirmed! You\'re in the queue.'
-            });
-        }
-        // Check for position changes (only after arrival)
-        else if (currentStatus === 'Confirmed' && prevStatus === 'Confirmed') {
-            // Check if moved to buffer (top 2)
-            if (!prevIsInBuffer && currentIsInBuffer) {
-                if (currentPosition === 0 || (currentPosition === 1 && queueState?.bufferQueue[0]?.id === yourAppointment.id)) {
-                    setPositionChangeMessage({
-                        type: 'next',
-                        text: language === 'ml'
-                            ? 'ദയവായി കൺസൾട്ടേഷൻ റൂമിലേക്ക് പോകുക.'
-                            : 'Please go to the consultation room.'
-                    });
-                } else {
-                    // Only show "Almost Your Turn" if doctor's consultation status is "In"
-                    if (isDoctorIn) {
-                        setPositionChangeMessage({
-                            type: 'buffer',
-                            text: language === 'ml'
-                                ? 'നിങ്ങളുടെ വഴിയാണ്! ഉടൻ ഡോക്ടറെ കാണാം.'
-                                : 'Almost Your Turn! You\'ll see the doctor soon.'
-                        });
-                    } else {
-                        setPositionChangeMessage({
-                            type: 'buffer',
-                            text: language === 'ml'
-                                ? 'കൺസൾട്ടേഷൻ ഉടൻ ആരംഭിക്കും'
-                                : 'Consultation starting soon'
-                        });
-                    }
-                }
-            }
-            // Check if position improved
-            else if (currentPosition < prevPosition) {
-                setPositionChangeMessage({
-                    type: 'improved',
-                    text: language === 'ml'
-                        ? `നിങ്ങൾ മുന്നോട്ട് നീങ്ങി! ${currentPosition} ${currentPosition === 1 ? 'വ്യക്തി' : 'വ്യക്തികൾ'} മുന്നിൽ.`
-                        : `You moved forward! ${currentPosition} ${currentPosition === 1 ? 'patient' : 'patients'} ahead.`
-                });
-            }
-            // Check if position worsened
-            else if (currentPosition > prevPosition) {
-                setPositionChangeMessage({
-                    type: 'worsened',
-                    text: language === 'ml'
-                        ? `മുമ്പ് വന്നവർ സ്ഥിരീകരിച്ചു. ${currentPosition} ${currentPosition === 1 ? 'വ്യക്തി' : 'വ്യക്തികൾ'} മുന്നിൽ.`
-                        : `Earlier patients confirmed. ${currentPosition} ${currentPosition === 1 ? 'patient' : 'patients'} ahead now.`
-                });
-            }
-        }
-
-        // Update refs
-        previousPositionRef.current = currentPosition;
-        previousStatusRef.current = currentStatus;
-        previousIsInBufferRef.current = currentIsInBuffer;
-    }, [patientsAhead, yourAppointment?.status, isInBufferQueue, shouldShowQueueInfo, queueState, yourAppointment, language, isDoctorIn]);
 
     // Unified bottom message container
     const tokensAheadForConfirmed = useMemo(() => {

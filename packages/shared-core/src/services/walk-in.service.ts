@@ -3252,7 +3252,7 @@ export async function calculateWalkInDetails(
         : 0;
 
       // Count patients ahead (all active appointments)
-      const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
+      const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped']);
       const patientsAhead = appointments.filter(appointment =>
         allActiveStatuses.has(appointment.status)
       ).length;
@@ -3280,7 +3280,7 @@ export async function calculateWalkInDetails(
     throw new Error('No walk-in slots are available at this time.');
   }
 
-  const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
+  const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped']);
   const patientsAhead = appointments.filter(appointment => {
     return (
       typeof appointment.slotIndex === 'number' &&

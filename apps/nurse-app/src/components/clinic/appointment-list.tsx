@@ -316,7 +316,6 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                                       size="sm"
                                       className="h-7 px-2 bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
                                       onClick={() => onRejoinQueue(appt)}
-                                      disabled={isClinicOut}
                                     >
                                       <Check className="mr-1 h-3 w-3" /> Rejoin
                                     </Button>

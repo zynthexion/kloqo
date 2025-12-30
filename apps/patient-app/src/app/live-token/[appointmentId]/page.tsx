@@ -352,7 +352,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 apt.doctor === yourAppointment.doctor &&
                 apt.date === yourAppointment.date &&
                 apt.status !== 'Cancelled' &&
-                apt.status !== 'No-show'
+                apt.status !== 'No-show' &&
+                apt.status !== 'Completed'
             )
             .sort(compareAppointments);
     }, [allTodaysAppointments, yourAppointment]);

@@ -29,7 +29,7 @@ import {
     buildCandidateSlots,
     calculatePerSessionReservedSlots,
 } from './walk-in.service';
-import { getClinicNow, getClinicDateString } from '../utils/date-utils';
+import { getClinicNow, getClinicDateString, getClinicTimeString } from '../utils/date-utils';
 import { parseTime } from '../utils/break-helpers';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 
@@ -70,7 +70,7 @@ export async function completeStaffWalkInBooking(
 
     const now = getClinicNow();
     const date = inputDate || now;
-    const dateStr = format(date, 'd MMMM yyyy');
+    const dateStr = getClinicDateString(date);
 
     // 1. Parallel Pre-fetch (Consistent Reads)
     // These are outside the transaction but help fail fast or provide data for the transaction
@@ -196,8 +196,8 @@ export async function completeStaffWalkInBooking(
             department: doctor.department,
             bookedVia: 'Walk-in',
             date: dateStr,
-            time: format(shiftPlan.newAssignment.slotTime, 'hh:mm a'),
-            arriveByTime: format(shiftPlan.newAssignment.slotTime, 'hh:mm a'),
+            time: getClinicTimeString(shiftPlan.newAssignment.slotTime),
+            arriveByTime: getClinicTimeString(shiftPlan.newAssignment.slotTime),
             status: 'Confirmed',
             tokenNumber,
             numericToken: nextWalkInNumericToken,
@@ -269,7 +269,7 @@ export async function completePatientWalkInBooking(
 
     const now = getClinicNow();
     const date = now;
-    const dateStr = format(date, 'd MMMM yyyy');
+    const dateStr = getClinicDateString(date);
 
     // 1. Parallel Pre-fetch
     const clinicRef = doc(firestore, 'clinics', clinicId);
@@ -395,8 +395,8 @@ export async function completePatientWalkInBooking(
             department: doctor.department,
             bookedVia: 'Walk-in',
             date: dateStr,
-            time: format(shiftPlan.newAssignment.slotTime, 'hh:mm a'),
-            arriveByTime: format(shiftPlan.newAssignment.slotTime, 'hh:mm a'),
+            time: getClinicTimeString(shiftPlan.newAssignment.slotTime),
+            arriveByTime: getClinicTimeString(shiftPlan.newAssignment.slotTime),
             status: 'Confirmed',
             tokenNumber,
             numericToken: nextWalkInNumericToken,

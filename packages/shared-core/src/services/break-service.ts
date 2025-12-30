@@ -13,6 +13,7 @@ import {
 import { format, addMinutes, parseISO, differenceInMinutes } from 'date-fns';
 import type { Appointment, BreakPeriod } from '@kloqo/shared-types';
 import { parseTime } from '../utils/break-helpers';
+import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString } from '../utils/date-utils';
 import { sendBreakUpdateNotification } from './notification-service';
 
 /**
@@ -29,7 +30,7 @@ export async function shiftAppointmentsForNewBreak(
     averageConsultingTime: number = 15
 ): Promise<void> {
     try {
-        const dateStr = format(date, 'd MMMM yyyy');
+        const dateStr = getClinicDateString(date);
 
         // Parse break start from formatted time
         const breakStart = breakPeriod.startTimeFormatted
@@ -123,7 +124,7 @@ export async function shiftAppointmentsForNewBreak(
 
         if (!doctorSnap.empty) {
             doctorData = doctorSnap.docs[0].data();
-            const dayOfWeek = format(date, 'EEEE');
+            const dayOfWeek = getClinicDayOfWeek(date);
             const availabilitySlot = doctorData.availabilitySlots?.find((s: any) => s.day === dayOfWeek);
             if (availabilitySlot?.timeSlots?.[sessionIndex]) {
                 const sessionTime = availabilitySlot.timeSlots[sessionIndex];
@@ -178,8 +179,8 @@ export async function shiftAppointmentsForNewBreak(
         // that fall within the new break period
         console.log('[BREAK SERVICE] 🔍 Starting reactivation phase');
         console.log('[BREAK SERVICE] Break period:', {
-            start: format(breakStart, 'hh:mm a'),
-            end: format(breakEnd, 'hh:mm a'),
+            start: getClinicTimeString(breakStart),
+            end: getClinicTimeString(breakEnd),
             duration: breakDuration
         });
         console.log('[BREAK SERVICE] Total appointments found:', snapshot.docs.length);
@@ -219,7 +220,7 @@ export async function shiftAppointmentsForNewBreak(
             apptArriveBy.setSeconds(0, 0);
 
             console.log('[BREAK SERVICE] Time comparison:', {
-                apptTime: format(apptArriveBy, 'hh:mm a'),
+                apptTime: getClinicTimeString(apptArriveBy),
                 apptTimestamp: apptArriveBy.getTime(),
                 breakStartTimestamp: breakStart.getTime(),
                 breakEndTimestamp: breakEnd.getTime(),
@@ -297,7 +298,7 @@ export async function shiftAppointmentsForNewBreak(
             const noShowDate = appt.noShowTime instanceof Timestamp ? appt.noShowTime.toDate() : null;
             const newCutOffTime = cutOffDate ? addMinutes(cutOffDate, effectiveShiftMinutes) : null;
             const newNoShowTime = noShowDate ? addMinutes(noShowDate, effectiveShiftMinutes) : null;
-            const newTimeStr = format(newArriveBy, 'hh:mm a');
+            const newTimeStr = getClinicTimeString(newArriveBy);
 
             let newSlotIndex: number | null = null;
             if (typeof appt.slotIndex === 'number') {
@@ -310,7 +311,7 @@ export async function shiftAppointmentsForNewBreak(
                 ...appt,
                 id: newDocRef.id,
                 time: newTimeStr,
-                arriveByTime: format(newArriveBy, 'hh:mm a'),
+                arriveByTime: getClinicTimeString(newArriveBy),
                 ...(newSlotIndex !== null ? { slotIndex: newSlotIndex } : {}),
                 ...(newCutOffTime ? { cutOffTime: Timestamp.fromDate(newCutOffTime) } : {}),
                 ...(newNoShowTime ? { noShowTime: Timestamp.fromDate(newNoShowTime) } : {}),
@@ -427,8 +428,8 @@ export async function shiftAppointmentsForNewBreak(
                     phone: '0000000000',
                     communicationPhone: '0000000000',
                     date: dateStr,
-                    time: format(slotTime, 'hh:mm a'),
-                    arriveByTime: format(slotTime, 'hh:mm a'),
+                    time: getClinicTimeString(slotTime),
+                    arriveByTime: getClinicTimeString(slotTime),
                     cutOffTime: Timestamp.fromDate(cutOffTime),
                     noShowTime: Timestamp.fromDate(noShowTime),
                     slotIndex: i,
@@ -566,7 +567,7 @@ export function validateBreakOverlapWithNextSession(
         return { valid: true };
     }
 
-    const dayOfWeek = format(date, 'EEEE');
+    const dayOfWeek = getClinicDayOfWeek(date);
     const availabilityForDay = doctor.availabilitySlots.find((slot: any) => slot.day === dayOfWeek);
 
     if (!availabilityForDay?.timeSlots?.length) {
@@ -618,7 +619,7 @@ export function validateBreakOverlapWithNextSession(
             // We allow touching (end == start)? usually not, best to have 0 overlap.
             return {
                 valid: false,
-                error: `Extending this session (to ${format(extendedEndTime, 'hh:mm a')}) overlaps with the next session starting at ${format(nextSessionStart, 'hh:mm a')}.`
+                error: `Extending this session (to ${getClinicTimeString(extendedEndTime)}) overlaps with the next session starting at ${getClinicTimeString(nextSessionStart)}.`
             };
         }
     }

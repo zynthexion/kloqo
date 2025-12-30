@@ -7,6 +7,7 @@
 
 import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
 import type { Doctor, BreakPeriod, AvailabilitySlot, Appointment } from '@kloqo/shared-types';
+import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicNow } from './date-utils';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -59,7 +60,7 @@ export function getSessionBreaks(
 ): BreakPeriod[] {
   if (!doctor?.breakPeriods) return [];
 
-  const dateKey = format(date, 'd MMMM yyyy');
+  const dateKey = getClinicDateString(date);
   const allBreaks = doctor.breakPeriods[dateKey] || [];
 
   return allBreaks.filter(bp => bp.sessionIndex === sessionIndex);
@@ -199,13 +200,13 @@ export function calculateSessionExtension(
       totalBreakMinutes,
       actualExtensionNeeded: totalBreakMinutes,
       newSessionEnd: newEnd,
-      formattedNewEnd: format(newEnd, 'hh:mm a')
+      formattedNewEnd: getClinicTimeString(newEnd)
     };
   }
 
   // Calculate actual extension needed based on gap absorption
   const slotDuration = doctor.averageConsultingTime || 15;
-  const dateStr = format(referenceDate, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(referenceDate);
 
   // Filter appointments for this session and date
   const sessionAppointments = appointments.filter(apt =>
@@ -228,7 +229,7 @@ export function calculateSessionExtension(
 
   // Get all slot indices covered by breaks
   const breakSlotIndices = new Set<number>();
-  const dayOfWeek = format(referenceDate, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(referenceDate);
   const availabilityForDay = doctor.availabilitySlots?.find(slot => slot.day === dayOfWeek);
 
   if (availabilityForDay?.timeSlots?.[sessionIndex]) {
@@ -265,7 +266,7 @@ export function calculateSessionExtension(
     totalBreakMinutes,
     actualExtensionNeeded,
     newSessionEnd: newEnd,
-    formattedNewEnd: format(newEnd, 'hh:mm a')
+    formattedNewEnd: getClinicTimeString(newEnd)
   };
 }
 
@@ -285,7 +286,7 @@ export function getCurrentActiveSession(
 ): SessionInfo | null {
   if (!doctor?.availabilitySlots?.length) return null;
 
-  const dayOfWeek = format(referenceDate, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(referenceDate);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) return null;
@@ -302,7 +303,7 @@ export function getCurrentActiveSession(
     const breaks = getSessionBreaks(doctor, referenceDate, i);
 
     // Check for stored extension (respects user's choice to extend or not)
-    const dateKey = format(referenceDate, 'd MMMM yyyy');
+    const dateKey = getClinicDateString(referenceDate);
     const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
       (s: any) => s.sessionIndex === i
     );
@@ -351,7 +352,7 @@ export function getCurrentActiveSession(
       const breaks = getSessionBreaks(doctor, referenceDate, i);
 
       // Check for stored extension (respects user's choice to extend or not)
-      const dateKey = format(referenceDate, 'd MMMM yyyy');
+      const dateKey = getClinicDateString(referenceDate);
       const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
         (s: any) => s.sessionIndex === i
       );
@@ -415,7 +416,7 @@ export function getAvailableBreakSlots(
   const currentSession = currentSessionOverride ?? getCurrentActiveSession(doctor, now, referenceDate);
   if (!currentSession) return result;
 
-  const dayOfWeek = format(referenceDate, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(referenceDate);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
   if (!availabilityForDay) return result;
 
@@ -439,18 +440,18 @@ export function getAvailableBreakSlots(
       let isTaken = takenSlots.has(isoString);
 
       if (!isTaken && appointments) {
-        const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
+        const referenceDateStr = getClinicDateString(referenceDate);
         const appointmentAtSlot = appointments.find(apt =>
           (apt.status === 'Completed') &&
           (apt.date === referenceDateStr) &&
-          apt.time === format(currentTime, 'hh:mm a')
+          apt.time === getClinicTimeString(currentTime)
         );
         if (appointmentAtSlot) isTaken = true;
       }
 
       result.currentSessionSlots.push({
         time: new Date(currentTime),
-        timeFormatted: format(currentTime, 'hh:mm a'),
+        timeFormatted: getClinicTimeString(currentTime),
         isoString,
         isAvailable: !isTaken,
         isTaken,
@@ -480,18 +481,18 @@ export function getAvailableBreakSlots(
 
         // Also check against appointments if provided
         if (!isTaken && appointments) {
-          const referenceDateStr = format(referenceDate, 'd MMMM yyyy');
+          const referenceDateStr = getClinicDateString(referenceDate);
           const appointmentAtSlot = appointments.find(apt =>
             (apt.status === 'Completed') &&
             (apt.date === referenceDateStr) &&
-            apt.time === format(slotTime, 'hh:mm a')
+            apt.time === getClinicTimeString(slotTime)
           );
           if (appointmentAtSlot) isTaken = true;
         }
 
         sessionSlots.push({
           time: new Date(slotTime),
-          timeFormatted: format(slotTime, 'hh:mm a'),
+          timeFormatted: getClinicTimeString(slotTime),
           isoString,
           isAvailable: !isTaken,
           isTaken,
@@ -525,7 +526,7 @@ export function getSessionEnd(
 ): Date | null {
   if (!doctor?.availabilitySlots?.length) return null;
 
-  const dayOfWeek = format(date, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(date);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) return null;
@@ -535,7 +536,7 @@ export function getSessionEnd(
   let sessionEnd = parseTime(session.to, date);
 
   // Check for extensions
-  const dateKey = format(date, 'd MMMM yyyy');
+  const dateKey = getClinicDateString(date);
   const extensions = doctor.availabilityExtensions?.[dateKey];
 
   if (extensions?.sessions) {
@@ -579,8 +580,8 @@ export function createBreakPeriod(
     id: `break-${start.getTime()}`,
     startTime: start.toISOString(),
     endTime: end.toISOString(),
-    startTimeFormatted: format(start, 'hh:mm a'),
-    endTimeFormatted: format(end, 'hh:mm a'),
+    startTimeFormatted: getClinicTimeString(start),
+    endTimeFormatted: getClinicTimeString(end),
     duration,
     sessionIndex,
     slots
@@ -607,7 +608,7 @@ export function buildBreakIntervalsFromPeriods(
 ): BreakInterval[] {
   if (!doctor?.breakPeriods) return [];
 
-  const dateKey = format(referenceDate, 'd MMMM yyyy');
+  const dateKey = getClinicDateString(referenceDate);
   const breaks = doctor.breakPeriods[dateKey] || [];
 
   return breaks.map((bp: BreakPeriod) => ({
@@ -664,15 +665,15 @@ export function isWithin15MinutesOfClosing(
 ): boolean {
   if (!doctor?.availabilitySlots?.length) return false;
 
-  const now = new Date();
-  const dateStr = format(date, 'yyyy-MM-dd');
-  const todayStr = format(now, 'yyyy-MM-dd');
+  const now = getClinicNow();
+  const dateStr = getClinicISOString(date);
+  const todayStr = getClinicISOString(now);
 
   // Only check for today - future dates don't have closing time restrictions
   if (dateStr !== todayStr) return false;
 
   // Get day of week
-  const dayOfWeek = format(date, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(date);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay?.timeSlots?.length) return false;

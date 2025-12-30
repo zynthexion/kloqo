@@ -4,7 +4,7 @@ import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
-import { getClinicNow, getClinicDayOfWeek, getClinicDateString } from '../utils/date-utils';
+import { getClinicNow, getClinicDayOfWeek, getClinicDateString, getClinicTimeString } from '../utils/date-utils';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
@@ -63,7 +63,7 @@ export async function loadDoctorAndSlots(
     throw new Error('Doctor availability information is missing.');
   }
 
-  const dayOfWeek = format(date, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(date);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
@@ -75,7 +75,7 @@ export async function loadDoctorAndSlots(
   let slotIndex = 0;
 
   // Check for availability extension (session-specific)
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const extensionForDate = doctor.availabilityExtensions?.[dateStr];
 
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
@@ -120,7 +120,7 @@ export async function fetchDayAppointments(
   doctorName: string,
   date: Date
 ): Promise<Appointment[]> {
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const appointmentsRef = collection(firestore, 'appointments');
   const appointmentsQuery = query(
     appointmentsRef,
@@ -158,7 +158,7 @@ function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
  * This dynamically adjusts as time passes - reserved slots are recalculated based on remaining future slots
  * Returns a Set of slot indices that are reserved for walk-ins
  */
-export function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date()): Set<number> {
+export function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = getClinicNow()): Set<number> {
   const reservedSlots = new Set<number>();
 
   // Group slots by sessionIndex
@@ -451,7 +451,7 @@ export async function generateNextToken(
   date: Date,
   type: 'A' | 'W'
 ): Promise<string> {
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const counterDocId = `${clinicId}_${doctorName}_${dateStr}${type === 'W' ? '_W' : ''}`
     .replace(/\s+/g, '_')
     .replace(/[^a-zA-Z0-9_]/g, '');
@@ -527,8 +527,8 @@ export async function generateNextTokenAndReserveSlot(
   time: string;
   reservationId: string;
 }> {
-  const dateStr = format(date, 'd MMMM yyyy');
-  const now = new Date();
+  const dateStr = getClinicDateString(date);
+  const now = getClinicNow();
   const counterDocId = `${clinicId}_${doctorName}_${dateStr}${type === 'W' ? '_W' : ''}`
     .replace(/\s+/g, '_')
     .replace(/[^a-zA-Z0-9_]/g, '');
@@ -822,7 +822,7 @@ export async function generateNextTokenAndReserveSlot(
             }
           }
 
-          let finalTimeString = format(walkInTime, 'hh:mm a');
+          let finalTimeString = getClinicTimeString(walkInTime);
 
           if (usedBucketSlotIndex !== null) {
             // Find the last slotIndex used across ALL sessions for this day
@@ -875,7 +875,7 @@ export async function generateNextTokenAndReserveSlot(
             // Use new slotIndex at the end, with time calculated from last session
             finalSlotIndex = newSlotIndex;
             finalSessionIndex = lastSlot?.sessionIndex ?? newAssignment.sessionIndex;
-            finalTimeString = format(newSlotTime, 'hh:mm a');
+            finalTimeString = getClinicTimeString(newSlotTime);
 
             console.info('[Walk-in Scheduling] Bucket compensation - time calculation:', {
               lastSlotIndexFromSlots,
@@ -1034,7 +1034,7 @@ export async function generateNextTokenAndReserveSlot(
                   }
 
                   if (reservedTime) {
-                    const now = new Date();
+                    const now = getClinicNow();
                     const ageInSeconds = (now.getTime() - reservedTime.getTime()) / 1000;
                     isStale = ageInSeconds > 30; // 30 second threshold for stale reservations
                   }
@@ -1115,7 +1115,7 @@ export async function generateNextTokenAndReserveSlot(
             chosenSlotIndex = slotIndex;
             const reservedSlot = slots[chosenSlotIndex];
             sessionIndexForNew = reservedSlot?.sessionIndex ?? 0;
-            resolvedTimeString = format(reservedSlot?.time ?? now, 'hh:mm a');
+            resolvedTimeString = getClinicTimeString(reservedSlot?.time ?? now);
 
             // CRITICAL: Token number MUST be based on slotIndex + 1 (slotIndex is 0-based, tokens are 1-based)
             // This ensures token A001 goes to slot #1 (slotIndex 0), A002 to slot #2 (slotIndex 1), etc.
@@ -2705,7 +2705,7 @@ export async function prepareAdvanceShift({
         continue;
       }
 
-      const newTimeString = format(newAppointmentTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(newAppointmentTime);
 
       // CRITICAL: Calculate new noShowTime from appointment's current noShowTime field + averageConsultingTime
       // Parse the appointment's current noShowTime field and add averageConsultingTime to it
@@ -2801,7 +2801,7 @@ export async function prepareAdvanceShift({
       if (!assignment) continue;
 
       const newSlotIndex = assignment.slotIndex;
-      const newTimeString = format(assignment.slotTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(assignment.slotTime);
       const noShowTime = addMinutes(assignment.slotTime, averageConsultingTime);
 
       if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
@@ -3051,7 +3051,7 @@ export async function calculateWalkInDetails(
   // This ensures preview shows accurate time by accounting for reserved slots
   const reservedSlots = new Set<number>();
   const maxSlotToCheck = Math.min(slots.length + 50, 200); // Check reasonable range
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
 
   // Batch read reservations for better performance
   const reservationChecks: Promise<{ slotIdx: number; snap: DocumentSnapshot }>[] = [];
@@ -3245,7 +3245,7 @@ export async function calculateWalkInDetails(
       }
 
       // Determine session index (use last session)
-      const dayOfWeek = format(date, 'EEEE');
+      const dayOfWeek = getClinicDayOfWeek(date);
       const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
       const lastSessionIndex = availabilityForDay?.timeSlots?.length
         ? availabilityForDay.timeSlots.length - 1
@@ -3259,7 +3259,7 @@ export async function calculateWalkInDetails(
 
       console.log('[OVERFLOW] Created overflow slot:', {
         slotIndex: overflowSlotIndex,
-        time: format(overflowTime, 'hh:mm a'),
+        time: getClinicTimeString(overflowTime),
         sessionIndex: lastSessionIndex,
         numericToken,
         patientsAhead,
@@ -3376,7 +3376,7 @@ export async function previewWalkInPlacement(
 
   const schedule = computeWalkInSchedule({
     slots,
-    now: new Date(),
+    now: getClinicNow(),
     walkInTokenAllotment,
     advanceAppointments: activeAdvanceAppointments.map(entry => ({
       id: entry.id,
@@ -3514,7 +3514,7 @@ export async function rebalanceWalkInSchedule(
 
     const schedule = computeWalkInSchedule({
       slots,
-      now: new Date(),
+      now: getClinicNow(),
       walkInTokenAllotment: walkInSpacingValue,
       advanceAppointments: freshAdvanceAppointments.map(entry => ({
         id: entry.id,
@@ -3535,7 +3535,7 @@ export async function rebalanceWalkInSchedule(
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
       const newSlotIndex = assignment.slotIndex;
-      const newTimeString = format(assignment.slotTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(assignment.slotTime);
 
       if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
         continue;
@@ -3557,7 +3557,7 @@ export async function rebalanceWalkInSchedule(
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
       const newSlotIndex = assignment.slotIndex;
-      const newTimeString = format(assignment.slotTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(assignment.slotTime);
 
       if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
         continue;

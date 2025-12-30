@@ -17,6 +17,7 @@ import {
 import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, parseISO, isSameMinute, isSameDay } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString } from '../utils/break-helpers';
+import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicShortDateString, getClinicNow } from '../utils/date-utils';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
@@ -51,9 +52,9 @@ interface LoadedDoctor {
 export function isSlotBlockedByLeave(doctor: Doctor, slotTime: Date): boolean {
   if (!doctor) return false;
 
-  const dateStr = format(slotTime, 'd MMMM yyyy');
-  const isoDateStr = format(slotTime, 'yyyy-MM-dd');
-  const shortDateStr = format(slotTime, 'd MMM yyyy');
+  const dateStr = getClinicDateString(slotTime);
+  const isoDateStr = getClinicISOString(slotTime);
+  const shortDateStr = getClinicShortDateString(slotTime);
 
   // Only check breakPeriods (Primary Source of Truth)
   if (doctor.breakPeriods) {
@@ -146,7 +147,7 @@ async function loadDoctorAndSlots(
     throw new Error('Doctor availability information is missing.');
   }
 
-  const dayOfWeek = format(date, 'EEEE');
+  const dayOfWeek = getClinicDayOfWeek(date);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
   if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
@@ -162,7 +163,7 @@ async function loadDoctorAndSlots(
     let endTime = parseTimeString(session.to, date);
 
     // Check for availability extension (session-specific)
-    const dateKey = format(date, 'd MMMM yyyy');
+    const dateKey = getClinicDateString(date);
     const extensionForDate = (doctor as any).availabilityExtensions?.[dateKey];
 
     if (extensionForDate) {
@@ -206,7 +207,7 @@ async function fetchDayAppointments(
   doctorName: string,
   date: Date
 ): Promise<Appointment[]> {
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const appointmentsRef = collection(db, 'appointments');
   const appointmentsQuery = query(
     appointmentsRef,
@@ -244,7 +245,7 @@ function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
  * This dynamically adjusts as time passes - reserved slots are recalculated based on remaining future slots
  * Returns a Set of slot indices that are reserved for walk-ins
  */
-function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = new Date(), blockedIndices: Set<number> = new Set()): Set<number> {
+function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = getClinicNow(), blockedIndices: Set<number> = new Set()): Set<number> {
   const reservedSlots = new Set<number>();
 
   // Group slots by sessionIndex
@@ -538,7 +539,7 @@ export async function generateNextToken(
   date: Date,
   type: 'A' | 'W'
 ): Promise<string> {
-  const dateStr = format(date, 'd MMMM yyyy');
+  const dateStr = getClinicDateString(date);
   const counterDocId = `${clinicId}_${doctorName}_${dateStr}${type === 'W' ? '_W' : ''}`
     .replace(/\s+/g, '_')
     .replace(/[^a-zA-Z0-9_]/g, '');
@@ -575,8 +576,8 @@ export async function generateNextTokenAndReserveSlot(
   time: string;
   reservationId: string;
 }> {
-  const dateStr = format(date, 'd MMMM yyyy');
-  const now = new Date();
+  const dateStr = getClinicDateString(date);
+  const now = getClinicNow();
   const counterDocId = `${clinicId}_${doctorName}_${dateStr}${type === 'W' ? '_W' : ''}`
     .replace(/\s+/g, '_')
     .replace(/[^a-zA-Z0-9_]/g, '');
@@ -705,7 +706,7 @@ export async function generateNextTokenAndReserveSlot(
           patientName: 'Blocked (Leave)',
           createdAt: new Date(),
           updatedAt: new Date(),
-          time: slots[idx] ? format(slots[idx].time, 'hh:mm a') : '',
+          time: slots[idx] ? getClinicTimeString(slots[idx].time) : '',
           tokenNumber: `L${idx}`,
           department: doctorProfile.department || '',
           phone: '',
@@ -811,7 +812,7 @@ export async function generateNextTokenAndReserveSlot(
           const walkInTime = newAssignment.slotTime;
 
 
-          let finalTimeString = format(walkInTime, 'hh:mm a');
+          let finalTimeString = getClinicTimeString(walkInTime);
 
 
 
@@ -941,7 +942,7 @@ export async function generateNextTokenAndReserveSlot(
             chosenSlotIndex = slotIndex;
             const reservedSlot = slots[chosenSlotIndex];
             sessionIndexForNew = reservedSlot?.sessionIndex ?? 0;
-            resolvedTimeString = format(reservedSlot?.time ?? now, 'hh:mm a');
+            resolvedTimeString = getClinicTimeString(reservedSlot?.time ?? now);
 
             // CRITICAL: Token number MUST be based on slotIndex + 1 (slotIndex is 0-based, tokens are 1-based)
             // This ensures token A001 goes to slot #1 (slotIndex 0), A002 to slot #2 (slotIndex 1), etc.
@@ -2377,7 +2378,7 @@ const prepareAdvanceShift = async ({
         continue;
       }
 
-      const newTimeString = format(newAppointmentTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(newAppointmentTime);
 
       // CRITICAL: Calculate new noShowTime from appointment's current noShowTime field + averageConsultingTime
       // Parse the appointment's current noShowTime field and add averageConsultingTime to it
@@ -2494,7 +2495,7 @@ const prepareAdvanceShift = async ({
       if (!assignment) continue;
 
       const newSlotIndex = assignment.slotIndex;
-      const newTimeString = format(assignment.slotTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(assignment.slotTime);
       const noShowTime = addMinutes(
         assignment.slotTime,
         averageConsultingTime
@@ -2546,7 +2547,7 @@ export async function rebalanceWalkInSchedule(
   clinicId: string,
   date: Date
 ): Promise<void> {
-  const now = new Date();
+  const now = getClinicNow();
   const clinicSnap = await getDoc(doc(db, 'clinics', clinicId));
   const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
   const walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
@@ -2666,7 +2667,7 @@ export async function rebalanceWalkInSchedule(
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
       const newSlotIndex = assignment.slotIndex;
-      const newTimeString = format(assignment.slotTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(assignment.slotTime);
 
       if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
         continue;
@@ -2688,7 +2689,7 @@ export async function rebalanceWalkInSchedule(
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
       const newSlotIndex = assignment.slotIndex;
-      const newTimeString = format(assignment.slotTime, 'hh:mm a');
+      const newTimeString = getClinicTimeString(assignment.slotTime);
 
       if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
         continue;
@@ -2727,7 +2728,7 @@ export async function calculateWalkInDetails(
   sessionIndex: number;
   actualSlotTime: Date;
 }> {
-  const now = new Date();
+  const now = getClinicNow();
   const date = now;
 
   const { slots } = await loadDoctorAndSlots(
@@ -2811,7 +2812,7 @@ export async function calculateSkippedTokenRejoinSlot(
   activeAppointments: Appointment[],
   doctor: Doctor,
   _recurrence: number = 0,
-  referenceDate: Date = new Date()
+  referenceDate: Date = getClinicNow()
 ): Promise<{ slotIndex: number; time: string; sessionIndex: number }> {
   const clinicId = appointment.clinicId || doctor.clinicId || '';
   const doctorName = appointment.doctor || doctor.name;
@@ -2832,7 +2833,7 @@ export async function calculateSkippedTokenRejoinSlot(
 
   return {
     slotIndex: slot.index,
-    time: format(slot.time, 'hh:mm a'),
+    time: getClinicTimeString(slot.time),
     sessionIndex: slot.sessionIndex,
   };
 }

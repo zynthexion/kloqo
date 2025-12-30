@@ -6,6 +6,7 @@
 import { Firestore, doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { parse, format, subMinutes } from 'date-fns';
 import { parseTime } from '../utils/break-helpers';
+import { getClinicTimeString, getClinicISOString, getClinicNow } from '../utils/date-utils';
 import type { Appointment } from '@kloqo/shared-types';
 
 const CONSULTATION_NOTIFICATION_STATUSES = ['Pending', 'Confirmed', 'Skipped', 'Completed', 'No-show'] as const;
@@ -170,7 +171,7 @@ export async function sendAppointmentBookedByStaffNotification(params: {
             const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
             const baseTime = parseTime(arriveByTime || time, appointmentDate);
             const shownTime = subMinutes(baseTime, 15);
-            displayTime = format(shownTime, 'hh:mm a');
+            displayTime = getClinicTimeString(shownTime);
         }
     } catch (error) {
         console.error('Error calculating displayTime for booking notification:', error);
@@ -244,7 +245,7 @@ export async function sendAppointmentCancelledNotification(params: {
         const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
         const baseTime = parseTime(arriveByTime || time, appointmentDate);
         const shownTime = subMinutes(baseTime, 15);
-        displayTime = format(shownTime, 'hh:mm a');
+        displayTime = getClinicTimeString(shownTime);
     } catch (error) {
         console.error('Error calculating displayTime for cancellation notification:', error);
     }
@@ -333,7 +334,7 @@ export async function sendBreakUpdateNotification(params: {
 
         // Calculate displayOldTime from oldArriveByTime - 15 minutes (or oldTime - 15 if oldArriveByTime not available)
         const oldBaseTime = parseTime(oldArriveByTime || oldTime, oldAppointmentDate);
-        displayOldTime = format(subMinutes(oldBaseTime, 15), 'hh:mm a');
+        displayOldTime = getClinicTimeString(subMinutes(oldBaseTime, 15));
 
         // Get appointment date for new time calculation
         let newAppointmentDate: Date = new Date();
@@ -346,7 +347,7 @@ export async function sendBreakUpdateNotification(params: {
 
         // Calculate displayNewTime from newArriveByTime - 15 minutes (or newTime - 15 if newArriveByTime not available)
         const newBaseTime = parseTime(newArriveByTime || newTime, newAppointmentDate);
-        displayNewTime = format(subMinutes(newBaseTime, 15), 'hh:mm a');
+        displayNewTime = getClinicTimeString(subMinutes(newBaseTime, 15));
 
     } catch (error) {
         console.error('Error calculating display times for reschedule notification:', error);
@@ -430,7 +431,7 @@ export async function sendPeopleAheadNotification(params: {
         const appointmentDateObj = parse(appointmentDate, 'd MMMM yyyy', new Date());
         const appointmentDateTime = parseTime(appointmentTime, appointmentDateObj);
         const displayDateTime = subMinutes(appointmentDateTime, 15);
-        displayTime = format(displayDateTime, 'hh:mm a');
+        displayTime = getClinicTimeString(displayDateTime);
     } catch (error) {
         console.error('Error calculating display time:', error);
     }
@@ -482,11 +483,11 @@ export async function sendDoctorConsultationStartedNotification(params: {
         if (arriveByTime) {
             const arriveByDateTime = parseTime(arriveByTime, appointmentDateObj);
             const displayDateTime = subMinutes(arriveByDateTime, 15);
-            displayTime = format(displayDateTime, 'hh:mm a');
+            displayTime = getClinicTimeString(displayDateTime);
         } else {
             const appointmentDateTime = parseTime(appointmentTime, appointmentDateObj);
             const displayDateTime = subMinutes(appointmentDateTime, 15);
-            displayTime = format(displayDateTime, 'hh:mm a');
+            displayTime = getClinicTimeString(displayDateTime);
         }
     } catch (error) {
         console.error('Error calculating display time:', error);
@@ -698,7 +699,7 @@ export async function checkAndSendDailyReminders(params: {
     clinicId: string;
 }): Promise<void> {
     const { firestore, clinicId } = params;
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const todayStr = getClinicISOString(getClinicNow());
 
     try {
         console.log(`[DAILY REMINDER] Starting check for clinic ${clinicId} on ${todayStr}`);
@@ -729,7 +730,7 @@ export async function checkAndSendDailyReminders(params: {
             const daysAgo = freeFollowUpDays - 3;
             // Approximate days calculation using 24h * 60m
             const targetDate = subMinutes(new Date(), daysAgo * 24 * 60);
-            const targetDateStr = format(targetDate, 'yyyy-MM-dd');
+            const targetDateStr = getClinicISOString(targetDate);
 
             console.log(`[DAILY REMINDER] Dr. ${doctor.name}: Checking appointments from ${targetDateStr} (Free Days: ${freeFollowUpDays})`);
 

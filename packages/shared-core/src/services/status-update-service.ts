@@ -3,6 +3,7 @@ import { db } from '@kloqo/shared-firebase';
 import { format, parse, addHours, addMinutes, subMinutes, isAfter, isBefore, isWithinInterval } from 'date-fns';
 import type { Appointment, Doctor } from '@kloqo/shared-types';
 import { sendAppointmentSkippedNotification } from './notification-service';
+import { getClinicDateString, getClinicDayOfWeek, getClinic24hTimeString, getClinicNow } from '../utils/date-utils';
 import { rebalanceWalkInSchedule } from './walk-in.service';
 
 /**
@@ -31,8 +32,8 @@ export async function updateAppointmentAndDoctorStatuses(clinicId: string): Prom
  * 2. Skipped → No-show when appointment time + 15 minutes has passed
  */
 async function updateAppointmentStatuses(clinicId: string): Promise<void> {
-    const now = new Date();
-    const today = format(now, 'd MMMM yyyy');
+    const now = getClinicNow();
+    const today = getClinicDateString(now);
 
 
 
@@ -303,7 +304,7 @@ function getNextUpcomingAvailabilityStartTime(doctor: Doctor, now: Date): Date |
         return null;
     }
 
-    const todayDay = format(now, 'EEEE');
+    const todayDay = getClinicDayOfWeek(now);
     const todayAvailability = doctor.availabilitySlots.find((slot: { day: string; timeSlots?: Array<{ from: string; to: string }> }) =>
         slot.day.toLowerCase() === todayDay.toLowerCase()
     );
@@ -339,8 +340,8 @@ function getNextUpcomingAvailabilityStartTime(doctor: Doctor, now: Date): Date |
  */
 async function updateDoctorConsultationStatuses(clinicId: string): Promise<void> {
     const now = new Date();
-    const currentTime = format(now, 'HH:mm');
-    const currentDay = format(now, 'EEEE'); // e.g., 'Monday', 'Tuesday'
+    const currentTime = getClinic24hTimeString(now);
+    const currentDay = getClinicDayOfWeek(now); // e.g., 'Monday', 'Tuesday'
 
 
 

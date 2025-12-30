@@ -6,6 +6,7 @@ import {
     doc,
     writeBatch,
     Timestamp,
+    serverTimestamp,
     getDoc,
     limit,
     type Firestore
@@ -14,6 +15,7 @@ import { format, addMinutes, parseISO, differenceInMinutes } from 'date-fns';
 import type { Appointment, BreakPeriod } from '@kloqo/shared-types';
 import { parseTime } from '../utils/break-helpers';
 import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString } from '../utils/date-utils';
+import { buildReservationDocId } from '../utils/reservation-utils';
 import { sendBreakUpdateNotification } from './notification-service';
 
 /**
@@ -355,17 +357,41 @@ export async function shiftAppointmentsForNewBreak(
                 // This ensures the slot is properly blocked during the break
                 const slotIndex = update.originalData.slotIndex;
                 if (typeof slotIndex === 'number') {
-                    const reservationId = `${clinicId}_${doctorName}_${dateStr}_slot_${slotIndex}`;
+                    const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
                     const reservationRef = doc(db, 'slot-reservations', reservationId);
                     batch.delete(reservationRef);
                 }
             } else {
                 // Appointment is AFTER the break, just delete the original
+                // CRITICAL: Also delete its old reservation using sanitized ID
+                const slotIndex = update.originalData.slotIndex;
+                if (typeof slotIndex === 'number') {
+                    const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
+                    const reservationRef = doc(db, 'slot-reservations', reservationId);
+                    batch.delete(reservationRef);
+                }
                 batch.delete(update.originalDocRef);
             }
 
             // 3. Create New shifted appointment
             batch.set(update.newDocRef, update.newData);
+
+            // 4. Create New slot reservation for the shifted appointment
+            // This ensures concurrent bookings respect the shifted positions
+            if (typeof update.newData.slotIndex === 'number') {
+                const newReservationId = buildReservationDocId(clinicId, doctorName, dateStr, update.newData.slotIndex);
+                const newReservationRef = doc(db, 'slot-reservations', newReservationId);
+                batch.set(newReservationRef, {
+                    clinicId,
+                    doctorName,
+                    date: dateStr,
+                    slotIndex: update.newData.slotIndex,
+                    status: 'booked',
+                    appointmentId: update.newDocRef.id,
+                    bookedAt: serverTimestamp(),
+                    reservedBy: 'appointment-booking' // Shifted appointments are treated as advance bookings
+                });
+            }
         }
 
         // --- NEW LOGIC: Create Dummy Appointments for Empty Slots in Break ---

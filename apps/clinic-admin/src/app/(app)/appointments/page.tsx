@@ -18,7 +18,7 @@ import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreD
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
-import { updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments } from '@kloqo/shared-core';
+import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
   Form,
@@ -158,34 +158,7 @@ function parseAppointmentDateTime(dateStr: string, timeStr: string): Date {
   return parse(`${dateStr} ${timeStr}`, 'd MMMM yyyy hh:mm a', new Date());
 }
 
-type BreakInterval = {
-  start: Date;
-  end: Date;
-};
-
-function buildBreakIntervals(doctor: Doctor | null | undefined, referenceDate: Date | null | undefined): BreakInterval[] {
-  if (!doctor?.breakPeriods || !referenceDate) {
-    return [];
-  }
-
-  const dateKey = format(referenceDate, 'd MMMM yyyy');
-  const breaks = doctor.breakPeriods[dateKey] || [];
-
-  return breaks.map(bp => ({
-    start: parseDateFns(bp.startTime, 'hh:mm a', referenceDate),
-    end: parseDateFns(bp.endTime, 'hh:mm a', referenceDate)
-  }));
-}
-
-function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
-  return intervals.reduce((acc, interval) => {
-    if (acc.getTime() >= interval.start.getTime()) {
-      const offset = differenceInMinutes(interval.end, interval.start);
-      return addMinutes(acc, offset);
-    }
-    return acc;
-  }, new Date(originalTime));
-}
+// Redundant break logic removed. Using shared-core utilities.
 
 function isDoctorAdvanceCapacityReachedOnDate(
   doctor: Doctor,
@@ -262,7 +235,7 @@ function isDoctorAdvanceCapacityReachedOnDate(
       appointment.doctor === doctor.name &&
       appointment.bookedVia !== 'Walk-in' &&
       appointment.date === formattedDate &&
-      (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed' || appointment.status === 'Attended') &&
+      (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed') &&
       !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
     );
   }).length;
@@ -1328,46 +1301,10 @@ export default function AppointmentsPage() {
           const reservationTime = parse(actualTimeString, "hh:mm a", appointmentDate);
           const appointmentDateStr = format(date, "d MMMM yyyy");
 
-          // Get session-specific breaks for this walk-in's session
-          const walkInSessionIndex = walkInEstimate.sessionIndex ?? actualSessionIndex;
-          const walkInBreakIntervals = getSessionBreakIntervals(selectedDoctor, appointmentDate, walkInSessionIndex);
-          const adjustedWalkInTime = walkInBreakIntervals.length > 0
-            ? applySessionBreakOffsets(reservationTime, walkInBreakIntervals)
-            : reservationTime;
-
-          // Validate adjusted walk-in time against session-specific availability
-          // Account for consultation time - appointment must finish before session ends
-          try {
-            const sessionEffectiveEnd = getSessionEnd(selectedDoctor, appointmentDate, walkInSessionIndex);
-
-            // Only check availability if NOT force booked
-            const isForceBooked = (walkInEstimate as any)?.isForceBooked;
-            if (sessionEffectiveEnd && !isForceBooked) {
-              const appointmentEndTime = addMinutes(adjustedWalkInTime, selectedDoctor.averageConsultingTime || 15);
-              console.log('[WALK-IN DEBUG] Availability validation', {
-                doctor: selectedDoctor.name,
-                appointmentDate: appointmentDateStr,
-                sessionIndex: walkInSessionIndex,
-                sessionEffectiveEnd: format(sessionEffectiveEnd, 'hh:mm a'),
-                adjustedWalkInTime: format(adjustedWalkInTime, 'hh:mm a'),
-                appointmentEndTime: format(appointmentEndTime, 'hh:mm a'),
-              });
-
-              if (appointmentEndTime > sessionEffectiveEnd) {
-                toast({
-                  variant: "destructive",
-                  title: "Booking Not Allowed",
-                  description: "This walk-in time is outside the doctor's availability for this session.",
-                });
-                return;
-              }
-            }
-          } catch (e) {
-            console.error('[WALK-IN DEBUG] Error validating walk-in time against availability', e);
-          }
-          const adjustedWalkInTimeStr = format(adjustedWalkInTime, "hh:mm a");
-          const cutOffTime = subMinutes(adjustedWalkInTime, 15);
-          const noShowTime = addMinutes(adjustedWalkInTime, 15);
+          // Use reservationTime as reportingTime for walk-ins (already shifted)
+          const reportingTime = reservationTime;
+          const cutOffTime = subMinutes(reportingTime, 15);
+          const noShowTime = addMinutes(reportingTime, 15);
 
           const appointmentRef = doc(collection(db, 'appointments'));
 
@@ -1386,9 +1323,9 @@ export default function AppointmentsPage() {
             communicationPhone: communicationPhone,
             place: values.place,
             status: 'Confirmed', // Walk-ins are physically present at clinic
-            // Keep original slot time in `time`, use adjusted time only for arriveBy/cutoff/noshow
-            time: actualTimeString,
-            arriveByTime: adjustedWalkInTimeStr,
+            // Store reporting time in `time` for both walk-in and advance for consistency
+            time: getClinicTimeString(reportingTime),
+            arriveByTime: getClinicTimeString(reportingTime),
             tokenNumber: tokenNumber,
             numericToken: numericToken,
             slotIndex: actualSlotIndex, // Use the actual slotIndex returned from the function
@@ -1765,25 +1702,18 @@ export default function AppointmentsPage() {
             // Fall back to original time if recalculation fails
           }
 
-          // Get session-specific breaks for this appointment's session
+          // 'time' field stores reporting time (SlotTime - 15m)
+          const reportingTime = subMinutes(actualAppointmentTime, 15);
+          const adjustedAppointmentTime = reportingTime;
           const appointmentDate = values.date ? parse(appointmentDateStr, "d MMMM yyyy", new Date()) : null;
-          const sessionBreakIntervals = appointmentDate && sessionIndex >= 0
-            ? getSessionBreakIntervals(selectedDoctor, appointmentDate, sessionIndex)
-            : [];
-
-          // Apply only session-specific breaks to calculate adjusted time
-          // The 'time' field stores original slot time (never changes)
-          // Only arriveByTime, cutOffTime, noShowTime are adjusted
-          const adjustedAppointmentTime = actualAppointmentTime;
 
           // Calculate cut-off time and no-show time
           let cutOffTime: Date | undefined;
           let noShowTime: Date | undefined;
           let inheritedDelay = 0;
           try {
-            const appointmentDate = parse(appointmentDateStr, "d MMMM yyyy", new Date());
-            const appointmentTime = adjustedAppointmentTime;
-            cutOffTime = subMinutes(appointmentTime, 15);
+            const appointmentTime = actualAppointmentTime;
+            cutOffTime = reportingTime;
 
             // Inherit delay from previous appointment (if any)
             // Find the appointment with the highest slotIndex that is less than actualSlotIndex
@@ -1827,7 +1757,6 @@ export default function AppointmentsPage() {
           const slotDuration = selectedDoctor.averageConsultingTime || 15;
 
           // Validate that the adjusted appointment time is within session availability
-          // We check adjustedAppointmentTime (after break offsets) + consultation time against session-specific end time
           if (appointmentDate && sessionIndex >= 0) {
             const sessionEffectiveEnd = getSessionEnd(selectedDoctor, appointmentDate, sessionIndex);
 
@@ -2648,52 +2577,8 @@ export default function AppointmentsPage() {
 
   // Helper function to get display time with break offsets
   const getDisplayTimeForAppointment = useCallback((appointment: Appointment): string => {
-    if (appointment.status === 'Confirmed') {
-      return appointment.time || '';
-    }
-    try {
-      const appointmentDate = parse(appointment.date, "d MMMM yyyy", new Date());
-      const appointmentTime = parseDateFns(appointment.time, "hh:mm a", appointmentDate);
-      const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
-
-      const isWalkIn = appointment.tokenNumber?.startsWith('W') || appointment.bookedVia === 'Walk-in';
-
-      if (appointmentDoctor && appointment.sessionIndex !== undefined) {
-        // Use session-specific breaks for this appointment's session
-        const sessionBreakIntervals = getSessionBreakIntervals(
-          appointmentDoctor,
-          appointmentDate,
-          appointment.sessionIndex
-        );
-        const adjustedTime = sessionBreakIntervals.length > 0
-          ? applySessionBreakOffsets(appointmentTime, sessionBreakIntervals)
-          : appointmentTime;
-
-        // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
-        const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
-        return format(finalTime, 'hh:mm a');
-      }
-
-      // Fallback to old logic if sessionIndex is not available
-      if (appointmentDoctor) {
-        const breakIntervals = buildBreakIntervals(appointmentDoctor, appointmentDate);
-        const adjustedTime = breakIntervals.length > 0
-          ? applyBreakOffsets(appointmentTime, breakIntervals)
-          : appointmentTime;
-
-        // Subtract 15 minutes for 'A' tokens, keep raw for 'W' tokens
-        const finalTime = isWalkIn ? adjustedTime : subMinutes(adjustedTime, 15);
-        return format(finalTime, 'hh:mm a');
-      }
-
-      // Default fallback
-      const finalTime = isWalkIn ? appointmentTime : subMinutes(appointmentTime, 15);
-      return format(finalTime, 'hh:mm a');
-    } catch (error) {
-      console.error("Error formatting time:", error);
-      return appointment.time;
-    }
-  }, [doctors]);
+    return appointment.time || '';
+  }, []);
 
   const sessionSlots = useMemo(() => {
     if (appointmentType === 'Advanced Booking' && isAdvanceCapacityReached) {
@@ -3966,8 +3851,6 @@ export default function AppointmentsPage() {
                                       )}
                                       {sessionSlots.length > 0 ? (
                                         (() => {
-                                          // Calculate break intervals for display
-                                          const displayBreakIntervals = buildBreakIntervals(selectedDoctor, selectedDate);
                                           return sessionSlots.map((session, index) => (
                                             <div key={index}>
                                               <h4 className="text-sm font-semibold mb-2">{session.title}</h4>

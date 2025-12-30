@@ -7,6 +7,8 @@ import { useAuth } from '@/firebase';
 import type { Appointment, Doctor } from '@/lib/types';
 import { addMinutes, isAfter, parse, format, subMinutes, differenceInMinutes, isBefore, parseISO, isWithinInterval } from 'date-fns';
 
+import { getClinicNow, getClinicTimeString, getClinicDateString, getSessionBreakIntervals } from '@kloqo/shared-core';
+
 function parseAppointmentDateTime(dateStr: string, timeStr: string): Date {
   return parse(`${dateStr} ${timeStr}`, 'd MMMM yyyy hh:mm a', new Date());
 }
@@ -22,57 +24,7 @@ function parseTime(timeStr: string, referenceDate: Date): Date {
   }
 }
 
-type BreakInterval = {
-  start: Date;
-  end: Date;
-};
-
-function buildBreakIntervals(doctor: Doctor | null | undefined, referenceDate: Date | null | undefined): BreakInterval[] {
-  if (!doctor?.breakPeriods || !referenceDate) {
-    return [];
-  }
-
-  const dateKey = format(referenceDate, 'd MMMM yyyy');
-  const isoDateKey = format(referenceDate, 'yyyy-MM-dd');
-  const shortDateKey = format(referenceDate, 'd MMM yyyy');
-
-  const breaksForDay = doctor.breakPeriods[dateKey] || doctor.breakPeriods[isoDateKey] || doctor.breakPeriods[shortDateKey];
-
-  if (!breaksForDay || !Array.isArray(breaksForDay)) {
-    return [];
-  }
-
-  const intervals: BreakInterval[] = [];
-
-  for (const breakPeriod of breaksForDay) {
-    try {
-      const breakStart = typeof breakPeriod.startTime === 'string'
-        ? parseISO(breakPeriod.startTime)
-        : new Date(breakPeriod.startTime);
-      const breakEnd = typeof breakPeriod.endTime === 'string'
-        ? parseISO(breakPeriod.endTime)
-        : new Date(breakPeriod.endTime);
-
-      if (!isNaN(breakStart.getTime()) && !isNaN(breakEnd.getTime())) {
-        intervals.push({ start: breakStart, end: breakEnd });
-      }
-    } catch (error) {
-      console.warn('Error parsing break period:', error);
-    }
-  }
-  return intervals;
-}
-
-function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
-  return intervals.reduce((acc, interval) => {
-    if (acc.getTime() >= interval.start.getTime()) {
-      return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
-    }
-    return acc;
-  }, new Date(originalTime));
-}
-
-function isWithinBreak(currentTime: Date, breakIntervals: BreakInterval[]): boolean {
+function isWithinBreak(currentTime: Date, breakIntervals: any[]): boolean {
   if (breakIntervals.length === 0) return false;
   return breakIntervals.some(interval => {
     try {
@@ -105,7 +57,9 @@ function calculateDoctorDelay(
     return { delayMinutes: 0, availabilityStartTime: null };
   }
 
-  const breakIntervals = buildBreakIntervals(doctor, now);
+  // Calculate passed break duration using shared-core logic
+  const sessionIndex = 0; // Simplified for delay check
+  const breakIntervals = getSessionBreakIntervals(doctor, now, sessionIndex);
 
   let effectiveStartTime = baseAvailabilityStartTime;
   const initialBreaks = breakIntervals.filter(interval =>
@@ -136,16 +90,16 @@ function calculateDoctorDelay(
 
   let delayMinutes = 0;
   if (doctor.consultationStatus !== 'In') {
-    delayMinutes = differenceInMinutes(now, effectiveStartTime);
+    delayMinutes = Math.max(0, differenceInMinutes(now, effectiveStartTime));
   } else {
     const avgTime = doctor.averageConsultingTime || 5;
     const expectedWorkMinutes = completedCount * avgTime;
     const actualElapsedMinutes = differenceInMinutes(now, effectiveStartTime);
-    delayMinutes = actualElapsedMinutes - expectedWorkMinutes - passedBreakMinutes;
+    delayMinutes = Math.max(0, actualElapsedMinutes - expectedWorkMinutes - passedBreakMinutes);
   }
 
   return {
-    delayMinutes: Math.max(0, delayMinutes),
+    delayMinutes,
     availabilityStartTime: effectiveStartTime
   };
 }
@@ -179,10 +133,9 @@ async function updateAppointmentsWithDelay(
       if (!appointment.time || !appointment.date) return;
       const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
       const appointmentTime = parseTime(appointment.time, appointmentDate);
-      const breakIntervals = doctor ? buildBreakIntervals(doctor, appointmentDate) : [];
-      const adjustedAppointmentTime = breakIntervals.length > 0
-        ? applyBreakOffsets(appointmentTime, breakIntervals)
-        : appointmentTime;
+
+      // Removed manual break offset. Shared-core slot times already account for breaks.
+      const adjustedAppointmentTime = appointmentTime;
 
       const baseCutOffTime = subMinutes(adjustedAppointmentTime, 15);
       const baseNoShowTime = addMinutes(adjustedAppointmentTime, 15);
@@ -219,7 +172,7 @@ export function useAppointmentStatusUpdater() {
 
     const checkAndUpdateStatuses = async (appointments: Appointment[]) => {
       if (appointments.length === 0) return;
-      const now = new Date();
+      const now = getClinicNow();
       const batch = writeBatch(db);
       let hasWrites = false;
 
@@ -277,10 +230,10 @@ export function useAppointmentStatusUpdater() {
     const checkAndUpdateDelays = async (clinicId: string) => {
       try {
         const doctorsRef = collection(db, 'doctors');
-        const q = query(doctorsRef, where('clinicId', '==', clinicId));
-        const doctorsSnapshot = await getDocs(q);
-        const now = new Date();
-        const todayStr = format(now, 'd MMMM yyyy');
+        const doctorsQuery = query(doctorsRef, where('clinicId', '==', clinicId));
+        const doctorsSnapshot = await getDocs(doctorsQuery);
+        const now = getClinicNow();
+        const todayStr = getClinicDateString(now);
 
         for (const doctorDoc of doctorsSnapshot.docs) {
           const doctor = { id: doctorDoc.id, ...doctorDoc.data() } as Doctor;
@@ -308,7 +261,8 @@ export function useAppointmentStatusUpdater() {
             currentStoredDelay = activeApptSnapshot.docs[0].data().doctorDelayMinutes || 0;
           }
 
-          const breakIntervals = buildBreakIntervals(doctor, now);
+          const sessionIndex = 0; // Simplified for delay check
+          const breakIntervals = getSessionBreakIntervals(doctor, now, sessionIndex);
           if (isWithinBreak(now, breakIntervals)) {
             if (currentStoredDelay > 0) {
               await updateAppointmentsWithDelay(clinicId, doctor.id, 0, doctor);
@@ -367,18 +321,18 @@ export function useAppointmentStatusUpdater() {
     getDoc(userDocRef).then(userDocSnap => {
       const clinicId = userDocSnap.data()?.clinicId;
       if (clinicId) {
-        const q = query(
+        const appointmentsQuery = query(
           collection(db, "appointments"),
           where("clinicId", "==", clinicId),
           where("status", "in", ["Pending", "Skipped"])
         );
 
-        getDocs(q).then(snapshot => {
+        getDocs(appointmentsQuery).then(snapshot => {
           const appointmentsToCheck = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
           checkAndUpdateStatuses(appointmentsToCheck);
         });
 
-        unsubscribe = onSnapshot(q, (snapshot) => {
+        unsubscribe = onSnapshot(appointmentsQuery, (snapshot) => {
           const appointmentsToCheck = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
           checkAndUpdateStatuses(appointmentsToCheck);
         });
@@ -389,7 +343,7 @@ export function useAppointmentStatusUpdater() {
         });
 
         intervalId = setInterval(() => {
-          getDocs(q).then(snapshot => {
+          getDocs(appointmentsQuery).then(snapshot => {
             const appointmentsToCheck = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
             checkAndUpdateStatuses(appointmentsToCheck);
           });

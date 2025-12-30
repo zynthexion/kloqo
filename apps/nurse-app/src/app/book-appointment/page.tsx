@@ -817,7 +817,23 @@ function BookAppointmentContent() {
         const reservedSlotsBySession = new Map<number, Set<number>>();
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let currentTime = parseTime(session.from, selectedDate);
-            const endTime = parseTime(session.to, selectedDate);
+            let endTime = parseTime(session.to, selectedDate);
+
+            // Apply extension to this session if it exists
+            if (extension) {
+                const sessionExtension = extension.sessions?.find(s => s.sessionIndex === sessionIndex);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        if (isAfter(extendedEndTime, endTime)) {
+                            endTime = extendedEndTime;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing extension time for reserve', e);
+                    }
+                }
+            }
+
             const futureSessionSlots: number[] = [];
 
             while (isBefore(currentTime, endTime)) {
@@ -852,13 +868,42 @@ function BookAppointmentContent() {
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             const allPossibleSlots: Date[] = [];
             let currentTime = parseTime(session.from, selectedDate);
-            const endTime = parseTime(session.to, selectedDate);
+            let endTime = parseTime(session.to, selectedDate);
+
+            // Apply extension to this session if it exists
+            if (extension) {
+                const sessionExtension = extension.sessions?.find(s => s.sessionIndex === sessionIndex);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        if (isAfter(extendedEndTime, endTime)) {
+                            endTime = extendedEndTime;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing extension time for possible', e);
+                    }
+                }
+            }
 
             // Calculate session start global index
             let sessionStartGlobalIndex = 0;
             for (let i = 0; i < sessionIndex; i++) {
                 let sessionTime = parseTime(doctorAvailabilityForDay.timeSlots[i].from, selectedDate);
-                const sessionEnd = parseTime(doctorAvailabilityForDay.timeSlots[i].to, selectedDate);
+                let sessionEnd = parseTime(doctorAvailabilityForDay.timeSlots[i].to, selectedDate);
+
+                // Apply extension to previous sessions too
+                if (extension) {
+                    const prevSessionExtension = extension.sessions?.find(s => s.sessionIndex === i);
+                    if (prevSessionExtension && prevSessionExtension.newEndTime && prevSessionExtension.totalExtendedBy > 0) {
+                        try {
+                            const extendedEnd = parseTime(prevSessionExtension.newEndTime, selectedDate);
+                            if (isAfter(extendedEnd, sessionEnd)) {
+                                sessionEnd = extendedEnd;
+                            }
+                        } catch (e) { }
+                    }
+                }
+
                 while (isBefore(sessionTime, sessionEnd)) {
                     sessionStartGlobalIndex++;
                     sessionTime = addMinutes(sessionTime, consultationTime);

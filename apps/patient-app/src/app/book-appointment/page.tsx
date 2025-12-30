@@ -886,7 +886,25 @@ function BookAppointmentContent() {
 
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let slotCurrentTime = parseTime(session.from, selectedDate);
-            const endTime = parseTime(session.to, selectedDate);
+            let endTime = parseTime(session.to, selectedDate);
+
+            // Check for extension for this specific session
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
+            const extensionForDate = doctor.availabilityExtensions?.[dateKey];
+            if (extensionForDate) {
+                const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        if (isAfter(extendedEndTime, endTime)) {
+                            endTime = extendedEndTime;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing extension time for capacity', e);
+                    }
+                }
+            }
+
             const allSessionSlots: Array<{ time: Date; globalIndex: number }> = [];
             const futureSessionSlots: number[] = [];
 
@@ -928,7 +946,24 @@ function BookAppointmentContent() {
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             const allPossibleSlots: Date[] = [];
             let slotCurrentTime = parseTime(session.from, selectedDate);
-            const endTime = parseTime(session.to, selectedDate);
+            let endTime = parseTime(session.to, selectedDate);
+
+            // Check for extension for this specific session
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
+            const extensionForDate = doctor.availabilityExtensions?.[dateKey];
+            if (extensionForDate) {
+                const sessionExtension = extensionForDate.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                    try {
+                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
+                        if (isAfter(extendedEndTime, endTime)) {
+                            endTime = extendedEndTime;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing extension time for count', e);
+                    }
+                }
+            }
 
             while (isBefore(slotCurrentTime, endTime)) {
                 allPossibleSlots.push(new Date(slotCurrentTime));

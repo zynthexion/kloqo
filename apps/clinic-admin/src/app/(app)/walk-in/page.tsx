@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString } from '@kloqo/shared-core';
 
 import { getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing } from '@kloqo/shared-core';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
@@ -66,19 +66,7 @@ type BreakInterval = {
   end: Date;
 };
 
-function buildBreakIntervals(doctor: Doctor | null, referenceDate: Date | null): BreakInterval[] {
-  return [];
-}
-
-function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
-  return intervals.reduce((acc, interval) => {
-    if (acc.getTime() >= interval.start.getTime()) {
-      const offset = differenceInMinutes(interval.end, interval.start);
-      return addMinutes(acc, offset);
-    }
-    return acc;
-  }, new Date(originalTime));
-}
+// Redundant break logic removed. Scheduled breaks are pre-shifted in the slot system.
 
 function WalkInRegistrationContent() {
   const router = useRouter();
@@ -405,39 +393,10 @@ function WalkInRegistrationContent() {
         return;
       }
 
-      const numericTokenFromService = numericToken;
-
-      const tokenNumber = `${numericTokenFromService}W`;
-
-      // Calculate cut-off time and no-show time
+      const previewTokenNumber = `${numericToken}W`;
       const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
-
-      // Use session-aware break intervals and validation
-      const sessionIndex = details.sessionIndex ?? 0;
-      const sessionBreakIntervals = getSessionBreakIntervals(doctor, appointmentDate, sessionIndex);
-      const adjustedEstimatedTime = sessionBreakIntervals.length > 0
-        ? applyBreakOffsets(estimatedTime, sessionBreakIntervals)
-        : estimatedTime;
-
-      // Validate that appointment end time (adjustedEstimatedTime + consultationTime) doesn't exceed session end
-      const sessionEffectiveEnd = getSessionEnd(doctor, appointmentDate, sessionIndex);
-      if (sessionEffectiveEnd) {
-        const consultationTime = doctor.averageConsultingTime || 15;
-        const appointmentEndTime = addMinutes(adjustedEstimatedTime, consultationTime);
-        if (isAfter(appointmentEndTime, sessionEffectiveEnd)) {
-          toast({
-            variant: 'destructive',
-            title: 'Walk-in Not Available',
-            description: `Next estimated time ~${format(adjustedEstimatedTime, 'hh:mm a')} is outside availability (ends at ${format(sessionEffectiveEnd, 'hh:mm a')}).`,
-          });
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      const adjustedEstimatedTimeStr = format(adjustedEstimatedTime, "hh:mm a");
-      const cutOffTime = subMinutes(adjustedEstimatedTime, 15);
-      const noShowTime = addMinutes(adjustedEstimatedTime, 15);
+      const cutOffTime = subMinutes(estimatedTime, 15);
+      const noShowTime = addMinutes(estimatedTime, 15);
 
       const newAppointmentData: UnsavedAppointment = {
         patientName: values.patientName,
@@ -451,11 +410,11 @@ function WalkInRegistrationContent() {
         department: doctor.department,
         bookedVia: 'Walk-in',
         date: format(new Date(), "d MMMM yyyy"),
-        time: adjustedEstimatedTimeStr,
-        arriveByTime: adjustedEstimatedTimeStr,
+        time: format(estimatedTime, "hh:mm a"),
+        arriveByTime: format(estimatedTime, "hh:mm a"),
         status: 'Confirmed', // Walk-ins are physically present at clinic
-        tokenNumber,
-        numericToken: numericTokenFromService,
+        tokenNumber: previewTokenNumber,
+        numericToken: numericToken,
         clinicId,
         createdAt: serverTimestamp(),
         slotIndex,
@@ -466,7 +425,7 @@ function WalkInRegistrationContent() {
       setAppointmentToSave(newAppointmentData);
       setEstimatedConsultationTime(estimatedTime);
       setPatientsAhead(patientsAhead);
-      setGeneratedToken(tokenNumber);
+      setGeneratedToken(previewTokenNumber);
       setIsEstimateModalOpen(true);
 
     } catch (error: any) {
@@ -562,21 +521,10 @@ function WalkInRegistrationContent() {
         bookingFor: 'self',
       });
 
-      const tokenNumber = `W${String(numericToken).padStart(3, '0')}`;
+      const previewTokenNumber = `W${String(numericToken).padStart(3, '0')}`;
       const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
-      const breakIntervals = getSessionBreakIntervals(doctor, appointmentDate, details.sessionIndex);
-      const adjustedEstimatedTime = breakIntervals.length > 0
-        ? breakIntervals.reduce((acc, interval) => {
-          if (acc.getTime() >= interval.start.getTime()) {
-            return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
-          }
-          return acc;
-        }, new Date(estimatedTime))
-        : estimatedTime;
-
-      const adjustedEstimatedTimeStr = format(adjustedEstimatedTime, "hh:mm a");
-      const cutOffTime = subMinutes(adjustedEstimatedTime, 15);
-      const noShowTime = addMinutes(adjustedEstimatedTime, 15);
+      const cutOffTime = subMinutes(estimatedTime, 15);
+      const noShowTime = addMinutes(estimatedTime, 15);
 
       const newAppointmentData: UnsavedAppointment = {
         patientId,
@@ -590,10 +538,10 @@ function WalkInRegistrationContent() {
         department: doctor.department,
         bookedVia: 'Walk-in',
         date: format(new Date(), "d MMMM yyyy"),
-        time: adjustedEstimatedTimeStr,
-        arriveByTime: adjustedEstimatedTimeStr,
+        time: format(estimatedTime, "hh:mm a"),
+        arriveByTime: format(estimatedTime, "hh:mm a"),
         status: 'Confirmed',
-        tokenNumber,
+        tokenNumber: previewTokenNumber,
         numericToken: numericToken,
         clinicId,
         createdAt: serverTimestamp(),
@@ -606,7 +554,7 @@ function WalkInRegistrationContent() {
       setAppointmentToSave(newAppointmentData);
       setEstimatedConsultationTime(estimatedTime);
       setPatientsAhead(patientsAhead);
-      setGeneratedToken(tokenNumber);
+      setGeneratedToken(previewTokenNumber);
       setIsEstimateModalOpen(true);
 
     } catch (error: any) {
@@ -869,7 +817,7 @@ function WalkInRegistrationContent() {
             <div className="flex items-center justify-center gap-6 text-center py-4">
               <div className="flex flex-col items-center">
                 <Clock className="w-8 h-8 text-primary mb-2" />
-                <span className="text-xl font-bold">{estimatedConsultationTime ? `~ ${format(estimatedConsultationTime, 'hh:mm a')}` : 'Calculating...'}</span>
+                <span className="text-xl font-bold">{estimatedConsultationTime ? `~ ${getClinicTimeString(estimatedConsultationTime)}` : 'Calculating...'}</span>
                 <span className="text-xs text-muted-foreground">Est. Time</span>
               </div>
               <div className="flex flex-col items-center">

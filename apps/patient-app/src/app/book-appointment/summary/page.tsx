@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useFirestore } from '@/firebase';
 import { doc, getDoc, addDoc, collection, serverTimestamp, getDocs, query, where, setDoc, updateDoc, deleteDoc, DocumentReference, arrayUnion, increment, runTransaction } from 'firebase/firestore';
 import type { Doctor, Patient, Appointment } from '@/lib/types';
-import { generateNextToken, generateNextTokenAndReserveSlot } from '@kloqo/shared-core';
+import { generateNextToken, generateNextTokenAndReserveSlot, getClinicTimeString, getClinicDayOfWeek, getClinicNow } from '@kloqo/shared-core';
 
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -38,32 +38,11 @@ const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Fri
 
 type BookingStatus = 'summary' | 'success';
 
-type BreakInterval = {
-    start: Date;
-    end: Date;
-};
-
-function buildBreakIntervals(doctor: Doctor | null, targetDate: Date | null): BreakInterval[] {
-    return [];
-}
-
-function applyBreakOffsets(baseTime: Date, intervals: BreakInterval[]): Date {
-    return intervals.reduce((acc, interval) => {
-        if (acc.getTime() >= interval.start.getTime()) {
-            return addMinutes(acc, differenceInMinutes(interval.end, interval.start));
-        }
-        return acc;
-    }, new Date(baseTime));
-}
-
-// Prevent static generation - this page requires Firebase context
-export const dynamic = 'force-dynamic';
-
 // Helper function to find session end time for a given slot (returns arrive-by time)
 function findSessionEndTime(doctor: Doctor | null, selectedSlot: Date | null): string | null {
     if (!doctor || !selectedSlot) return null;
 
-    const dayOfWeek = format(selectedSlot, 'EEEE');
+    const dayOfWeek = getClinicDayOfWeek(selectedSlot);
     const availabilitySlot = doctor.availabilitySlots?.find((slot: any) => slot.day === dayOfWeek);
 
     if (!availabilitySlot?.timeSlots) return null;
@@ -71,13 +50,13 @@ function findSessionEndTime(doctor: Doctor | null, selectedSlot: Date | null): s
     // Find which session the slot belongs to
     for (const session of availabilitySlot.timeSlots) {
         try {
-            const sessionStart = parse(session.from, 'hh:mm a', selectedSlot);
-            const sessionEnd = parse(session.to, 'hh:mm a', selectedSlot);
+            const sessionStart = parseTime(session.from, selectedSlot);
+            const sessionEnd = parseTime(session.to, selectedSlot);
 
             // Check if selected slot falls within this session
             if (selectedSlot >= sessionStart && selectedSlot <= sessionEnd) {
                 // Return session end minus 15 minutes (arrive-by time)
-                return format(subMinutes(sessionEnd, 15), 'hh:mm a');
+                return getClinicTimeString(subMinutes(sessionEnd, 15));
             }
         } catch (e) {
             continue;
@@ -132,7 +111,7 @@ function BookingSummaryPage() {
                 return null;
             }
 
-            const dayOfWeek = format(appointmentDate, 'EEEE');
+            const dayOfWeek = getClinicDayOfWeek(appointmentDate);
             const availabilityForDay = effectiveDoctor.availabilitySlots.find(session => session.day === dayOfWeek);
             if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
                 return null;
@@ -143,8 +122,8 @@ function BookingSummaryPage() {
 
             for (let sessionIdx = 0; sessionIdx < availabilityForDay.timeSlots.length; sessionIdx++) {
                 const session = availabilityForDay.timeSlots[sessionIdx];
-                let currentTime = parse(session.from, 'hh:mm a', appointmentDate);
-                const sessionEnd = parse(session.to, 'hh:mm a', appointmentDate);
+                let currentTime = parseTime(session.from, appointmentDate);
+                const sessionEnd = parseTime(session.to, appointmentDate);
 
                 while (isBefore(currentTime, sessionEnd)) {
                     if (globalSlotIndex === targetSlotIndex) {
@@ -302,16 +281,16 @@ function BookingSummaryPage() {
 
                 if (availabilityForDay) {
                     let globalSlotIndex = 0;
+                    const dateObj = parse(appointmentDateStr, "d MMMM yyyy", new Date());
                     for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
                         const session = availabilityForDay.timeSlots[i];
-                        const dateObj = parse(appointmentDateStr, "d MMMM yyyy", new Date());
                         let currentTime = parseTime(session.from, dateObj);
                         const endTime = parseTime(session.to, dateObj);
                         const slotDuration = finalDoctor.averageConsultingTime || 15;
 
                         while (isBefore(currentTime, endTime)) {
                             if (isSameDay(currentTime, selectedSlot) &&
-                                format(currentTime, "hh:mm a") === format(selectedSlot, "hh:mm a")) {
+                                getClinicTimeString(currentTime) === getClinicTimeString(selectedSlot)) {
                                 slotIndex = globalSlotIndex;
                                 sessionIndex = i;
                                 break;
@@ -343,7 +322,7 @@ function BookingSummaryPage() {
                         selectedSlot,
                         'A',
                         {
-                            time: format(selectedSlot, "hh:mm a"),
+                            time: getClinicTimeString(selectedSlot),
                             slotIndex,
                             doctorId: finalDoctor.id,
                             existingAppointmentId: appointmentId, // This allows reusing its own slot if it's the same
@@ -542,8 +521,8 @@ function BookingSummaryPage() {
                         if (isBefore(currentTime, now)) {
                             console.log('🚫 [A TOKEN] Skipping past slot:', {
                                 slotIndex: globalSlotIndex,
-                                slotTime: format(currentTime, 'hh:mm a'),
-                                currentTime: format(now, 'hh:mm a'),
+                                slotTime: getClinicTimeString(currentTime),
+                                currentTime: getClinicTimeString(now),
                                 reason: 'Slot is in the past'
                             });
                             currentTime = addMinutes(currentTime, slotDuration);
@@ -556,8 +535,8 @@ function BookingSummaryPage() {
                         if (isBefore(currentTime, oneHourFromNow)) {
                             console.log('🚫 [A TOKEN] Skipping slot within 1-hour window:', {
                                 slotIndex: globalSlotIndex,
-                                slotTime: format(currentTime, 'hh:mm a'),
-                                oneHourFromNow: format(oneHourFromNow, 'hh:mm a'),
+                                slotTime: getClinicTimeString(currentTime),
+                                oneHourFromNow: getClinicTimeString(oneHourFromNow),
                                 reason: 'Slots within 1 hour are reserved for walk-in tokens'
                             });
                             currentTime = addMinutes(currentTime, slotDuration);
@@ -594,7 +573,7 @@ function BookingSummaryPage() {
                                 finalSlotTime = currentTime;
                                 console.log('✅ [A TOKEN] Selected available slot:', {
                                     slotIndex: globalSlotIndex,
-                                    slotTime: format(currentTime, 'hh:mm a'),
+                                    slotTime: getClinicTimeString(currentTime),
                                     isPast: false,
                                     isWithinOneHour: false,
                                     isReservedW: false
@@ -657,12 +636,12 @@ function BookingSummaryPage() {
             let numericToken: number;
             let actualSlotIndex: number = slotIndex;
             let resolvedSessionIndex = sessionIndex;
-            let resolvedTimeString = format(finalSlotTime, "hh:mm a");
+            let resolvedTimeString = getClinicTimeString(finalSlotTime);
             let reservationId: string | undefined;
             let tokenData: Awaited<ReturnType<typeof generateNextTokenAndReserveSlot>> | null = null;
             const bookingRequestId = `booking-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const tokenRequestPayload = {
-                time: format(finalSlotTime, "hh:mm a"),
+                time: getClinicTimeString(finalSlotTime),
                 slotIndex,
                 doctorId: finalDoctor.id,
             } as const;
@@ -795,7 +774,7 @@ function BookingSummaryPage() {
             const resolvedDetails = resolveSlotDetails(actualSlotIndex, appointmentDateObj);
 
             if (!tokenData.time && resolvedDetails) {
-                resolvedTimeString = format(resolvedDetails.slotDate, "hh:mm a");
+                resolvedTimeString = getClinicTimeString(resolvedDetails.slotDate);
             }
 
             if (!tokenData.sessionIndex && resolvedDetails) {
@@ -803,19 +782,14 @@ function BookingSummaryPage() {
             }
 
             // Update appointment data with token
-            const appointmentTimeDate = parse(baseAppointmentData.date, "d MMMM yyyy", new Date());
-            const resolvedAppointmentDateTime = parseTime(resolvedTimeString, appointmentTimeDate);
-            const breakIntervals = buildBreakIntervals(finalDoctor, selectedSlot ?? appointmentDateObj);
-            const adjustedAppointmentDateTime =
-                breakIntervals.length > 0
-                    ? applyBreakOffsets(resolvedAppointmentDateTime, breakIntervals)
-                    : resolvedAppointmentDateTime;
-            const adjustedTimeString = format(adjustedAppointmentDateTime, "hh:mm a");
+            // Transferred directly from shared-core results - already break-shifted
+            const actualTimeString = tokenData.time || getClinicTimeString(parseTime(resolvedTimeString, parse(baseAppointmentData.date, "d MMMM yyyy", new Date())));
+            const adjustedTimeString = tokenData.arriveByTime || actualTimeString;
 
             // Validate that the original slot time is within availability (original or extended)
             // Note: We check resolvedAppointmentDateTime (original slot) not adjustedAppointmentDateTime (after break offsets)
             const appointmentDateForValidation = parse(baseAppointmentData.date, "d MMMM yyyy", new Date());
-            const dayOfWeekForValidation = format(appointmentDateForValidation, 'EEEE');
+            const dayOfWeekForValidation = getClinicDayOfWeek(appointmentDateForValidation);
             const availabilityForDayForValidation = finalDoctor.availabilitySlots?.find(s => s.day === dayOfWeekForValidation);
 
             let availabilityEndTime: Date | undefined;
@@ -857,11 +831,12 @@ function BookingSummaryPage() {
                 }
 
                 // Check if the original slot time is outside availability
-                if (availabilityEndTime && resolvedAppointmentDateTime > availabilityEndTime) {
+                const actualAppointmentDateObj = parseTime(actualTimeString, appointmentDateForValidation);
+                if (availabilityEndTime && actualAppointmentDateObj > availabilityEndTime) {
                     toast({
                         variant: 'destructive',
                         title: 'Booking Not Allowed',
-                        description: `The appointment time (${resolvedTimeString}) is outside the doctor's availability. Please select an earlier time slot.`,
+                        description: `The appointment time (${actualTimeString}) is outside the doctor's availability. Please select an earlier time slot.`,
                     });
                     return;
                 }
@@ -897,8 +872,9 @@ function BookingSummaryPage() {
                 console.error('Error calculating inherited delay:', error);
             }
 
-            const cutOffTime = subMinutes(resolvedAppointmentDateTime, 15);
-            let noShowTime = addMinutes(resolvedAppointmentDateTime, 15 + inheritedDelay);
+            const actualAppointmentDateTime = parseTime(actualTimeString, appointmentDateObj);
+            const cutOffTime = subMinutes(actualAppointmentDateTime, 15);
+            let noShowTime = addMinutes(actualAppointmentDateTime, 15 + inheritedDelay);
 
             if (availabilityEndTime && isAfter(noShowTime, availabilityEndTime)) {
                 noShowTime = availabilityEndTime;
@@ -906,9 +882,9 @@ function BookingSummaryPage() {
 
             const finalAppointmentData: Appointment = {
                 ...baseAppointmentData,
-                // Keep original slot time in `time`, adjusted time only for arriveBy/cutoff/noshow
-                time: resolvedTimeString,
-                arriveByTime: resolvedTimeString,
+                // Use times from shared-core (already break-shifted)
+                time: actualTimeString,
+                arriveByTime: adjustedTimeString,
                 slotIndex: actualSlotIndex,
                 sessionIndex: resolvedSessionIndex,
                 tokenNumber,
@@ -936,14 +912,14 @@ function BookingSummaryPage() {
 
             // CRITICAL: Check for existing appointments at this slotIndex BEFORE starting transaction
             // This is a quick check to fail fast if duplicates already exist
-            const appointmentsQuery = query(
+            const existingAppointmentsQuery = query(
                 collection(firestore, 'appointments'),
                 where('clinicId', '==', finalDoctor.clinicId),
                 where('doctor', '==', finalDoctor.name),
                 where('date', '==', finalAppointmentData.date),
                 where('slotIndex', '==', actualSlotIndex)
             );
-            const existingAppointmentsSnapshot = await getDocs(appointmentsQuery);
+            const existingAppointmentsSnapshot = await getDocs(existingAppointmentsQuery);
             const existingActiveAppointments = existingAppointmentsSnapshot.docs
                 .filter(docSnap => {
                     const data = docSnap.data() as Appointment;
@@ -953,10 +929,10 @@ function BookingSummaryPage() {
             if (existingActiveAppointments.length > 0) {
                 console.error(`[APPOINTMENT DEBUG] ${appointmentRequestId}: ⚠️ DUPLICATE DETECTED - Appointment already exists at slotIndex ${actualSlotIndex}`, {
                     existingAppointmentIds: existingActiveAppointments.map(docSnap => docSnap.id),
-                    existingAppointmentData: existingActiveAppointments.map(docSnap => ({
-                        id: docSnap.id,
-                        ...docSnap.data()
-                    })),
+                    existingAppointmentData: existingActiveAppointments.map(docSnap => {
+                        const data = docSnap.data() as Appointment;
+                        return { ...data, id: docSnap.id };
+                    }),
                     timestamp: new Date().toISOString()
                 });
                 toast({
@@ -1234,17 +1210,15 @@ function BookingSummaryPage() {
                                                     try {
                                                         const timeStr = appointmentArriveByTime || appointmentTime;
                                                         const dateObj = parse(appointmentDate, "d MMMM yyyy", new Date());
-                                                        const baseTime = parse(timeStr, "hh:mm a", dateObj);
-                                                        // Add break offsets if doctor info is available
-                                                        const effectiveDoctor = doctor || cachedDoctor;
-                                                        const breakIntervals = effectiveDoctor ? buildBreakIntervals(effectiveDoctor, dateObj) : [];
-                                                        const adjustedBaseTime = breakIntervals.length > 0
-                                                            ? applyBreakOffsets(baseTime, breakIntervals)
-                                                            : baseTime;
+                                                        const baseTime = parseTime(timeStr, dateObj);
+
+                                                        // BREAK HANDLING: Shared-core now handles break shifting. 
+                                                        // We just use appointmentArriveByTime/Time as-is.
                                                         const adjusted = isWalkIn
-                                                            ? adjustedBaseTime
-                                                            : subMinutes(adjustedBaseTime, 15);
-                                                        return format(adjusted, "hh:mm a");
+                                                            ? baseTime
+                                                            : subMinutes(baseTime, 15);
+
+                                                        return getClinicTimeString(adjusted);
                                                     } catch {
                                                         return appointmentArriveByTime || appointmentTime;
                                                     }
@@ -1258,13 +1232,13 @@ function BookingSummaryPage() {
                                                 ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
                                                     try {
                                                         if (noShowTime) {
-                                                            return format(noShowTime, 'hh:mm a');
+                                                            return getClinicTimeString(noShowTime);
                                                         }
                                                         // Fallback to calculated time if noShowTime not available
                                                         const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
-                                                        const aptTime = parse(appointmentTime, "hh:mm a", aptDate);
+                                                        const aptTime = parseTime(appointmentTime, aptDate);
                                                         const noShowFallback = addMinutes(aptTime, 30);
-                                                        return format(noShowFallback, 'hh:mm a');
+                                                        return getClinicTimeString(noShowFallback);
                                                     } catch {
                                                         return '30 minutes';
                                                     }
@@ -1385,17 +1359,11 @@ t className="p-4 space-y-4">
                                                         <span className="text-xs text-muted-foreground block">Session Time</span>
                                                         <span className="font-semibold">{(() => {
                                                             try {
-                                                                // Add break offsets if doctor info is available
-                                                                const effectiveDoctor = doctor || cachedDoctor;
-                                                                const breakIntervals = effectiveDoctor && selectedSlot ? buildBreakIntervals(effectiveDoctor, selectedSlot) : [];
-                                                                const adjustedSlot = breakIntervals.length > 0
-                                                                    ? applyBreakOffsets(selectedSlot, breakIntervals)
-                                                                    : selectedSlot;
-                                                                const arriveBy = format(subMinutes(adjustedSlot, 15), 'hh:mm a');
-                                                                const sessionEnd = findSessionEndTime(effectiveDoctor, selectedSlot);
+                                                                const arriveBy = getClinicTimeString(subMinutes(selectedSlot, 15));
+                                                                const sessionEnd = findSessionEndTime(doctor || cachedDoctor, selectedSlot);
                                                                 return sessionEnd ? `${arriveBy} - ${sessionEnd}` : arriveBy;
                                                             } catch {
-                                                                return format(subMinutes(selectedSlot, 15), 'hh:mm a');
+                                                                return getClinicTimeString(subMinutes(selectedSlot, 15));
                                                             }
                                                         })()}</span>
                                                     </div>

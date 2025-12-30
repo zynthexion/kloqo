@@ -18,67 +18,12 @@ import { collection, getDocs, addDoc, doc, getDoc, query, where, updateDoc, arra
 import { db } from '@/lib/firebase';
 import type { Doctor, Appointment, Patient } from '@/lib/types';
 import AppFrameLayout from '@/components/layout/app-frame';
-import { errorEmitter, FirestorePermissionError } from '@kloqo/shared-core';
-import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { generateNextToken, generateNextTokenAndReserveSlot } from '@kloqo/shared-core';
+import { errorEmitter, FirestorePermissionError, generateNextToken, generateNextTokenAndReserveSlot, getClinicTimeString, getClinicDayOfWeek, getClinicNow, sendAppointmentBookedByStaffNotification } from '@kloqo/shared-core';
+import { useToast } from "@/hooks/use-toast";
+import { parseTime } from "@/lib/utils";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
-import { parseTime, getArriveByTime } from '@/lib/utils';
-import { sendAppointmentBookedByStaffNotification } from '@kloqo/shared-core';
-
-type BreakInterval = {
-    start: Date;
-    end: Date;
-};
-
-function buildBreakIntervals(doctor: Doctor | null, referenceDate: Date | null): BreakInterval[] {
-    if (!doctor?.breakPeriods || !referenceDate) {
-        return [];
-    }
-
-    const consultationTime = doctor.averageConsultingTime || 15;
-    const dateKey = format(referenceDate, 'd MMMM yyyy');
-    const isoDateKey = format(referenceDate, 'yyyy-MM-dd');
-    const shortDateKey = format(referenceDate, 'd MMM yyyy');
-
-    // Try multiple key formats
-    const breaksForDay = doctor.breakPeriods[dateKey] || doctor.breakPeriods[isoDateKey] || doctor.breakPeriods[shortDateKey];
-
-    if (!breaksForDay || !Array.isArray(breaksForDay)) {
-        return [];
-    }
-
-    const intervals: BreakInterval[] = [];
-
-    for (const breakPeriod of breaksForDay) {
-        try {
-            const breakStart = typeof breakPeriod.startTime === 'string'
-                ? parseISO(breakPeriod.startTime)
-                : new Date(breakPeriod.startTime);
-            const breakEnd = typeof breakPeriod.endTime === 'string'
-                ? parseISO(breakPeriod.endTime)
-                : new Date(breakPeriod.endTime);
-
-            if (!isNaN(breakStart.getTime()) && !isNaN(breakEnd.getTime())) {
-                intervals.push({ start: breakStart, end: breakEnd });
-            }
-        } catch (error) {
-            console.warn('Error parsing break period:', error);
-        }
-    }
-
-    return intervals;
-}
-
-function applyBreakOffsets(originalTime: Date, intervals: BreakInterval[]): Date {
-    return intervals.reduce((acc, interval) => {
-        if (acc.getTime() >= interval.start.getTime()) {
-            const offset = differenceInMinutes(interval.end, interval.start);
-            return addMinutes(acc, offset);
-        }
-        return acc;
-    }, new Date(originalTime));
-}
+// Redundant break logic removed. Scheduled breaks are pre-shifted in the slot system.
 
 const formSchema = z.object({
     patientName: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -219,7 +164,7 @@ function AppointmentDetailsFormContent() {
                 sex: finalValues.sex,
             };
 
-            const dayOfWeek = format(selectedSlot, 'EEEE');
+            const dayOfWeek = getClinicDayOfWeek(selectedSlot);
             const doctorAvailabilityForDay = doctor.availabilitySlots?.find(slot => slot.day === dayOfWeek);
 
             let slotIndex = 0;
@@ -246,7 +191,7 @@ function AppointmentDetailsFormContent() {
             }
 
             const finalSlotIndex = absoluteSlotIndex + slotIndex;
-            const appointmentTimeStr = format(selectedSlot, "hh:mm a");
+            const appointmentTimeStr = getClinicTimeString(selectedSlot);
 
             const releaseReservation = async (reservationId?: string | null, delayMs: number = 0) => {
                 if (!reservationId) return;
@@ -299,57 +244,19 @@ function AppointmentDetailsFormContent() {
 
             const newAppointmentRef = doc(appointmentsCollection);
 
-            // Use the slotIndex returned from generateNextTokenAndReserveSlot (may have been auto-adjusted)
+            // Use the data returned from generateNextTokenAndReserveSlot
+            // This trusts shared-core to provide the correct pre-calculated slot times and arrive-by times
             const actualSlotIndex = tokenData.slotIndex;
             const reservationId = tokenData.reservationId;
-
-            // Recalculate the time from the actual slotIndex to ensure consistency
-            let actualAppointmentTimeStr = appointmentTimeStr;
-            let actualAppointmentTime = parseTime(appointmentTimeStr, selectedSlot);
-            try {
-                // Generate all time slots for the day to find the correct time for the actual slotIndex
-                const dayOfWeek = format(selectedSlot, 'EEEE');
-                const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-                if (availabilityForDay) {
-                    const slotDuration = doctor.averageConsultingTime || 15;
-                    let globalSlotIndex = 0;
-                    let foundSlot = false;
-                    for (let i = 0; i < availabilityForDay.timeSlots.length && !foundSlot; i++) {
-                        const session = availabilityForDay.timeSlots[i];
-                        let currentTime = parseTime(session.from, selectedSlot);
-                        const endTime = parseTime(session.to, selectedSlot);
-
-                        while (isBefore(currentTime, endTime) && !foundSlot) {
-                            if (globalSlotIndex === actualSlotIndex) {
-                                actualAppointmentTime = currentTime;
-                                actualAppointmentTimeStr = format(currentTime, "hh:mm a");
-                                foundSlot = true;
-                                break;
-                            }
-                            currentTime = addMinutes(currentTime, slotDuration);
-                            globalSlotIndex++;
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('Error recalculating time from slotIndex:', error);
-                // Fall back to original time if recalculation fails
-            }
-
-            const breakIntervals = buildBreakIntervals(doctor, selectedSlot);
-            const adjustedAppointmentTime =
-                breakIntervals.length > 0
-                    ? applyBreakOffsets(actualAppointmentTime, breakIntervals)
-                    : actualAppointmentTime;
-            const adjustedAppointmentTimeStr = format(adjustedAppointmentTime, "hh:mm a");
+            const actualAppointmentTimeStr = tokenData.time;
+            const adjustedAppointmentTimeStr = tokenData.arriveByTime;
 
             // Calculate cut-off time and no-show time
             let cutOffTime: Date | undefined;
             let noShowTime: Date | undefined;
             let inheritedDelay = 0;
             try {
-                const appointmentDate = parse(format(selectedSlot, "d MMMM yyyy"), "d MMMM yyyy", new Date());
-                const appointmentTime = adjustedAppointmentTime;
+                const appointmentTime = parseTime(actualAppointmentTimeStr, selectedSlot);
                 cutOffTime = subMinutes(appointmentTime, 15);
 
                 // Inherit delay from previous appointment (if any)
@@ -382,8 +289,9 @@ function AppointmentDetailsFormContent() {
 
                 // Apply delay to noShowTime only (not to cutOffTime or time)
                 // cutOffTime remains: appointment time - 15 minutes (no delay)
-                // noShowTime becomes: appointment time + 15 minutes + delay
-                noShowTime = addMinutes(appointmentTime, 15 + inheritedDelay);
+                // noShowTime becomes: arriveByTime + 15 minutes + delay
+                const arriveByTime = parse(adjustedAppointmentTimeStr, "hh:mm a", selectedSlot);
+                noShowTime = addMinutes(arriveByTime, 15 + inheritedDelay);
             } catch (error) {
                 console.error('Error calculating cut-off and no-show times:', error);
             }
@@ -793,9 +701,8 @@ function AppointmentDetailsFormContent() {
         if (isNaN(date.getTime())) {
             return "Invalid Date";
         }
-        const appointmentTimeStr = format(date, "hh:mm a");
-        const arriveByTime = getArriveByTime(appointmentTimeStr, date);
-        return `Booking for ${format(date, "EEEE, MMMM d")} - Arrive by: ${arriveByTime}`;
+        const appointmentTimeStr = getClinicTimeString(date);
+        return `Booking for ${format(date, "EEEE, MMMM d")} - Reporting time: ${getClinicTimeString(subMinutes(date, 15))}`;
     };
 
     const getBackButtonLink = () => {
@@ -889,7 +796,7 @@ function AppointmentDetailsFormContent() {
                                 <Clock className="h-5 w-5 text-muted-foreground" />
                                 <div>
                                     <p className="text-sm text-muted-foreground">Arrive by</p>
-                                    <p className="font-semibold">{getArriveByTime(format(bookingDate, "hh:mm a"), bookingDate)}</p>
+                                    <p className="font-semibold">{getClinicTimeString(subMinutes(bookingDate, 15))}</p>
                                 </div>
                             </div>
                             {doctor.consultationFee && (

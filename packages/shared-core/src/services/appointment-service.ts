@@ -18,6 +18,7 @@ import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes,
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { parseTime as parseTimeString } from '../utils/break-helpers';
 import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicShortDateString, getClinicNow } from '../utils/date-utils';
+import { buildReservationDocId } from '../utils/reservation-utils';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
@@ -522,16 +523,7 @@ function toDate(value: unknown): Date | null {
   return null;
 }
 
-function buildReservationDocId(
-  clinicId: string,
-  doctorName: string,
-  dateStr: string,
-  slotIndex: number
-): string {
-  return `${clinicId}_${doctorName}_${dateStr}_slot_${slotIndex}`
-    .replace(/\s+/g, '_')
-    .replace(/[^a-zA-Z0-9_]/g, '');
-}
+// buildReservationDocId moved to shared utils
 
 export async function generateNextToken(
   clinicId: string,
@@ -574,6 +566,7 @@ export async function generateNextTokenAndReserveSlot(
   slotIndex: number;
   sessionIndex: number;
   time: string;
+  arriveByTime: string;
   reservationId: string;
 }> {
   const dateStr = getClinicDateString(date);
@@ -1034,12 +1027,18 @@ export async function generateNextTokenAndReserveSlot(
           }
         }
 
+        const arriveByTimeDate = type === 'W'
+          ? slots[chosenSlotIndex].time
+          : subMinutes(slots[chosenSlotIndex].time, 15);
+        const arriveByTimeString = getClinicTimeString(arriveByTimeDate);
+
         return {
           tokenNumber,
           numericToken,
           slotIndex: chosenSlotIndex,
           sessionIndex: sessionIndexForNew,
           time: resolvedTimeString,
+          arriveByTime: arriveByTimeString,
           reservationId: reservationRef.id,
         };
       });

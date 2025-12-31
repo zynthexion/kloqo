@@ -2997,7 +2997,8 @@ export async function calculateWalkInDetails(
   appointments.forEach(appt => {
     if (
       (appt.status === 'Cancelled' || appt.status === 'No-show') &&
-      typeof appt.slotIndex === 'number'
+      typeof appt.slotIndex === 'number' &&
+      (appt.bookedVia as string) !== 'BreakBlock' // CRITICAL: Ignore administrative blocks
     ) {
       const slotMeta = slots[appt.slotIndex];
       if (slotMeta) {
@@ -3051,6 +3052,7 @@ export async function calculateWalkInDetails(
   });
   const usedBucketSlots = walkInsOutsideAvailability.length;
   const firestoreBucketCount = Math.max(0, bucketCount - usedBucketSlots);
+
 
   // ============================================================================
   // PREVIEW ACCURACY FIX: Check existing reservations
@@ -3140,26 +3142,65 @@ export async function calculateWalkInDetails(
   // Strategy 4: Bucket Compensation Check (Calculate early for error handling)
   // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
   const allSlotsFilled = (() => {
-    const occupiedSlotsForCheck = new Set<number>();
+    // ------------------------------------------------------------------------
+    // REVISED LOGIC: Account for "Overflow" appointments filling gaps in Scheduler
+    // ------------------------------------------------------------------------
+    let freeFutureSlotsCount = 0;
+    const occupiedIndices = new Set<number>();
+
+    // 1. Identify Occupied Indices from Appointments & Blocked
+    const registerOccupancy = (idx: number) => {
+      if (typeof idx === 'number') occupiedIndices.add(idx);
+    };
+
     appointments.forEach(appt => {
       if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
-        occupiedSlotsForCheck.add(appt.slotIndex);
+        registerOccupancy(appt.slotIndex);
+      }
+    });
+    blockedAdvanceAppointments.forEach(blocked => {
+      if (typeof blocked.slotIndex === 'number') registerOccupancy(blocked.slotIndex);
+    });
+
+    // 2. Count "Free" Slots in the future
+    for (let i = 0; i < slots.length; i++) {
+      if (isBefore(slots[i].time, now)) continue;
+      if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) continue; // Blocked by bucket
+
+      if (!occupiedIndices.has(i)) {
+        freeFutureSlotsCount++;
+      }
+    }
+
+    // 3. Count "Overflow" Appointments (Indices >= slots.length)
+    // These will be back-filled by the Scheduler into the Free Slots
+    let overflowCount = 0;
+    appointments.forEach(appt => {
+      if (ACTIVE_STATUSES.has(appt.status)) {
+        // If valid index but outside range, OR no index (though we filter for number usually)
+        if (typeof appt.slotIndex === 'number' && appt.slotIndex >= slots.length) {
+          overflowCount++;
+        }
+      }
+    });
+    // Also check blocked advance if any are out of bounds (unlikely if derived from active)
+    blockedAdvanceAppointments.forEach(blocked => {
+      if (typeof blocked.slotIndex === 'number' && blocked.slotIndex >= slots.length) {
+        // De-duplicate if already counted?
+        // blockedAdvanceAppointments is usually a subset/map of active.
+        // We can just rely on appointments loop above for the count to be safe/simple
+        // BUT blocked might include cancelled-in-bucket which are separate.
+        // CancelledInBucket indices are usually valid (within range).
+        // So we primarily care about 'Active Advance' that are out of bounds.
       }
     });
 
-    for (let i = 0; i < slots.length; i++) {
-      if (isBefore(slots[i].time, now)) {
-        continue; // Skip past slots
-      }
-      // Skip cancelled slots in bucket - they're blocked, not available
-      if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) {
-        continue;
-      }
-      if (!occupiedSlotsForCheck.has(i)) {
-        return false; // Found an empty slot
-      }
+
+    if (overflowCount >= freeFutureSlotsCount) {
+      return true; // Overflow will fill all gaps, so session is full
     }
-    return true; // All available future slots are occupied
+
+    return false; // Steps above confirm explicitly active slots
   })();
 
   const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
@@ -3173,10 +3214,14 @@ export async function calculateWalkInDetails(
       walkInCandidates: activeWalkInCandidates,
     });
   } catch (error) {
-    if (!forceBook && !canUseBucketCompensation) {
+    // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
+    // even if firestoreBucketCount is 0, because "Session Shrunk" scenario creates overbooking
+    // where we physically cannot fit the patient, but we shouldn't reject Walk-in.
+    const shouldAllowOverflow = allSlotsFilled;
+
+    if (!forceBook && !canUseBucketCompensation && !shouldAllowOverflow) {
       throw error;
     }
-    console.log('[FORCE BOOK/BUCKET] Scheduler could not allocate slot, proceeding to overflow logic', error);
   }
 
   const newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
@@ -3196,38 +3241,14 @@ export async function calculateWalkInDetails(
   if (!newAssignment || chosenSlotIndex === -1) {
     // Strategy 4: Bucket Compensation Check
     // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
-    const allSlotsFilled = (() => {
-      const occupiedSlotsForCheck = new Set<number>();
-      appointments.forEach(appt => {
-        if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
-          occupiedSlotsForCheck.add(appt.slotIndex);
-        }
-      });
-
-      for (let i = 0; i < slots.length; i++) {
-        if (isBefore(slots[i].time, now)) {
-          continue; // Skip past slots
-        }
-        // Skip cancelled slots in bucket - they're blocked, not available
-        if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) {
-          continue;
-        }
-        if (!occupiedSlotsForCheck.has(i)) {
-          return false; // Found an empty slot
-        }
-      }
-      return true; // All available future slots are occupied
-    })();
 
 
 
-    // If forceBook is enabled OR bucket compensation is valid, create an overflow slot
-    if (forceBook || canUseBucketCompensation) {
-      if (forceBook) {
-        console.log('[FORCE BOOK] No slots available - creating overflow slot');
-      } else {
-        console.log('[BUCKET STRATEGY] Triggering overflow slot creation via bucket compensation');
-      }
+
+    // If forceBook is enabled OR bucket compensation is valid OR all slots explicitly filled, create an overflow slot
+    const shouldAllowOverflow = allSlotsFilled;
+    if (forceBook || canUseBucketCompensation || shouldAllowOverflow) {
+
 
       // Find the last slot index from all appointments and slots
       const allSlotIndices = [

@@ -584,9 +584,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 });
                 setEstimatedConsultationTime(adjusted);
             }
-            if (typeof result?.patientsAhead === 'number') {
-                setPatientsAhead(result.patientsAhead);
-            }
+            setPatientsAhead(result.patientsAhead);
             if (result?.estimatedDetails) {
                 setWalkInData((prev: typeof walkInData) =>
                     prev ? { ...prev, estimatedDetails: result.estimatedDetails } : prev

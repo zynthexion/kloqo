@@ -503,16 +503,25 @@ export function computeWalkInSchedule({
         false
       );
       if (prepared.position === -1) {
-        throw new Error('Unable to allocate walk-in slot.');
+        // Proceed to fallback
+      } else {
+        prepared.shifts.forEach(shift => {
+          applyAssignment(shift.id, shift.position);
+          if (DEBUG) {
+            console.info('[walk-in scheduler] shifted advance appointment', shift);
+          }
+        });
+        assignedPosition = prepared.position;
       }
+    }
 
-      prepared.shifts.forEach(shift => {
-        applyAssignment(shift.id, shift.position);
-        if (DEBUG) {
-          console.info('[walk-in scheduler] shifted advance appointment', shift);
-        }
-      });
-      assignedPosition = prepared.position;
+    if (assignedPosition === null) {
+      // FINAL FALLBACK: If spacing and bubble logic failed (e.g. wall of advance appointments at end of session)
+      // just find ANY empty future slot.
+      const anyEmptyFutureSlot = findFirstEmptyPosition(effectiveFirstFuturePosition);
+      if (anyEmptyFutureSlot !== -1) {
+        assignedPosition = anyEmptyFutureSlot;
+      }
     }
 
     if (assignedPosition === null) {

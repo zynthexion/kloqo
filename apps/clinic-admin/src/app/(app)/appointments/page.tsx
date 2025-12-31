@@ -173,9 +173,10 @@ function isDoctorAdvanceCapacityReachedOnDate(
   }
 
   const slotDuration = doctor.averageConsultingTime || 15;
-  const now = new Date();
+  const now = getClinicNow();
   const dateKey = format(date, 'd MMMM yyyy');
   const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
+  let totalDailySlots = 0;
 
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseDateFns(session.from, 'hh:mm a', date);
@@ -198,6 +199,7 @@ function isDoctorAdvanceCapacityReachedOnDate(
     }
 
     let futureSlotCount = 0;
+    let sessionTotalSlotCount = 0;
 
     while (isBefore(currentTime, sessionEnd)) {
       const slotTime = new Date(currentTime);
@@ -206,13 +208,17 @@ function isDoctorAdvanceCapacityReachedOnDate(
       if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
         futureSlotCount += 1;
       }
+      sessionTotalSlotCount += 1;
       currentTime = addMinutes(currentTime, slotDuration);
     }
 
     if (futureSlotCount > 0) {
       slotsBySession.push({ sessionIndex, slotCount: futureSlotCount });
     }
+    totalDailySlots += sessionTotalSlotCount;
   });
+
+  const totalSlotsCountLimit = totalDailySlots; // Use this to ignore stranded appointments
 
   if (slotsBySession.length === 0) {
     return false;
@@ -231,10 +237,19 @@ function isDoctorAdvanceCapacityReachedOnDate(
 
   const formattedDate = format(date, 'd MMMM yyyy');
   let activeAdvanceCount = appointments.filter(appointment => {
+    // CRITICAL: Synchronize with shrinking denominator logic
+    // 1. Only count future appointments
+    // 2. Only count "valid" appointments (not stranded outside session end)
+    const appointmentTime = parseDateFns(appointment.time || '', 'hh:mm a', date);
+    const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+    const isValidSlot = typeof appointment.slotIndex === 'number' && appointment.slotIndex < totalSlotsCountLimit;
+
     return (
       appointment.doctor === doctor.name &&
       appointment.bookedVia !== 'Walk-in' &&
       appointment.date === formattedDate &&
+      isFutureAppointment &&
+      isValidSlot &&
       (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed') &&
       !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
     );

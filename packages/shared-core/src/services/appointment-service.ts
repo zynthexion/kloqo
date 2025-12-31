@@ -569,53 +569,10 @@ export async function generateNextTokenAndReserveSlot(
     slotsBySession.set(slot.sessionIndex, sessionSlots);
   });
 
-  const appointmentsRef = collection(firestore, 'appointments');
-  const appointmentsQuery = query(
-    appointmentsRef,
-    where('clinicId', '==', clinicId),
-    where('doctor', '==', doctorName),
-    where('date', '==', dateStr),
-    orderBy('slotIndex', 'asc')
-  );
-
-  // Fetch appointments early to partial-exclude cancelledByBreak slots from capacity
-  const initialAppointmentsSnapshot = await getDocs(appointmentsQuery);
-  const breakBlockedIndices = new Set<number>();
-  initialAppointmentsSnapshot.docs.forEach(doc => {
-    const data = doc.data();
-    if (data.cancelledByBreak && data.status === 'Completed' && typeof data.slotIndex === 'number') {
-      breakBlockedIndices.add(data.slotIndex);
-    }
-  });
-
-  let maximumAdvanceTokens = 0;
-  console.log('🔵 [CAPACITY DEBUG] Starting capacity calculation');
-  slotsBySession.forEach((sessionSlots, sessionIndex) => {
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: Total slots = ${sessionSlots.length}`);
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: Blocked by leave = ${blockedIndices.length}`);
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: Blocked by break = ${breakBlockedIndices.size}`);
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: Break blocked indices:`, Array.from(breakBlockedIndices));
-
-    // Filter to only future slots (including current time) AND not blocked by leave OR break appointment
-    const futureSlots = sessionSlots.filter(slot =>
-      (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
-      !blockedIndices.includes(slot.index) &&
-      !breakBlockedIndices.has(slot.index)
-    );
-
-    const futureSlotCount = futureSlots.length;
-    const sessionMinimumWalkInReserve = futureSlotCount > 0 ? Math.ceil(futureSlotCount * 0.15) : 0;
-    const sessionAdvanceCapacity = Math.max(futureSlotCount - sessionMinimumWalkInReserve, 0);
-
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: Future slots (after filtering) = ${futureSlotCount}`);
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: W-token reserve (15%) = ${sessionMinimumWalkInReserve}`);
-    console.log(`🔵 [CAPACITY DEBUG] Session ${sessionIndex}: A-token capacity = ${sessionAdvanceCapacity}`);
-
-    maximumAdvanceTokens += sessionAdvanceCapacity;
-  });
-  console.log(`🔵 [CAPACITY DEBUG] Total maximum A-tokens = ${maximumAdvanceTokens}`);
+  // Proceed to book if capacity allows
 
   // Proceed to book if capacity allows
+  console.log(`🔍 [CAPACITY DEBUG START] ${type} booking for ${doctorName} on ${dateStr} at ${now.toISOString()}`);
 
   for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
@@ -678,28 +635,52 @@ export async function generateNextTokenAndReserveSlot(
           });
         }
 
-        if (type === 'A' && maximumAdvanceTokens >= 0) {
+        if (type === 'A') {
+          // Identify break-blocked slots from CURRENT appointments snapshot
+          const breakBlockedIndices = new Set<number>();
+          appointments.forEach(appt => {
+            if (appt.cancelledByBreak && appt.status === 'Completed' && typeof appt.slotIndex === 'number') {
+              breakBlockedIndices.add(appt.slotIndex);
+            }
+          });
+
+          // Calculate maximum advance tokens per session atomically
+          let maximumAdvanceTokens = 0;
+          slotsBySession.forEach((sessionSlots, sIdx) => {
+            const futureSlots = sessionSlots.filter(slot =>
+              (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
+              !blockedIndices.includes(slot.index) &&
+              !breakBlockedIndices.has(slot.index)
+            );
+
+            const futureSlotCount = futureSlots.length;
+            const sessionMinimumWalkInReserve = futureSlotCount > 0 ? Math.ceil(futureSlotCount * 0.15) : 0;
+            const sessionAdvanceCapacity = Math.max(futureSlotCount - sessionMinimumWalkInReserve, 0);
+            maximumAdvanceTokens += sessionAdvanceCapacity;
+
+            console.log(`📊 [CAPACITY TX DEBUG] Session ${sIdx}: totalSlots=${sessionSlots.length}, futureSlots=${futureSlotCount}, reserve=${sessionMinimumWalkInReserve}, aCapacity=${sessionAdvanceCapacity}`);
+          });
+
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
+            // CRITICAL: Since capacity is shrinking (future slots only), usage MUST also be future-only to match.
+            // Also exclude "stranded" appointments (slotIndex >= totalSlots) that fall outside current doctor availability.
+            const appointmentTime = parseTimeString(appointment.time || '', now);
+            const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+
             return (
               appointment.bookedVia !== 'Walk-in' &&
               typeof appointment.slotIndex === 'number' &&
+              appointment.slotIndex < totalSlots && // EXCLUDE STRANDED
+              isFutureAppointment &&               // EXCLUDE PAST
               ACTIVE_STATUSES.has(appointment.status) &&
-              !appointment.cancelledByBreak && // Exclude appointments cancelled by break scheduling
-              !appointment.id.startsWith('blocked-leave-') && // Exclude injected blocked slots from usage count
-              // CRITICAL: Exclude appointments that are on slots ALREADY blocked by leave
+              !appointment.cancelledByBreak &&
+              !appointment.id.startsWith('blocked-leave-') &&
               !blockedIndices.includes(appointment.slotIndex) &&
-              // CRITICAL: Exclude appointments that are on slots blocked by COMPLETED break appointments
               !breakBlockedIndices.has(appointment.slotIndex)
             );
           }).length;
 
-          console.log('🔵 [ACTIVE COUNT DEBUG]', {
-            totalEffectiveAppointments: effectiveAppointments.length,
-            activeAdvanceTokens,
-            maximumAdvanceTokens,
-            cancelledByBreakCount: effectiveAppointments.filter(a => a.cancelledByBreak && a.status === 'Completed').length,
-            breakBlockedSlots: Array.from(breakBlockedIndices),
-          });
+          console.log(`📊 [CAPACITY TX SUMMARY] maxTotalCapacity=${maximumAdvanceTokens}, currentUsageCount=${activeAdvanceTokens}, breakBlockedCount=${breakBlockedIndices.size}`);
 
           if (maximumAdvanceTokens === 0 || activeAdvanceTokens >= maximumAdvanceTokens) {
             console.error('[nurse booking - REJECTION DEBUG]', {
@@ -707,15 +688,10 @@ export async function generateNextTokenAndReserveSlot(
               totalSlots,
               maxCapacity: maximumAdvanceTokens,
               currentUsage: activeAdvanceTokens,
-              activeAppts: effectiveAppointments.map(a => ({
-                id: a.id,
-                status: a.status,
-                cancelledByBreak: a.cancelledByBreak,
-                bookedVia: a.bookedVia,
-                slotIndex: a.slotIndex
-              }))
+              activeApptsCount: activeAdvanceTokens,
+              breakBlockedSlots: Array.from(breakBlockedIndices),
             });
-            const capacityError = new Error('Advance booking capacity for the day has been reached.');
+            const capacityError = new Error(`Advance booking capacity for the day has been reached. (Available: ${maximumAdvanceTokens}, Used: ${activeAdvanceTokens})`);
             (capacityError as { code?: string }).code = 'A_CAPACITY_REACHED';
             throw capacityError;
           }

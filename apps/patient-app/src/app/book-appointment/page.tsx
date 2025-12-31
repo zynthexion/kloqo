@@ -313,12 +313,18 @@ function BookAppointmentContent() {
 
         const slotDuration = doctor.averageConsultingTime || 15;
         const now = currentTime; // Use current time to calculate capacity based on future slots only
+        console.log('🧪 [CAPACITY CLIENT DEBUG] Starting evaluation', {
+            docName: doctor.name,
+            selectedDate: format(selectedDate, 'yyyy-MM-dd'),
+            now: now.toISOString()
+        });
 
 
         // Calculate total FUTURE slots per session and maximum advance tokens per session (85% of future slots in each session)
         // This dynamically adjusts as time passes - capacity is recalculated based on remaining future slots
         const dateKey = format(selectedDate, 'd MMMM yyyy');
         const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
+        let totalDailySlots = 0;
 
         availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let currentTime = parseTime(session.from, selectedDate);
@@ -335,6 +341,7 @@ function BookAppointmentContent() {
             }
 
             let futureSlotCount = 0;
+            let sessionTotalSlotCount = 0;
 
             // Only count future slots (including current time)
             while (isBefore(currentTime, sessionEnd)) {
@@ -345,13 +352,14 @@ function BookAppointmentContent() {
                 if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
                     futureSlotCount += 1;
                 }
+                sessionTotalSlotCount += 1;
                 currentTime = addMinutes(currentTime, slotDuration);
             }
 
             if (futureSlotCount > 0) {
                 slotsBySession.push({ sessionIndex, slotCount: futureSlotCount });
             }
-
+            totalDailySlots += sessionTotalSlotCount;
         });
 
         if (slotsBySession.length === 0) {
@@ -368,14 +376,24 @@ function BookAppointmentContent() {
 
 
         if (maximumAdvanceTokens === 0) {
+            console.warn('🧪 [CAPACITY CLIENT DEBUG] No future slots found - capacity reached');
             return true;
         }
 
         const formattedDate = format(selectedDate, 'd MMMM yyyy');
         const activeAdvanceAppointments = allAppointments.filter(appointment => {
+            // CRITICAL: Synchronize with server logic
+            // 1. Only count future appointments
+            // 2. Only count "valid" appointments (not stranded outside session end)
+            const appointmentTime = parseTime(appointment.time || '', selectedDate);
+            const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+            const isValidSlot = typeof appointment.slotIndex === 'number' && appointment.slotIndex < totalDailySlots;
+
             return (
                 appointment.bookedVia !== 'Walk-in' &&
                 appointment.date === formattedDate &&
+                isFutureAppointment &&
+                isValidSlot &&
                 (appointment.status === 'Pending' || appointment.status === 'Confirmed') &&
                 !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
             );
@@ -385,6 +403,13 @@ function BookAppointmentContent() {
 
 
         const capacityReached = activeAdvanceCount >= maximumAdvanceTokens;
+
+        console.log('🧪 [CAPACITY CLIENT DEBUG] Final result', {
+            activeAdvanceCount,
+            maximumAdvanceTokens,
+            capacityReached,
+            appointmentsChecked: allAppointments.length
+        });
 
         return capacityReached;
     }, [doctor, selectedDate, allAppointments, currentTime]);

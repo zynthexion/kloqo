@@ -6,16 +6,23 @@ import { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Calendar as CalendarIcon, ArrowLeft, Loader2 } from 'lucide-react';
 import { format, addMinutes, set, parse, isSameDay, startOfDay, addDays, isBefore, isAfter, subMinutes, differenceInMinutes, parseISO } from 'date-fns';
-import { cn, buildBreakIntervals, getSessionBreakIntervals, applyBreakOffsets, applySessionBreakOffsets, getSessionEnd, getDisplayTime } from "@/lib/utils";
+import { cn, getDisplayTime, parseTime } from "@/lib/utils";
 import Link from 'next/link';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { collection, onSnapshot, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import AppFrameLayout from '@/components/layout/app-frame';
-import { parseAppointmentDateTime, parseTime } from '@/lib/utils';
+import { parseAppointmentDateTime } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { errorEmitter, FirestorePermissionError, isSlotBlockedByLeave } from '@kloqo/shared-core';
+import {
+    errorEmitter,
+    FirestorePermissionError,
+    isSlotBlockedByLeave,
+    buildBreakIntervalsFromPeriods,
+    getSessionBreakIntervals,
+    getSessionEnd
+} from '@kloqo/shared-core';
 import { useToast } from '@/hooks/use-toast';
 import {
     Carousel,
@@ -315,6 +322,7 @@ function BookAppointmentContent() {
         // This dynamically adjusts as time passes - capacity is recalculated based on remaining future slots
         const dateKey = format(selectedDate, 'd MMMM yyyy');
         const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
+        let totalDailySlots = 0;
 
         console.log('🔵 [FRONTEND CAPACITY] Starting calculation for date:', dateKey);
 
@@ -333,6 +341,7 @@ function BookAppointmentContent() {
             }
 
             let futureSlotCount = 0;
+            let sessionTotalSlotCount = 0;
 
             // Only count future slots (including current time)
             while (isBefore(currentTime, sessionEnd)) {
@@ -342,6 +351,7 @@ function BookAppointmentContent() {
                 if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
                     futureSlotCount += 1;
                 }
+                sessionTotalSlotCount += 1;
                 currentTime = addMinutes(currentTime, slotDuration);
             }
 
@@ -350,6 +360,7 @@ function BookAppointmentContent() {
             if (futureSlotCount > 0) {
                 slotsBySession.push({ sessionIndex, slotCount: futureSlotCount });
             }
+            totalDailySlots += sessionTotalSlotCount;
         });
 
         if (slotsBySession.length === 0) {
@@ -372,9 +383,18 @@ function BookAppointmentContent() {
 
         const formattedDate = format(selectedDate, 'd MMMM yyyy');
         const activeAdvanceCount = allAppointments.filter(appointment => {
+            // CRITICAL: Synchronize with shrinking denominator logic
+            // 1. Only count future appointments
+            // 2. Only count "valid" appointments (not stranded outside session end)
+            const appointmentTime = parseTime(appointment.time || '', selectedDate);
+            const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+            const isValidSlot = typeof appointment.slotIndex === 'number' && appointment.slotIndex < totalDailySlots;
+
             return (
                 appointment.bookedVia !== 'Walk-in' &&
                 appointment.date === formattedDate &&
+                isFutureAppointment &&
+                isValidSlot &&
                 (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed' || (appointment.status as any) === 'Attended') &&
                 !appointment.cancelledByBreak // Exclude appointments cancelled by break scheduling
             );

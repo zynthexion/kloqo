@@ -574,6 +574,15 @@ export async function generateNextTokenAndReserveSlot(
   // Proceed to book if capacity allows
   console.log(`🔍 [CAPACITY DEBUG START] ${type} booking for ${doctorName} on ${dateStr} at ${now.toISOString()}`);
 
+  const appointmentsRef = collection(firestore, 'appointments');
+  const appointmentsQuery = query(
+    appointmentsRef,
+    where('clinicId', '==', clinicId),
+    where('doctor', '==', doctorName),
+    where('date', '==', dateStr),
+    orderBy('slotIndex', 'asc')
+  );
+
   for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
     const appointmentDocRefs = appointmentsSnapshot.docs.map(docSnap => doc(firestore, 'appointments', docSnap.id));

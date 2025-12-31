@@ -607,6 +607,14 @@ export async function generateNextTokenAndReserveSlot(
             return { ...data, id: snapshot.id };
           });
 
+        // Identify break-blocked slots from CURRENT appointments snapshot
+        const breakBlockedIndices = new Set<number>();
+        appointments.forEach(appt => {
+          if (appt.cancelledByBreak && appt.status === 'Completed' && typeof appt.slotIndex === 'number') {
+            breakBlockedIndices.add(appt.slotIndex);
+          }
+        });
+
         const excludeAppointmentId =
           typeof appointmentData.existingAppointmentId === 'string' ? appointmentData.existingAppointmentId : undefined;
         const rawEffectiveAppointments = excludeAppointmentId
@@ -645,14 +653,6 @@ export async function generateNextTokenAndReserveSlot(
         }
 
         if (type === 'A') {
-          // Identify break-blocked slots from CURRENT appointments snapshot
-          const breakBlockedIndices = new Set<number>();
-          appointments.forEach(appt => {
-            if (appt.cancelledByBreak && appt.status === 'Completed' && typeof appt.slotIndex === 'number') {
-              breakBlockedIndices.add(appt.slotIndex);
-            }
-          });
-
           // Calculate maximum advance tokens per session atomically
           let maximumAdvanceTokens = 0;
           slotsBySession.forEach((sessionSlots, sIdx) => {

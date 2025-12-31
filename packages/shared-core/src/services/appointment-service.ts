@@ -16,7 +16,14 @@ import {
 } from 'firebase/firestore';
 import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, parseISO, isSameMinute, isSameDay } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
-import { parseTime as parseTimeString } from '../utils/break-helpers';
+import {
+  getSessionEnd,
+  getSessionBreakIntervals,
+  buildBreakIntervalsFromPeriods,
+  applyBreakOffsets,
+  isSlotBlockedByLeave,
+  parseTime as parseTimeString
+} from '../utils/break-helpers';
 import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicShortDateString, getClinicNow } from '../utils/date-utils';
 import { buildReservationDocId } from '../utils/reservation-utils';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
@@ -50,52 +57,6 @@ interface LoadedDoctor {
   slots: DailySlot[];
 }
 
-export function isSlotBlockedByLeave(doctor: Doctor, slotTime: Date): boolean {
-  if (!doctor) return false;
-
-  const dateStr = getClinicDateString(slotTime);
-  const isoDateStr = getClinicISOString(slotTime);
-  const shortDateStr = getClinicShortDateString(slotTime);
-
-  // Only check breakPeriods (Primary Source of Truth)
-  if (doctor.breakPeriods) {
-    // Try multiple key formats: "12 December 2025", "2025-12-12", "12 Dec 2025"
-    let breaks = doctor.breakPeriods[dateStr] || doctor.breakPeriods[isoDateStr] || doctor.breakPeriods[shortDateStr];
-
-    if (breaks) {
-      return breaks.some(breakPeriod => {
-        try {
-          // Method 1: Explicit slots list
-          if (breakPeriod.slots && Array.isArray(breakPeriod.slots)) {
-            const isExplicitlyListed = breakPeriod.slots.some(s => {
-              // Try parsing slot as ISO first, then strict format
-              const sDate = typeof s === 'string' ? parseISO(s) : new Date(s);
-              return isSameMinute(sDate, slotTime);
-            });
-            if (isExplicitlyListed) return true;
-          }
-
-          // Method 2: Range check
-          // Use parseISO for more robust handling of ISO strings
-          const breakStart = typeof breakPeriod.startTime === 'string' ? parseISO(breakPeriod.startTime) : new Date(breakPeriod.startTime);
-          const breakEnd = typeof breakPeriod.endTime === 'string' ? parseISO(breakPeriod.endTime) : new Date(breakPeriod.endTime);
-
-          const slotDuration = doctor.averageConsultingTime || 15;
-          const slotEnd = addMinutes(slotTime, slotDuration);
-
-          // Check overlap
-          const isBlocked = isBefore(slotTime, breakEnd) && isAfter(slotEnd, breakStart);
-          return isBlocked;
-        } catch (e) {
-          console.warn('Error parsing break dates', e);
-          return false;
-        }
-      });
-    }
-  }
-
-  return false;
-}
 
 export function getLeaveBlockedIndices(doctor: Doctor, slots: DailySlot[], date: Date): number[] {
   const blockedIndices: number[] = [];

@@ -27,8 +27,18 @@ import { collection, query, where, getDocs, doc, writeBatch, getDoc, runTransact
 import type { Doctor, Patient, Appointment } from '@/lib/types';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-import { isWithinBookingWindow, buildBreakIntervals, applyBreakOffsets, parseTime as parseTimeUtil } from '@/lib/utils';
-import { getSessionEnd, getSessionBreakIntervals, calculateWalkInDetails, capitalizeWords, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
+import { isWithinBookingWindow, parseTime as parseTimeUtil } from '@/lib/utils';
+import {
+    getSessionEnd,
+    getSessionBreakIntervals,
+    calculateWalkInDetails,
+    capitalizeWords,
+    getClinicNow,
+    getClinicDayOfWeek,
+    getClinicDateString,
+    buildBreakIntervalsFromPeriods as buildBreakIntervals,
+    applyBreakOffsets
+} from '@kloqo/shared-core';
 
 
 const createFormSchema = (t: any) => z.object({

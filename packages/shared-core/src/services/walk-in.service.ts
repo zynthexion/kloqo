@@ -1,10 +1,14 @@
 import { collection, query, where, orderBy, getDocs, getDoc, Firestore, runTransaction, doc, serverTimestamp, type Transaction, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
-import { parseTime as parseTimeString } from '../utils/break-helpers'; // Using break-helpers for time parsing if available, or just date-fns
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
 import { getClinicNow, getClinicDayOfWeek, getClinicDateString, getClinicTimeString } from '../utils/date-utils';
+import {
+  applyBreakOffsets,
+  isSlotBlockedByLeave,
+  parseTime as parseTimeString
+} from '../utils/break-helpers';
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
@@ -101,9 +105,13 @@ export async function loadDoctorAndSlots(
     }
 
     while (isBefore(currentTime, endTime)) {
-      slots.push({ index: slotIndex, time: new Date(currentTime), sessionIndex });
+      const slotTime = new Date(currentTime);
+      // Skip slots that are blocked by leave or break
+      if (!isSlotBlockedByLeave(doctor, slotTime)) {
+        slots.push({ index: slotIndex, time: slotTime, sessionIndex });
+        slotIndex += 1;
+      }
       currentTime = addMinutes(currentTime, slotDuration);
-      slotIndex += 1;
     }
   });
 

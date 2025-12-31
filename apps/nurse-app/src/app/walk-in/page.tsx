@@ -587,7 +587,7 @@ function WalkInRegistrationContent() {
         sessionIndex: previewAppointment.sessionIndex,
       });
 
-      console.log('[NURSE:GET-TOKEN] Step 8: Opening estimate modal...');
+      setAppointmentToSave(previewAppointment);
       setEstimatedConsultationTime(estimatedTime);
       setPatientsAhead(patientsAhead);
       setGeneratedToken(previewTokenNumber);

@@ -5,6 +5,13 @@ import type { Doctor } from "@/firebase/firestore/use-doctors";
 import type { Appointment } from "@/lib/types";
 
 // Redundant break logic removed. Shared-core handles breaks.
+import {
+  getClinicNow,
+  getClinicDayOfWeek,
+  getClinicTimeString,
+  buildBreakIntervalsFromPeriods,
+  applyBreakOffsets as applySharedBreakOffsets
+} from "@kloqo/shared-core";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -130,7 +137,6 @@ export const parseAppointmentDateTime = (dateStr: string, timeStr: string): Date
   }
 };
 
-import { getClinicNow, getClinicDayOfWeek, getClinicTimeString } from "@kloqo/shared-core";
 
 export const isWithinBookingWindow = (doctor: Doctor): boolean => {
   const now = getClinicNow();
@@ -156,3 +162,12 @@ export const isWithinBookingWindow = (doctor: Doctor): boolean => {
 
   return isWithinInterval(now, { start: walkInWindowStart, end: walkInWindowEnd });
 };
+
+// Re-export shared-core break helpers for compatibility with PatientForm in shared-ui
+export const buildBreakIntervals = (doctor: Doctor | null, referenceDate: Date | null) => {
+  if (!doctor || !referenceDate) return [];
+  // Standardize on the shared-core implementation
+  return buildBreakIntervalsFromPeriods(doctor, referenceDate);
+};
+
+export const applyBreakOffsets = applySharedBreakOffsets;

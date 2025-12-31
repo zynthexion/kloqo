@@ -5,9 +5,9 @@
  * calculating session extensions, and handling break-related appointment adjustments.
  */
 
-import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay } from 'date-fns';
+import { format, parse, addMinutes, subMinutes, differenceInMinutes, isAfter, isBefore, parseISO, isSameDay, isSameMinute } from 'date-fns';
 import type { Doctor, BreakPeriod, AvailabilitySlot, Appointment } from '@kloqo/shared-types';
-import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicNow } from './date-utils';
+import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicNow, getClinicShortDateString } from './date-utils';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -686,6 +686,53 @@ export function isWithin15MinutesOfClosing(
   const fifteenMinutesBeforeClosing = subMinutes(lastSessionEndTime, 15);
 
   return isAfter(now, fifteenMinutesBeforeClosing) && isBefore(now, lastSessionEndTime);
+}
+
+
+/**
+ * Checks if a specific slot time is blocked by a scheduled break or leave
+ */
+export function isSlotBlockedByLeave(doctor: Doctor, slotTime: Date): boolean {
+  if (!doctor) return false;
+
+  const dateStr = getClinicDateString(slotTime);
+  const isoDateStr = getClinicISOString(slotTime);
+  const shortDateStr = getClinicShortDateString(slotTime);
+
+  // Only check breakPeriods (Primary Source of Truth)
+  if (doctor.breakPeriods) {
+    let breaks = doctor.breakPeriods[dateStr] || doctor.breakPeriods[isoDateStr] || doctor.breakPeriods[shortDateStr];
+
+    if (breaks) {
+      return breaks.some(breakPeriod => {
+        try {
+          // Method 1: Explicit slots list
+          if (breakPeriod.slots && Array.isArray(breakPeriod.slots)) {
+            const isExplicitlyListed = breakPeriod.slots.some(s => {
+              const sDate = typeof s === 'string' ? parseISO(s) : new Date(s);
+              return isSameMinute(sDate, slotTime);
+            });
+            if (isExplicitlyListed) return true;
+          }
+
+          // Method 2: Range check
+          const breakStart = typeof breakPeriod.startTime === 'string' ? parseISO(breakPeriod.startTime) : new Date(breakPeriod.startTime);
+          const breakEnd = typeof breakPeriod.endTime === 'string' ? parseISO(breakPeriod.endTime) : new Date(breakPeriod.endTime);
+
+          const slotDuration = doctor.averageConsultingTime || 15;
+          const slotEnd = addMinutes(slotTime, slotDuration);
+
+          // Check overlap
+          const isBlocked = isBefore(slotTime, breakEnd) && isAfter(slotEnd, breakStart);
+          return isBlocked;
+        } catch (error) {
+          return false;
+        }
+      });
+    }
+  }
+
+  return false;
 }
 
 

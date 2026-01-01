@@ -1514,6 +1514,81 @@ export default function DoctorsPage() {
       }
 
       // Logic: If User wants to Open Slots, we must FREE them.
+      // --- FRESH DATA FETCH FOR EXTENSION CALCULATION ---
+      let freshMaxExtensionNeeded = 0;
+      try {
+        const dateStrQuery = format(leaveCalDate, 'd MMMM yyyy');
+        console.log('[BREAK DEBUG CLINIC] Fetching fresh appts with params:', {
+          doctor: selectedDoctor.name,
+          clinicId: selectedDoctor.clinicId,
+          date: dateStrQuery,
+          sessionIndex: currentSession.sessionIndex
+        });
+
+        const freshApptQuery = query(
+          collection(db, 'appointments'),
+          where('doctor', '==', selectedDoctor.name),
+          where('clinicId', '==', selectedDoctor.clinicId),
+          where('date', '==', dateStrQuery),
+          where('sessionIndex', '==', currentSession.sessionIndex),
+          where('status', 'in', ['Pending', 'Confirmed', 'Completed', 'Skipped'])
+        );
+
+        const freshApptSnap = await getDocs(freshApptQuery);
+        console.log('[BREAK DEBUG CLINIC] Fresh snapshot size:', freshApptSnap.size);
+
+        if (currentSession?.originalEnd) {
+          const originalEnd = currentSession.originalEnd;
+          console.log('[BREAK DEBUG CLINIC] Session Original End:', format(originalEnd, 'yyyy-MM-dd HH:mm:ss'));
+
+          freshApptSnap.docs.forEach(d => {
+            const apt = d.data();
+            console.log('[BREAK DEBUG CLINIC] Inspecting Doc:', d.id, {
+              status: apt.status,
+              time: apt.arriveByTime || apt.time,
+              cancelledByBreak: apt.cancelledByBreak
+            });
+
+            // Double check it's not a cancelled break block
+            if (apt.cancelledByBreak && apt.status === 'Cancelled') {
+              console.log('[BREAK DEBUG CLINIC] Skipping cancelled break block');
+              return;
+            }
+
+            // Use 'time' field (shifted display time) instead of 'arriveByTime' (original slot)
+            // because 'time' reflects the actual appointment time after break shifts
+            const apptTimeStr = apt.time || apt.arriveByTime;
+            if (!apptTimeStr) return;
+
+            const apptStart = parseTimeUtil(apptTimeStr, leaveCalDate);
+            const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
+
+            console.log('[BREAK DEBUG CLINIC] Comparison:', {
+              apptStart: format(apptStart, 'yyyy-MM-dd HH:mm:ss'),
+              apptEnd: format(apptEnd, 'yyyy-MM-dd HH:mm:ss'),
+              originalEnd: format(originalEnd, 'yyyy-MM-dd HH:mm:ss'),
+              isAfterOrEqual: apptEnd >= originalEnd
+            });
+
+            if (apptEnd >= originalEnd) {
+              const extensionNeeded = differenceInMinutes(apptEnd, originalEnd);
+              console.log('[BREAK DEBUG CLINIC] >>> FOUND EXTENSION NEEDED:', extensionNeeded);
+              if (extensionNeeded > freshMaxExtensionNeeded) {
+                freshMaxExtensionNeeded = extensionNeeded;
+              }
+            }
+          });
+          console.log('[BREAK DEBUG CLINIC] Final Calculated freshMaxExtensionNeeded:', freshMaxExtensionNeeded);
+        } else {
+          console.warn('[BREAK DEBUG CLINIC] currentSession.originalEnd is MISSING');
+        }
+      } catch (err) {
+        console.error('[BREAK DEBUG CLINIC] Error calculating fresh extension needed:', err);
+        // Fallback: use the UI-calculated value if this fails, or 0
+        freshMaxExtensionNeeded = extensionUtilization?.maxExtensionNeeded || 0;
+      }
+      // --------------------------------------------------
+
       if (shouldOpenSlots) {
         // Also delete slot-reservations for the cancelled appointments.
         const dateStr = format(leaveCalDate, 'd MMMM yyyy');
@@ -1599,38 +1674,7 @@ export default function DoctorsPage() {
       const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
 
       const newTotalExtendedBy = shouldCancelExtension
-        ? (() => {
-          // SMART CANCELLATION LOGIC:
-          // If user wants to cancel extension, check if we need to keep SOME of it
-          // for existing appointments that are in the extended zone.
-
-          if (!currentSession.originalEnd || !leaveCalDate) return 0;
-
-          const originalSessionEnd = currentSession.originalEnd;
-          const appointmentsInSession = appointments.filter(a =>
-            a.doctor === selectedDoctor.name &&
-            a.date === dateStr &&
-            a.sessionIndex === currentSession.sessionIndex &&
-            !['Cancelled', 'No-show'].includes(a.status)
-          );
-
-          let maxExtensionNeeded = 0;
-
-          appointmentsInSession.forEach(appt => {
-            const apptTimeStr = appt.arriveByTime || appt.time;
-            const apptStart = parseTimeUtil(apptTimeStr, leaveCalDate);
-            const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
-
-            if (isAfter(apptEnd, originalSessionEnd)) {
-              const extensionNeeded = differenceInMinutes(apptEnd, originalSessionEnd);
-              if (extensionNeeded > maxExtensionNeeded) {
-                maxExtensionNeeded = extensionNeeded;
-              }
-            }
-          });
-
-          return maxExtensionNeeded;
-        })()
+        ? Math.max(totalBreakMinutes, freshMaxExtensionNeeded)
         : currentTotalExtendedBy;
 
       const newSessionExtension = {

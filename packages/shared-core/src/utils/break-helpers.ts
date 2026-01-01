@@ -43,7 +43,34 @@ export interface BreakValidationResult {
 // ============================================================================
 
 export function parseTime(timeStr: string, referenceDate: Date): Date {
-  return parse(timeStr, 'hh:mm a', referenceDate);
+  const localParsed = parse(timeStr, 'hh:mm a', referenceDate);
+
+  try {
+    // Extract components from the local interpretation
+    const hours = localParsed.getHours();
+    const minutes = localParsed.getMinutes();
+
+    // Get the year, month, day in IST for the reference date
+    const dayFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = dayFormatter.formatToParts(referenceDate);
+    const y = parts.find(p => p.type === 'year')?.value;
+    const m = parts.find(p => p.type === 'month')?.value;
+    const d = parts.find(p => p.type === 'day')?.value;
+
+    // Construct a standard IST ISO string and parse it
+    // This ensures the resulting Date object represents the CORRECT absolute UTC moment
+    const isoStr = `${y}-${m}-${d}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+05:30`;
+    const finalDate = new Date(isoStr);
+
+    return isNaN(finalDate.getTime()) ? localParsed : finalDate;
+  } catch (err) {
+    return localParsed;
+  }
 }
 
 // ============================================================================

@@ -322,9 +322,67 @@ function ScheduleBreakContent() {
             }
 
             // Logic 3: Remove the break (Standard flow)
-            // fullBreakDuration isn't strictly needed for removal logic, just removing from array
 
-            // Remove break logic (copied from original performBreakCancellation but verified)
+            // --- FRESH DATA FETCH: Calculate required extension based on REAL-TIME appointments ---
+            let freshMaxExtensionNeeded = 0;
+            try {
+                const dateStr = format(selectedDate, 'd MMMM yyyy');
+                const freshApptQuery = query(
+                    collection(db, 'appointments'),
+                    where('doctor', '==', doctor.name),
+                    where('clinicId', '==', clinicId),
+                    where('date', '==', dateStr),
+                    where('sessionIndex', '==', breakPeriod.sessionIndex),
+                    where('status', 'in', ['Pending', 'Confirmed', 'Completed', 'Skipped'])
+                );
+
+                const freshApptSnap = await getDocs(freshApptQuery);
+
+                // We need originalEnd to calculate extension. 
+                // We can derive it from the session info or doctor availability if currentSession is stale,
+                // but currentSession.originalEnd should be consistent for the day's structure.
+                if (currentSession?.originalEnd) {
+                    const originalEnd = currentSession.originalEnd;
+
+                    freshApptSnap.docs.forEach(d => {
+                        const apt = d.data(); // Untyped immediate access
+                        // Double check it's not a cancelled break block (though status query helps)
+                        if (apt.cancelledByBreak && apt.status === 'Cancelled') return;
+
+                        // Use 'time' field (shifted display time) instead of 'arriveByTime' (original slot)
+                        // because 'time' reflects the actual appointment time after break shifts
+                        const apptTimeStr = apt.time || apt.arriveByTime;
+                        if (!apptTimeStr) return;
+
+                        const apptStart = parseTime(apptTimeStr, selectedDate);
+                        const apptEnd = addMinutes(apptStart, doctor.averageConsultingTime || 15);
+
+                        console.log('[BREAK DEBUG] Checking appt for extension:', {
+                            id: d.id,
+                            time: apptTimeStr,
+                            start: format(apptStart, 'HH:mm'),
+                            end: format(apptEnd, 'HH:mm'),
+                            originalSessionEnd: format(originalEnd, 'HH:mm'),
+                            isAfterOrEqual: apptEnd >= originalEnd
+                        });
+
+                        if (apptEnd >= originalEnd) {
+                            const extensionNeeded = differenceInMinutes(apptEnd, originalEnd);
+                            console.log('[BREAK DEBUG] Extension needed for this appt:', extensionNeeded);
+                            if (extensionNeeded > freshMaxExtensionNeeded) {
+                                freshMaxExtensionNeeded = extensionNeeded;
+                            }
+                        }
+                    });
+                    console.log('[BREAK DEBUG] Final freshMaxExtensionNeeded:', freshMaxExtensionNeeded);
+                }
+            } catch (err) {
+                console.error('Error calculating fresh extension needed:', err);
+                // Fallback: use the UI-calculated value if this fails, or 0
+                freshMaxExtensionNeeded = extensionUtilization?.maxExtensionNeeded || 0;
+            }
+            // -----------------------------------------------------------------------------------
+
             const doctorRef = doc(db, 'doctors', doctor.id);
             const dateKey = format(selectedDate, 'd MMMM yyyy');
 
@@ -396,7 +454,7 @@ function ScheduleBreakContent() {
                 const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
 
                 const newTotalExtendedBy = shouldCancelExtension
-                    ? totalBreakMinutes
+                    ? Math.max(totalBreakMinutes, freshMaxExtensionNeeded)
                     : currentTotalExtendedBy;
 
                 const newSessionExtension = {

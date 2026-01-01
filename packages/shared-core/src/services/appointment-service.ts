@@ -133,8 +133,11 @@ async function loadDoctorAndSlots(
 
       if (sessionExtension) {
         const newEndTimeStr = sessionExtension.newEndTime;
-
-        if (newEndTimeStr && sessionExtension.totalExtendedBy > 0) {
+        // ALWAYS use extended time if it exists in the model
+        // This ensures all appointments have a corresponding slot in the slots array
+        // The 85% capacity rule should be enforced by looking at original session bounds,
+        // not by hiding physical slots from the array.
+        if (newEndTimeStr) {
           try {
             const extendedEndTime = parseTimeString(newEndTimeStr, date);
 
@@ -144,7 +147,6 @@ async function loadDoctorAndSlots(
             }
           } catch (error) {
             console.error('Error parsing extended end time, using original:', error);
-            // Fall back to original end time if parsing fails
           }
         }
       }
@@ -655,19 +657,48 @@ export async function generateNextTokenAndReserveSlot(
         if (type === 'A') {
           // Calculate maximum advance tokens per session atomically
           let maximumAdvanceTokens = 0;
-          slotsBySession.forEach((sessionSlots, sIdx) => {
-            const futureSlots = sessionSlots.filter(slot =>
-              (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()) &&
+          const dayOfWeek = getClinicDayOfWeek(now);
+          const availabilityForDay = (doctorProfile.availabilitySlots || []).find((s: any) => s.day === dayOfWeek);
+          const extensionForDate = (doctorProfile as any).availabilityExtensions?.[dateStr];
+
+          slotsBySession.forEach((sessionSlots, sessionIndex) => {
+            // Determine the logical end of the session for capacity purposes
+            const sessionSource = availabilityForDay?.timeSlots?.[sessionIndex];
+            if (!sessionSource) return;
+
+            const originalSessionEndTime = parseTimeString(sessionSource.to, now);
+            let capacityBasisEndTime = originalSessionEndTime;
+
+            const sessionExtension = extensionForDate?.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+            if (sessionExtension && sessionExtension.newEndTime) {
+              const hasActiveBreaks = sessionExtension.breaks && sessionExtension.breaks.length > 0;
+              if (hasActiveBreaks) {
+                try {
+                  capacityBasisEndTime = parseTimeString(sessionExtension.newEndTime, now);
+                } catch (e) {
+                  console.error('Error parsing extension time for capacity:', e);
+                }
+              }
+            }
+
+            // Filter slots to only include those within the current capacity basis
+            // AND not blocked by leave/break
+            const capacityBasisSlots = sessionSlots.filter(slot =>
+              isBefore(slot.time, capacityBasisEndTime) &&
               !blockedIndices.includes(slot.index) &&
               !breakBlockedIndices.has(slot.index)
             );
 
-            const futureSlotCount = futureSlots.length;
+            const futureCapacitySlots = capacityBasisSlots.filter(slot =>
+              (isAfter(slot.time, now) || slot.time.getTime() >= now.getTime())
+            );
+
+            const futureSlotCount = futureCapacitySlots.length;
             const sessionMinimumWalkInReserve = futureSlotCount > 0 ? Math.ceil(futureSlotCount * 0.15) : 0;
             const sessionAdvanceCapacity = Math.max(futureSlotCount - sessionMinimumWalkInReserve, 0);
             maximumAdvanceTokens += sessionAdvanceCapacity;
 
-            console.log(`📊 [CAPACITY TX DEBUG] Session ${sIdx}: totalSlots=${sessionSlots.length}, futureSlots=${futureSlotCount}, reserve=${sessionMinimumWalkInReserve}, aCapacity=${sessionAdvanceCapacity}`);
+            console.log(`📊 [CAPACITY TX DEBUG] Session ${sessionIndex}: totalSlots=${sessionSlots.length}, futureSlots=${futureSlotCount}, reserve=${sessionMinimumWalkInReserve}, aCapacity=${sessionAdvanceCapacity}`);
           });
 
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
@@ -711,6 +742,7 @@ export async function generateNextTokenAndReserveSlot(
         let chosenSlotIndex = -1;
         let sessionIndexForNew = 0;
         let resolvedTimeString = '';
+        let chosenSlotTime: Date | null = null;
         let reservationRef: DocumentReference | null = null;
 
         if (type === 'W') {
@@ -749,6 +781,7 @@ export async function generateNextTokenAndReserveSlot(
 
           // Use the time calculated by the scheduler/shiftPlan
           const walkInTime = newAssignment.slotTime;
+          chosenSlotTime = walkInTime;
 
 
           let finalTimeString = getClinicTimeString(walkInTime);
@@ -880,6 +913,7 @@ export async function generateNextTokenAndReserveSlot(
             reservationRef = reservationDocRef;
             chosenSlotIndex = slotIndex;
             const reservedSlot = slots[chosenSlotIndex];
+            chosenSlotTime = reservedSlot?.time || null;
             sessionIndexForNew = reservedSlot?.sessionIndex ?? 0;
             resolvedTimeString = getClinicTimeString(reservedSlot?.time ?? now);
 
@@ -973,9 +1007,9 @@ export async function generateNextTokenAndReserveSlot(
           }
         }
 
-        const arriveByTimeDate = type === 'W'
-          ? slots[chosenSlotIndex].time
-          : subMinutes(slots[chosenSlotIndex].time, 15);
+        // arriveByTime should be the original slot time (UI handles 15-min early display)
+        // CRITICAL FIX: Handle overflow slots where chosenSlotIndex >= slots.length
+        const arriveByTimeDate = chosenSlotTime || now;
         const arriveByTimeString = getClinicTimeString(arriveByTimeDate);
 
         return {

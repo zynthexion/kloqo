@@ -6,9 +6,7 @@ import { format } from 'date-fns';
  * Useful for consistent scheduling logic on server-side (Next.js API routes).
  */
 export function getClinicNow(): Date {
-    const now = new Date();
-    const istString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-    return new Date(istString);
+    return new Date();
 }
 
 /**

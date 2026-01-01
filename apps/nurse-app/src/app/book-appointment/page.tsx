@@ -329,13 +329,17 @@ function BookAppointmentContent() {
         availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let currentTime = parseTime(session.from, selectedDate);
 
-            // Check if there's an availability extension for this session
+            // CRITICAL: For 85/15 capacity calculation:
+            // - If breaks exist for this session: use EXTENDED end time (extension is official capacity)
+            // - If no breaks: use ORIGINAL end time (extension is just leftover, not official)
             const originalSessionEnd = parseTime(session.to, selectedDate);
             let sessionEnd = originalSessionEnd;
             const extensions = doctor.availabilityExtensions?.[dateKey];
             if (extensions?.sessions && Array.isArray(extensions.sessions)) {
                 const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
-                if (sessionExtension?.newEndTime) {
+                // Only use extended time if there are ACTIVE breaks in this session
+                const hasActiveBreaks = sessionExtension?.breaks && sessionExtension.breaks.length > 0;
+                if (hasActiveBreaks && sessionExtension?.newEndTime) {
                     sessionEnd = parseTime(sessionExtension.newEndTime, selectedDate);
                 }
             }
@@ -409,6 +413,80 @@ function BookAppointmentContent() {
 
         return activeAdvanceCount >= maximumAdvanceTokens;
     }, [doctor, selectedDate, allAppointments]);
+
+    // Calculate remaining capacity for display
+    const remainingCapacity = useMemo(() => {
+        if (!doctor || isAdvanceCapacityReached) return 0;
+
+        const dateKey = format(selectedDate, 'd MMMM yyyy');
+        const dayOfWeek = format(selectedDate, 'EEEE');
+        const availabilityForDay = doctor.availabilitySlots?.find(slot => slot.day === dayOfWeek);
+        if (!availabilityForDay?.timeSlots?.length) return 0;
+
+        // Calculate max A-tokens (same logic as isAdvanceCapacityReached)
+        const slotDuration = doctor.averageConsultingTime || 15;
+        const now = new Date();
+        const slotsBySession: Array<{ sessionIndex: number; slotCount: number }> = [];
+        let totalDailySlots = 0;
+
+        availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
+            let currentTime = parseTime(session.from, selectedDate);
+            const originalSessionEnd = parseTime(session.to, selectedDate);
+            let sessionEnd = originalSessionEnd;
+            const extensions = doctor.availabilityExtensions?.[dateKey];
+            if (extensions?.sessions && Array.isArray(extensions.sessions)) {
+                const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
+                const hasActiveBreaks = sessionExtension?.breaks && sessionExtension.breaks.length > 0;
+                if (hasActiveBreaks && sessionExtension?.newEndTime) {
+                    sessionEnd = parseTime(sessionExtension.newEndTime, selectedDate);
+                }
+            }
+
+            let futureSlotCount = 0;
+            let sessionTotalSlotCount = 0;
+
+            while (isBefore(currentTime, sessionEnd)) {
+                const slotTime = new Date(currentTime);
+                const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
+
+                if (!isBlocked && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
+                    futureSlotCount += 1;
+                }
+                sessionTotalSlotCount += 1;
+                currentTime = addMinutes(currentTime, slotDuration);
+            }
+
+            if (futureSlotCount > 0) {
+                slotsBySession.push({ sessionIndex, slotCount: futureSlotCount });
+            }
+            totalDailySlots += sessionTotalSlotCount;
+        });
+
+        let maximumAdvanceTokens = 0;
+        slotsBySession.forEach(({ slotCount }) => {
+            const sessionMinimumWalkInReserve = slotCount > 0 ? Math.ceil(slotCount * 0.15) : 0;
+            const sessionAdvanceCapacity = Math.max(slotCount - sessionMinimumWalkInReserve, 0);
+            maximumAdvanceTokens += sessionAdvanceCapacity;
+        });
+
+        const formattedDate = format(selectedDate, 'd MMMM yyyy');
+        const activeAdvanceCount = allAppointments.filter(appointment => {
+            const appointmentTime = parseTime(appointment.time || '', selectedDate);
+            const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+            const isValidSlot = typeof appointment.slotIndex === 'number' && appointment.slotIndex < totalDailySlots;
+
+            return (
+                appointment.bookedVia !== 'Walk-in' &&
+                appointment.date === formattedDate &&
+                isFutureAppointment &&
+                isValidSlot &&
+                (appointment.status === 'Pending' || appointment.status === 'Confirmed' || appointment.status === 'Completed' || (appointment.status as any) === 'Attended') &&
+                !appointment.cancelledByBreak
+            );
+        }).length;
+
+        return Math.max(0, maximumAdvanceTokens - activeAdvanceCount);
+    }, [doctor, selectedDate, allAppointments, isAdvanceCapacityReached]);
 
     useEffect(() => {
         if (isAdvanceCapacityReached) {
@@ -837,22 +915,9 @@ function BookAppointmentContent() {
         const reservedSlotsBySession = new Map<number, Set<number>>();
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             let currentTime = parseTime(session.from, selectedDate);
+            // CRITICAL: For 85/15 capacity calculation, use ORIGINAL session end time
+            // Extensions are for accommodating breaks, NOT for changing the A/W ratio
             let endTime = parseTime(session.to, selectedDate);
-
-            // Apply extension to this session if it exists
-            if (extension) {
-                const sessionExtension = extension.sessions?.find(s => s.sessionIndex === sessionIndex);
-                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
-                    try {
-                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
-                        if (isAfter(extendedEndTime, endTime)) {
-                            endTime = extendedEndTime;
-                        }
-                    } catch (e) {
-                        console.error('Error parsing extension time for reserve', e);
-                    }
-                }
-            }
 
             const futureSessionSlots: number[] = [];
 
@@ -888,41 +953,15 @@ function BookAppointmentContent() {
         doctorAvailabilityForDay.timeSlots.forEach((session, sessionIndex) => {
             const allPossibleSlots: Date[] = [];
             let currentTime = parseTime(session.from, selectedDate);
+            // CRITICAL: For 85/15 capacity calculation, use ORIGINAL session end time
             let endTime = parseTime(session.to, selectedDate);
-
-            // Apply extension to this session if it exists
-            if (extension) {
-                const sessionExtension = extension.sessions?.find(s => s.sessionIndex === sessionIndex);
-                if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
-                    try {
-                        const extendedEndTime = parseTime(sessionExtension.newEndTime, selectedDate);
-                        if (isAfter(extendedEndTime, endTime)) {
-                            endTime = extendedEndTime;
-                        }
-                    } catch (e) {
-                        console.error('Error parsing extension time for possible', e);
-                    }
-                }
-            }
 
             // Calculate session start global index
             let sessionStartGlobalIndex = 0;
             for (let i = 0; i < sessionIndex; i++) {
                 let sessionTime = parseTime(doctorAvailabilityForDay.timeSlots[i].from, selectedDate);
+                // CRITICAL: Use original session end for capacity calculation
                 let sessionEnd = parseTime(doctorAvailabilityForDay.timeSlots[i].to, selectedDate);
-
-                // Apply extension to previous sessions too
-                if (extension) {
-                    const prevSessionExtension = extension.sessions?.find(s => s.sessionIndex === i);
-                    if (prevSessionExtension && prevSessionExtension.newEndTime && prevSessionExtension.totalExtendedBy > 0) {
-                        try {
-                            const extendedEnd = parseTime(prevSessionExtension.newEndTime, selectedDate);
-                            if (isAfter(extendedEnd, sessionEnd)) {
-                                sessionEnd = extendedEnd;
-                            }
-                        } catch (e) { }
-                    }
-                }
 
                 while (isBefore(sessionTime, sessionEnd)) {
                     sessionStartGlobalIndex++;
@@ -1039,7 +1078,7 @@ function BookAppointmentContent() {
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <h2 className="font-bold text-lg">Select Time</h2>
-                                        {slotsLoading ? <Loader2 className="animate-spin h-5 w-5 text-primary" /> : <span className="text-sm font-semibold text-primary">{totalAvailableSlots} slots available</span>}
+                                        {slotsLoading ? <Loader2 className="animate-spin h-5 w-5 text-primary" /> : <span className="text-sm font-semibold text-primary">{Math.min(totalAvailableSlots, remainingCapacity)} slots available</span>}
                                     </div>
 
                                     {isAdvanceCapacityReached && (

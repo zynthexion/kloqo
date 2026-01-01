@@ -86,10 +86,13 @@ export async function loadDoctorAndSlots(
     let currentTime = parseTimeString(session.from, date);
     let endTime = parseTimeString(session.to, date);
 
-    // If there is an extension for this specific session, use it
-    if (extensionForDate?.sessions?.length) {
-      const sessionExtension = extensionForDate.sessions.find(s => s.sessionIndex === sessionIndex);
-      const newEndTimeStr = sessionExtension?.newEndTime;
+    const sessionExtension = (extensionForDate as any)?.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+    if (sessionExtension) {
+      const newEndTimeStr = sessionExtension.newEndTime;
+      // ALWAYS use extended time if it exists in the model
+      // This ensures all appointments have a corresponding slot in the slots array
+      // The 85% capacity rule should be enforced by looking at original session bounds,
+      // not by hiding physical slots from the array.
       if (newEndTimeStr) {
         try {
           const extendedEndTime = parseTimeString(newEndTimeStr, date);
@@ -99,7 +102,6 @@ export async function loadDoctorAndSlots(
           }
         } catch (error) {
           console.error('Error parsing extended end time, using original:', error);
-          // Fall back to original end time if parsing fails
         }
       }
     }
@@ -582,15 +584,43 @@ export async function generateNextTokenAndReserveSlot(
 
   let maximumAdvanceTokens = 0;
   let totalMinimumWalkInReserve = 0;
-  slotsBySession.forEach((sessionSlots) => {
-    // Filter to only future slots (including current time)
-    const futureSlots = sessionSlots.filter(slot =>
+
+  const dayOfWeek = getClinicDayOfWeek(date);
+  const availabilityForDay = (doctor.availabilitySlots || []).find((s: any) => s.day === dayOfWeek);
+  const extensionForDate = (doctor as any).availabilityExtensions?.[dateStr];
+
+  slotsBySession.forEach((sessionSlots, sessionIndex) => {
+    // Determine the logical end of the session for capacity purposes
+    const sessionSource = availabilityForDay?.timeSlots?.[sessionIndex];
+    if (!sessionSource) return;
+
+    const originalSessionEndTime = parseTimeString(sessionSource.to, date);
+    let capacityBasisEndTime = originalSessionEndTime;
+
+    const sessionExtension = (extensionForDate as any)?.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
+    if (sessionExtension && sessionExtension.newEndTime) {
+      const hasActiveBreaks = sessionExtension.breaks && sessionExtension.breaks.length > 0;
+      if (hasActiveBreaks) {
+        try {
+          capacityBasisEndTime = parseTimeString(sessionExtension.newEndTime, date);
+        } catch (e) {
+          console.error('Error parsing extension time for capacity:', e);
+        }
+      }
+    }
+
+    // Filter slots to only include those within the current capacity basis
+    const capacityBasisSlots = sessionSlots.filter(slot => isBefore(slot.time, capacityBasisEndTime));
+
+    // Calculate reserve based on future slots within the capacity basis
+    const futureCapacitySlots = capacityBasisSlots.filter(slot =>
       isAfter(slot.time, now) || slot.time.getTime() >= now.getTime()
     );
 
-    const futureSlotCount = futureSlots.length;
+    const futureSlotCount = futureCapacitySlots.length;
     const sessionMinimumWalkInReserve = futureSlotCount > 0 ? Math.ceil(futureSlotCount * 0.15) : 0;
     const sessionAdvanceCapacity = Math.max(futureSlotCount - sessionMinimumWalkInReserve, 0);
+
     maximumAdvanceTokens += sessionAdvanceCapacity;
     totalMinimumWalkInReserve += sessionMinimumWalkInReserve;
   });
@@ -2325,6 +2355,30 @@ export async function prepareAdvanceShift({
       });
     }
 
+    // CRITICAL FIX: Verify that the chosen newSlotIndex is NOT occupied by an existing appointment
+    // This handles cases where interval logic picks an occupied slot index (e.g. 14) but we aren't shifting.
+    const isOccupiedByAppointment = effectiveAppointments.some(
+      apt => typeof apt.slotIndex === 'number' && apt.slotIndex === newSlotIndex && ACTIVE_STATUSES.has(apt.status)
+    );
+
+    if (isOccupiedByAppointment) {
+      // Fallback: Use sequential placement at the very end
+      const allSlotIndicesFromAppointments = effectiveAppointments
+        .filter(apt => typeof apt.slotIndex === 'number' && ACTIVE_STATUSES.has(apt.status))
+        .map(apt => apt.slotIndex as number);
+      const maxSlotIndexFromAppointments = allSlotIndicesFromAppointments.length > 0
+        ? Math.max(...allSlotIndicesFromAppointments)
+        : -1;
+      const maxSlotIndex = Math.max(maxSlotIndexFromAppointments, lastSlotIndexFromSlots);
+      const seqSlotIndex = maxSlotIndex + 1;
+
+      console.info('[Walk-in Scheduling] Strategy 4 chosen index was occupied, falling back to sequential:', {
+        originalIndex: newSlotIndex,
+        seqSlotIndex
+      });
+      newSlotIndex = seqSlotIndex;
+    }
+
     // CRITICAL: Check if this slotIndex is already reserved or occupied by another concurrent request
     // Use the reservation snapshot we already read BEFORE any writes
     let bucketReservationSnapshot: DocumentSnapshot | null = null;
@@ -3195,7 +3249,6 @@ export async function calculateWalkInDetails(
       }
     });
 
-
     if (overflowCount >= freeFutureSlotsCount) {
       return true; // Overflow will fill all gaps, so session is full
     }
@@ -3215,11 +3268,9 @@ export async function calculateWalkInDetails(
     });
   } catch (error) {
     // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
-    // even if firestoreBucketCount is 0, because "Session Shrunk" scenario creates overbooking
-    // where we physically cannot fit the patient, but we shouldn't reject Walk-in.
-    const shouldAllowOverflow = allSlotsFilled;
-
-    if (!forceBook && !canUseBucketCompensation && !shouldAllowOverflow) {
+    // ONLY if explicit forceBook is requested OR bucket compensation is available.
+    // Automatic overflow based solely on allSlotsFilled is disabled to ensure UI prompts are shown.
+    if (!forceBook && !canUseBucketCompensation) {
       throw error;
     }
   }
@@ -3240,14 +3291,8 @@ export async function calculateWalkInDetails(
 
   if (!newAssignment || chosenSlotIndex === -1) {
     // Strategy 4: Bucket Compensation Check
-    // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
-
-
-
-
-    // If forceBook is enabled OR bucket compensation is valid OR all slots explicitly filled, create an overflow slot
-    const shouldAllowOverflow = allSlotsFilled;
-    if (forceBook || canUseBucketCompensation || shouldAllowOverflow) {
+    // If forceBook is enabled OR bucket compensation is valid, create an overflow slot
+    if (forceBook || canUseBucketCompensation) {
 
 
       // Find the last slot index from all appointments and slots

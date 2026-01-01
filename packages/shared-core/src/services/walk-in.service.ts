@@ -1454,6 +1454,7 @@ export async function prepareAdvanceShift({
     slotIndex: number;
     sessionIndex: number;
     timeString: string;
+    arriveByTime: string; // Added this
     noShowTime: Date;
   }>;
   usedBucketSlotIndex: number | null;
@@ -1501,9 +1502,9 @@ export async function prepareAdvanceShift({
     : -1;
   const lastSlotIndexFromSlots = totalSlots > 0 ? totalSlots - 1 : -1;
   const maxSlotIndex = Math.max(maxSlotIndexFromAppointments, lastSlotIndexFromSlots);
-  // Read reservations up to maxSlotIndex + 20 to cover bucket compensation cases with extra buffer
+  // Read reservations up to maxSlotIndex + 50 to cover bucket compensation cases with extra buffer
   // This ensures we read the reservation for finalSlotIndex before any writes
-  const maxSlotToRead = Math.max(totalSlots, maxSlotIndex + 20);
+  const maxSlotToRead = Math.max(totalSlots + 10, maxSlotIndex + 50);
 
   const existingReservations = new Map<number, Date>();
   const staleReservationsToDelete: DocumentReference[] = [];
@@ -1998,16 +1999,10 @@ export async function prepareAdvanceShift({
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
       }));
 
-      // CRITICAL FIX: Add existing walk-ins as blocked appointments (matching preview logic)
-      // This prevents the scheduler from re-placing existing walk-ins
-      activeWalkIns.forEach(walkIn => {
-        if (typeof walkIn.slotIndex === 'number') {
-          blockedAdvanceAppointments.push({
-            id: `__existing_walkin_${walkIn.id}`,
-            slotIndex: walkIn.slotIndex
-          });
-        }
-      });
+      // CRITICAL: REMOVED the hack that added existing walk-ins as blocked advance appointments.
+      // This was causing a type mismatch ('type: A') in the scheduler's occupancy map,
+      // which led to collisions during shift operations.
+      // Existing walk-ins are correctly handled via walkInCandidates.
 
       // Add cancelled slots in bucket as blocked slots (treat as occupied)
       // These are cancelled slots that have walk-ins AFTER them, so walk-ins cannot use them
@@ -2697,9 +2692,8 @@ export async function prepareAdvanceShift({
         // Parse the appointment time string to Date using date-fns parse
         try {
           const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          previousAppointmentTime = parse(
+          previousAppointmentTime = parseTimeString(
             appointmentBeforeWalkIn.time,
-            'hh:mm a',
             appointmentDate
           );
         } catch (e) {
@@ -2755,7 +2749,7 @@ export async function prepareAdvanceShift({
       if (appointment.time) {
         try {
           const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          const currentAppointmentTime = parse(appointment.time, 'hh:mm a', appointmentDate);
+          const currentAppointmentTime = parseTimeString(appointment.time, appointmentDate);
           // New time = current time + averageConsultingTime
           newAppointmentTime = addMinutes(currentAppointmentTime, averageConsultingTime);
         } catch (e) {
@@ -2803,9 +2797,25 @@ export async function prepareAdvanceShift({
       }
 
       // Find the sessionIndex for the new slotIndex
-      const newSlotMeta = slots[newSlotIndex];
+      let newSlotMeta = slots[newSlotIndex];
+      if (!newSlotMeta && slots.length > 0) {
+        // CRITICAL SURGICAL FIX: Synthesize slot metadata for overflow indices
+        // to support shifting beyond the regular availability session.
+        const lastSlot = slots[slots.length - 1];
+        const avgDuration = slots.length > 1
+          ? (slots[1].time.getTime() - slots[0].time.getTime()) / 60000
+          : 15;
+
+        newSlotMeta = {
+          index: newSlotIndex,
+          time: addMinutes(lastSlot.time, (newSlotIndex - lastSlot.index) * avgDuration),
+          sessionIndex: lastSlot.sessionIndex
+        };
+        console.info(`[BOOKING DEBUG] Synthesized overflow slot meta for index ${newSlotIndex}`, newSlotMeta);
+      }
+
       if (!newSlotMeta) {
-        console.warn(`[BOOKING DEBUG] Slot ${newSlotIndex} does not exist in slots array, skipping appointment ${appointment.id}`);
+        console.warn(`[BOOKING DEBUG] Slot ${newSlotIndex} does not exist and cannot be synthesized, skipping appointment ${appointment.id}`);
         continue;
       }
       const newSessionIndex = newSlotMeta.sessionIndex;
@@ -2826,6 +2836,7 @@ export async function prepareAdvanceShift({
         slotIndex: newSlotIndex,
         sessionIndex: newSessionIndex,
         timeString: newTimeString,
+        arriveByTime: newTimeString, // arriveByTime is always the raw slot time string
         noShowTime,
       });
 
@@ -2847,6 +2858,7 @@ export async function prepareAdvanceShift({
         cloned.slotIndex = newSlotIndex;
         cloned.sessionIndex = newSessionIndex;
         cloned.time = newTimeString;
+        cloned.arriveByTime = newTimeString; // Added this
         cloned.noShowTime = noShowTime;
       }
     }

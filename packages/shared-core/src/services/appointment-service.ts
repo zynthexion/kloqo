@@ -1073,6 +1073,7 @@ const prepareAdvanceShift = async ({
     slotIndex: number;
     sessionIndex: number;
     timeString: string;
+    arriveByTime: string; // Added this
     noShowTime: Date;
   }>;
   updatedAdvanceAppointments: Appointment[];
@@ -1595,16 +1596,8 @@ const prepareAdvanceShift = async ({
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
       }));
 
-      // CRITICAL FIX: Add existing walk-ins as blocked appointments (matching preview logic)
-      // This prevents the scheduler from re-placing existing walk-ins
-      activeWalkIns.forEach(walkIn => {
-        if (typeof walkIn.slotIndex === 'number') {
-          blockedAdvanceAppointments.push({
-            id: `__existing_walkin_${walkIn.id}`,
-            slotIndex: walkIn.slotIndex
-          });
-        }
-      });
+      // CRITICAL: REMOVED the hack that added existing walk-ins as blocked advance appointments.
+      // This was causing a type mismatch ('type: A') in the scheduler's occupancy map.
 
       // Add cancelled slots in bucket as blocked slots (treat as occupied)
       // These are cancelled slots that have walk-ins AFTER them, so walk-ins cannot use them
@@ -2334,11 +2327,7 @@ const prepareAdvanceShift = async ({
       if (appointment.time) {
         try {
           const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          const currentAppointmentTime = parse(
-            appointment.time,
-            'hh:mm a',
-            appointmentDate
-          );
+          const currentAppointmentTime = parseTimeString(appointment.time, appointmentDate);
           // New time = current time + averageConsultingTime
           newAppointmentTime = addMinutes(
             currentAppointmentTime,
@@ -2414,10 +2403,26 @@ const prepareAdvanceShift = async ({
       }
 
       // Find the sessionIndex for the new slotIndex
-      const newSlotMeta = slots[newSlotIndex];
+      let newSlotMeta = slots[newSlotIndex];
+      if (!newSlotMeta && slots.length > 0) {
+        // CRITICAL SURGICAL FIX: Synthesize slot metadata for overflow indices
+        // to support shifting beyond the regular availability session.
+        const lastSlot = slots[slots.length - 1];
+        const avgDuration = slots.length > 1
+          ? (slots[1].time.getTime() - slots[0].time.getTime()) / 60000
+          : 15;
+
+        newSlotMeta = {
+          index: newSlotIndex,
+          time: addMinutes(lastSlot.time, (newSlotIndex - lastSlot.index) * avgDuration),
+          sessionIndex: lastSlot.sessionIndex
+        };
+        console.info(`[BOOKING DEBUG] Synthesized overflow slot meta for index ${newSlotIndex}`, newSlotMeta);
+      }
+
       if (!newSlotMeta) {
         console.warn(
-          `[BOOKING DEBUG] Slot ${newSlotIndex} does not exist in slots array, skipping appointment ${appointment.id}`
+          `[BOOKING DEBUG] Slot ${newSlotIndex} does not exist and cannot be synthesized, skipping appointment ${appointment.id}`
         );
         continue;
       }
@@ -2440,6 +2445,7 @@ const prepareAdvanceShift = async ({
         slotIndex: newSlotIndex,
         sessionIndex: newSessionIndex,
         timeString: newTimeString,
+        arriveByTime: newTimeString, // arriveByTime is always the raw slot time string
         noShowTime,
       });
 
@@ -2457,6 +2463,7 @@ const prepareAdvanceShift = async ({
         cloned.slotIndex = newSlotIndex;
         cloned.sessionIndex = newSessionIndex;
         cloned.time = newTimeString;
+        cloned.arriveByTime = newTimeString; // Added this
         cloned.noShowTime = noShowTime;
       }
     }
@@ -2494,6 +2501,7 @@ const prepareAdvanceShift = async ({
         slotIndex: newSlotIndex,
         sessionIndex: assignment.sessionIndex,
         timeString: newTimeString,
+        arriveByTime: newTimeString,
         noShowTime,
       });
 
@@ -2502,6 +2510,7 @@ const prepareAdvanceShift = async ({
         cloned.slotIndex = newSlotIndex;
         cloned.sessionIndex = assignment.sessionIndex;
         cloned.time = newTimeString;
+        cloned.arriveByTime = newTimeString;
         cloned.noShowTime = noShowTime;
       }
     }

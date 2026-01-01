@@ -64,7 +64,33 @@ export function computeWalkInSchedule({
       walkInCandidates,
     });
   }
+  // Determine the maximum slotIndex we need to consider
+  const maxInputSlotIndex = Math.max(
+    ...slots.map(s => s.index),
+    ...advanceAppointments.map(a => a.slotIndex),
+    ...walkInCandidates.map(w => w.currentSlotIndex || -1),
+    -1
+  );
+
   const orderedSlots = [...slots].sort((a, b) => a.index - b.index);
+
+  // CRITICAL SURGICAL FIX: Synthesize "virtual slots" for overflow indices 
+  // so the scheduler's occupancy map and shifting logic see them.
+  if (orderedSlots.length > 0 && maxInputSlotIndex >= orderedSlots.length) {
+    const lastSlot = orderedSlots[orderedSlots.length - 1];
+    const avgDuration = slots.length > 1
+      ? (slots[1].time.getTime() - slots[0].time.getTime()) / 60000
+      : 15;
+
+    for (let i = lastSlot.index + 1; i <= maxInputSlotIndex + 5; i++) {
+      orderedSlots.push({
+        index: i,
+        time: addMinutes(lastSlot.time, (i - lastSlot.index) * avgDuration),
+        sessionIndex: lastSlot.sessionIndex
+      });
+    }
+  }
+
   const positionCount = orderedSlots.length;
   if (positionCount === 0 || walkInCandidates.length === 0) {
     return { assignments: [] };

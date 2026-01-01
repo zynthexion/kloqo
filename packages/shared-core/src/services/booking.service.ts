@@ -217,6 +217,7 @@ export async function completeStaffWalkInBooking(
                 slotIndex: update.slotIndex,
                 sessionIndex: update.sessionIndex,
                 time: update.timeString,
+                arriveByTime: update.arriveByTime,
                 noShowTime: Timestamp.fromDate(update.noShowTime),
             });
         }
@@ -415,6 +416,7 @@ export async function completePatientWalkInBooking(
                 slotIndex: update.slotIndex,
                 sessionIndex: update.sessionIndex,
                 time: update.timeString,
+                arriveByTime: update.arriveByTime,
                 noShowTime: Timestamp.fromDate(update.noShowTime),
             });
         }

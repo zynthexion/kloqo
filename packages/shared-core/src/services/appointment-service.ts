@@ -1421,10 +1421,14 @@ const prepareAdvanceShift = async ({
   }));
 
 
-  // CRITICAL FIX: Don't include existing walk-ins as candidates in actual booking
-  // This matches the preview logic and prevents re-placing existing walk-ins
-  // Existing walk-ins will be added to blockedAdvanceAppointments instead
-  const baseWalkInCandidates: any[] = [];
+  // For actual booking, we MUST include existing walk-ins as candidates 
+  // so the scheduler correctly accounts for spacing between them.
+  const baseWalkInCandidates = activeWalkIns.map(appt => ({
+    id: appt.id,
+    numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
+    createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
+    currentSlotIndex: appt.slotIndex,
+  }));
 
   const newWalkInCandidate = {
     id: '__new_walk_in__',
@@ -2165,6 +2169,7 @@ const prepareAdvanceShift = async ({
     slotIndex: number;
     sessionIndex: number;
     timeString: string;
+    arriveByTime: string; // Added this
     noShowTime: Date;
   }> = [];
 

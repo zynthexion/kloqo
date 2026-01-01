@@ -1745,10 +1745,14 @@ export async function prepareAdvanceShift({
     currentSlotIndex: slotIndex,
   }));
 
-  // CRITICAL FIX: Don't include existing walk-ins as candidates in actual booking
-  // This matches the preview logic and prevents re-placing existing walk-ins
-  // Existing walk-ins will be added to blockedAdvanceAppointments instead
-  const baseWalkInCandidates: any[] = [];
+  // For actual booking, we MUST include existing walk-ins as candidates 
+  // so the scheduler correctly accounts for spacing between them.
+  const baseWalkInCandidates = activeWalkIns.map(appt => ({
+    id: appt.id,
+    numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
+    createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
+    currentSlotIndex: appt.slotIndex,
+  }));
 
   const newWalkInCandidate = {
     id: '__new_walk_in__',
@@ -2596,6 +2600,7 @@ export async function prepareAdvanceShift({
     slotIndex: number;
     sessionIndex: number;
     timeString: string;
+    arriveByTime: string; // Added this
     noShowTime: Date;
   }> = [];
 
@@ -2888,6 +2893,7 @@ export async function prepareAdvanceShift({
         slotIndex: newSlotIndex,
         sessionIndex: assignment.sessionIndex,
         timeString: newTimeString,
+        arriveByTime: newTimeString,
         noShowTime,
       });
 
@@ -2999,14 +3005,17 @@ export async function calculateWalkInDetails(
 
 
 
-  // ============================================================================
-  // PREVIEW FIX: Treat existing walk-ins as blocked slots, not candidates
-  // ============================================================================
-  // For preview, we only want to see where the NEW walk-in will be placed
-  // Existing walk-ins should be treated as "blocked" slots (like advance appointments)
-  // This prevents the scheduler from re-placing existing walk-ins
+  // For preview, we include both existing walk-ins and the new candidate
+  // so the scheduler can correctly account for spacing between walk-ins.
+  const baseWalkInCandidates = activeWalkIns.map(appt => ({
+    id: appt.id,
+    numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
+    createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
+    currentSlotIndex: appt.slotIndex,
+  }));
 
   const activeWalkInCandidates = [
+    ...baseWalkInCandidates,
     {
       id: '__new_walk_in__',
       numericToken,
@@ -3047,15 +3056,9 @@ export async function calculateWalkInDetails(
     slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
   }));
 
-  // PREVIEW FIX: Add existing walk-ins as blocked appointments
-  activeWalkIns.forEach(walkIn => {
-    if (typeof walkIn.slotIndex === 'number') {
-      blockedAdvanceAppointments.push({
-        id: `__existing_walkin_${walkIn.id}`,
-        slotIndex: walkIn.slotIndex
-      });
-    }
-  });
+  // EXISTING WALK-IN HACK REMOVED: 
+  // We no longer add existing walk-ins to blockedAdvanceAppointments here.
+  // They are now correctly handled via activeWalkInCandidates above.
 
   // Identify blocked cancelled slots (Order Protection) & Bucket Count
   const cancelledSlotsInBucket = new Set<number>();

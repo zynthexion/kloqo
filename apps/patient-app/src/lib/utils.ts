@@ -82,13 +82,15 @@ export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?
 
     if (appointment.arriveByTime) {
       const arriveTime = parse(appointment.arriveByTime, "hh:mm a", appointmentDate);
-      // arriveByTime is already shifted by shared-core. Just subtract 15m for 'A' tokens if not already done.
-      // Actually, arriveByTime SHOULD be the reporting time already.
-      return appointment.arriveByTime;
+      // arriveByTime is stored as RAW slot time in the backend. 
+      // Advance appointments ('A') show reporting time (Slot - 15m).
+      // Walk-in appointments ('W') show the actual predicted time (no deduction).
+      const displayTime = isWalkIn ? arriveTime : subMinutes(arriveTime, 15);
+      return getClinicTimeString(displayTime);
     }
 
     const appointmentTime = parseTime(appointment.time, appointmentDate);
-    // time is shifted slot time. subtract 15m for 'A' tokens.
+    // Fallback: Use 'time' field if arriveByTime is missing. Apply same rule.
     const displayTime = isWalkIn ? appointmentTime : subMinutes(appointmentTime, 15);
     return getClinicTimeString(displayTime);
   } catch {

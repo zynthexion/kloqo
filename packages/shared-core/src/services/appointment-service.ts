@@ -69,7 +69,7 @@ export function getLeaveBlockedIndices(doctor: Doctor, slots: DailySlot[], date:
   return blockedIndices;
 }
 
-async function loadDoctorAndSlots(
+export async function loadDoctorAndSlots(
   firestore: Firestore,
   clinicId: string,
   doctorName: string,
@@ -209,7 +209,7 @@ function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
  * This dynamically adjusts as time passes - reserved slots are recalculated based on remaining future slots
  * Returns a Set of slot indices that are reserved for walk-ins
  */
-function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = getClinicNow(), blockedIndices: Set<number> = new Set()): Set<number> {
+export function calculatePerSessionReservedSlots(slots: DailySlot[], now: Date = getClinicNow(), blockedIndices: Set<number> = new Set()): Set<number> {
   const reservedSlots = new Set<number>();
 
   // Group slots by sessionIndex

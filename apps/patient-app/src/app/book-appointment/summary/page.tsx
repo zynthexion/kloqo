@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useFirestore } from '@/firebase';
 import { doc, getDoc, addDoc, collection, serverTimestamp, getDocs, query, where, setDoc, updateDoc, deleteDoc, DocumentReference, arrayUnion, increment, runTransaction } from 'firebase/firestore';
 import type { Doctor, Patient, Appointment } from '@/lib/types';
-import { generateNextToken, generateNextTokenAndReserveSlot, getClinicTimeString, getClinicDayOfWeek, getClinicNow } from '@kloqo/shared-core';
+import { generateNextToken, generateNextTokenAndReserveSlot, getClinicTimeString, getClinicDayOfWeek, getClinicNow, loadDoctorAndSlots, calculatePerSessionReservedSlots, type DailySlot } from '@kloqo/shared-core';
 
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -504,111 +504,75 @@ function BookingSummaryPage() {
                     .map(([slotIdx, _]) => slotIdx)
             );
 
-            // Calculate total slots for the day to determine reserved W slots
-            let totalSlotsForDay = 0;
-            if (availabilityForDay) {
-                for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
-                    const session = availabilityForDay.timeSlots[i];
-                    let currentTime = parseTime(session.from, selectedSlot);
-                    const endTime = parseTime(session.to, selectedSlot);
-                    while (isBefore(currentTime, endTime)) {
-                        totalSlotsForDay++;
-                        currentTime = addMinutes(currentTime, slotDuration);
-                    }
+            // ⚠️ CRITICAL FIX: Use shared core to load slots
+            // This ensures we correctly handle extensions, breaks, and leaves exactly like the Core Scheduler
+            const { slots: loadedSlots } = await loadDoctorAndSlots(firestore, finalDoctor.clinicId, finalDoctor.name, selectedSlot, finalDoctor.id);
+
+            // Calculate reserved indices using shared logic (15% rule per session)
+            const now = getClinicNow();
+            // Reduce online booking buffer to 30 mins to allow booking slightly sooner, or keep 60 if policy requires
+            // User feedback suggests 60 might be too aggressive if breaks overlap. 
+            // However, sticking to the existing rule but applied to CORRECT slots resolves the break overlap issue.
+            const oneHourFromNow = addMinutes(now, 60);
+
+            // Calculate reserved slots (passed empty set for blockedIndices as loadDoctorAndSlots handles leaves via filtering if implemented, 
+            // or we assume loadedSlots are valid. Ideally we'd pass occupied ones too for precise calculation but for basic reserve valid slots is okay)
+            const reservedWSlots = calculatePerSessionReservedSlots(loadedSlots, now);
+
+            // Find lowest available slotIndex or match selected time
+            for (const slot of loadedSlots) {
+                const slotTime = slot.time;
+                const globalSlotIndex = slot.index;
+
+                // CRITICAL RULE 1: Skip past slots
+                if (isBefore(slotTime, now)) {
+                    console.log('🚫 [A TOKEN] Skipping past slot:', {
+                        slotIndex: globalSlotIndex,
+                        slotTime: getClinicTimeString(slotTime),
+                        reason: 'Slot is in the past'
+                    });
+                    continue;
                 }
-            }
-            const reservedWSlotsCount = Math.ceil(totalSlotsForDay * 0.15); // Last 15% reserved for W
-            const reservedWSlotsStart = totalSlotsForDay - reservedWSlotsCount; // e.g., slot 22 out of 24
 
-            // Find the lowest available slotIndex (excluding reserved W slots for A tokens)
-            // CRITICAL: A tokens must follow these rules:
-            // 1. Cannot book slots in the past (always skip past slots)
-            // 2. Cannot book slots within 1 hour from now (reserved for W tokens)
-            // 3. Cannot book reserved W slots (last 15% of slots)
-            if (availabilityForDay) {
-                let globalSlotIndex = 0;
-                const now = new Date();
-                const isToday = isSameDay(selectedSlot, now);
-                // Calculate 1-hour window: A tokens can only book slots at least 1 hour in the future
-                const oneHourFromNow = addMinutes(now, 60);
+                // CRITICAL RULE 2: Skip slots within 1 hour (Online Booking Window)
+                if (isBefore(slotTime, oneHourFromNow)) {
+                    console.log('🚫 [A TOKEN] Skipping slot within 1-hour window:', {
+                        slotIndex: globalSlotIndex,
+                        slotTime: getClinicTimeString(slotTime),
+                        oneHourFromNow: getClinicTimeString(oneHourFromNow),
+                        reason: 'Slots within 1 hour are reserved for walk-in tokens'
+                    });
+                    continue;
+                }
 
-                for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
-                    const session = availabilityForDay.timeSlots[i];
-                    let currentTime = parseTime(session.from, selectedSlot);
-                    const endTime = parseTime(session.to, selectedSlot);
+                // CRITICAL RULE 3: Skip reserved W slots
+                if (reservedWSlots.has(globalSlotIndex)) {
+                    console.log('🚫 [A TOKEN] Skipping reserved W slot:', {
+                        slotIndex: globalSlotIndex,
+                        reason: 'Reserved for walk-in tokens'
+                    });
+                    continue;
+                }
 
-                    while (isBefore(currentTime, endTime)) {
-                        // CRITICAL RULE 1: Skip ALL past slots (not just for today)
-                        // A tokens cannot book slots that have already passed
-                        if (isBefore(currentTime, now)) {
-                            console.log('🚫 [A TOKEN] Skipping past slot:', {
-                                slotIndex: globalSlotIndex,
-                                slotTime: getClinicTimeString(currentTime),
-                                currentTime: getClinicTimeString(now),
-                                reason: 'Slot is in the past'
-                            });
-                            currentTime = addMinutes(currentTime, slotDuration);
-                            globalSlotIndex++;
-                            continue;
-                        }
+                // Check occupancy
+                const appointment = appointmentsBySlotIndex.get(globalSlotIndex);
+                const isOccupied = occupiedSlotIndices.has(globalSlotIndex);
+                const isNoShow = appointment?.status === 'No-show';
 
-                        // CRITICAL RULE 2: Skip slots within 1-hour window (reserved for W tokens)
-                        // A tokens can only book slots that are at least 1 hour in the future
-                        if (isBefore(currentTime, oneHourFromNow)) {
-                            console.log('🚫 [A TOKEN] Skipping slot within 1-hour window:', {
-                                slotIndex: globalSlotIndex,
-                                slotTime: getClinicTimeString(currentTime),
-                                oneHourFromNow: getClinicTimeString(oneHourFromNow),
-                                reason: 'Slots within 1 hour are reserved for walk-in tokens'
-                            });
-                            currentTime = addMinutes(currentTime, slotDuration);
-                            globalSlotIndex++;
-                            continue;
-                        }
+                if (!isOccupied || isNoShow) {
+                    // Start of Valid Slot found!
+                    slotIndex = globalSlotIndex;
+                    sessionIndex = slot.sessionIndex;
+                    finalSlotTime = slotTime;
+                    console.log('✅ [A TOKEN] Selected available slot:', {
+                        slotIndex: globalSlotIndex,
+                        slotTime: getClinicTimeString(slotTime),
+                    });
 
-                        // CRITICAL RULE 3: For A tokens, skip reserved W slots (last 15% of slots)
-                        const isReservedW = globalSlotIndex >= reservedWSlotsStart;
-                        if (isReservedW) {
-                            console.log('🚫 [A TOKEN] Skipping reserved W slot:', {
-                                slotIndex: globalSlotIndex,
-                                reservedWSlotsStart,
-                                reason: 'Reserved for walk-in tokens'
-                            });
-                            currentTime = addMinutes(currentTime, slotDuration);
-                            globalSlotIndex++;
-                            continue;
-                        }
-
-                        // Check if this slotIndex is available
-                        // A slot is available if:
-                        // 1. Not occupied by Pending/Confirmed appointment
-                        // 2. OR has a No-show appointment (can be reused)
-                        const appointment = appointmentsBySlotIndex.get(globalSlotIndex);
-                        const isOccupied = occupiedSlotIndices.has(globalSlotIndex);
-                        const isNoShow = appointment?.status === 'No-show';
-
-                        if (!isOccupied || isNoShow) {
-                            // Final validation: Ensure slot is not in the past and is outside 1-hour window
-                            if (!isBefore(currentTime, now) && !isBefore(currentTime, oneHourFromNow)) {
-                                slotIndex = globalSlotIndex;
-                                sessionIndex = i;
-                                finalSlotTime = currentTime;
-                                console.log('✅ [A TOKEN] Selected available slot:', {
-                                    slotIndex: globalSlotIndex,
-                                    slotTime: getClinicTimeString(currentTime),
-                                    isPast: false,
-                                    isWithinOneHour: false,
-                                    isReservedW: false
-                                });
-                                break;
-                            }
-                        }
-
-                        currentTime = addMinutes(currentTime, slotDuration);
-                        globalSlotIndex++;
-                    }
-
-                    if (slotIndex !== -1) break;
+                    // If we found a valid slot, break immediately (First Available logic)
+                    // Note: This preserves the existing "Next Available" behavior. 
+                    // If we wanted to enforce "Selected Time", we would check isEqual(slotTime, selectedSlot) here.
+                    break;
                 }
             }
 

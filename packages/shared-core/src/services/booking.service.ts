@@ -133,9 +133,16 @@ export async function completeStaffWalkInBooking(
 
         if (reservationSnap.exists()) {
             const resData = reservationSnap.data();
-            // If already booked and NOT by us, conflict
+            // If already booked, check if it's a known appointment that can be shifted
             if (resData.status === 'booked') {
-                throw new Error('Slot already booked by another user.');
+                const blockingApptId = resData.appointmentId;
+                // If the appointment exists in our effective list, prepareAdvanceShift will handle moving it.
+                // If it's NOT in our list, it's a conflict we can't resolve (e.g. unknown booking).
+                const isShiftable = effectiveAppointments.some(a => a.id === blockingApptId);
+
+                if (!isShiftable) {
+                    throw new Error('Slot already booked by another user.');
+                }
             }
         }
 
@@ -339,8 +346,16 @@ export async function completePatientWalkInBooking(
         const reservationRef = doc(firestore, 'slot-reservations', reservationId);
         const reservationSnap = await transaction.get(reservationRef);
 
-        if (reservationSnap.exists() && reservationSnap.data()?.status === 'booked') {
-            throw new Error('Slot already booked.');
+        if (reservationSnap.exists()) {
+            const resData = reservationSnap.data();
+            if (resData?.status === 'booked') {
+                const blockingApptId = resData.appointmentId;
+                const isShiftable = effectiveAppointments.some(a => a.id === blockingApptId);
+
+                if (!isShiftable) {
+                    throw new Error('Slot already booked.');
+                }
+            }
         }
 
         // B. Logic Section

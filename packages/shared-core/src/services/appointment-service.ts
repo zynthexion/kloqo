@@ -661,6 +661,9 @@ export async function generateNextTokenAndReserveSlot(
           const availabilityForDay = (doctorProfile.availabilitySlots || []).find((s: any) => s.day === dayOfWeek);
           const extensionForDate = (doctorProfile as any).availabilityExtensions?.[dateStr];
 
+          // Store capacity basis end times for each session to filter usage
+          const sessionCapacityEndTimes = new Map<number, Date>();
+
           slotsBySession.forEach((sessionSlots, sessionIndex) => {
             // Determine the logical end of the session for capacity purposes
             const sessionSource = availabilityForDay?.timeSlots?.[sessionIndex];
@@ -672,6 +675,10 @@ export async function generateNextTokenAndReserveSlot(
             const sessionExtension = extensionForDate?.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
             if (sessionExtension && sessionExtension.newEndTime) {
               const hasActiveBreaks = sessionExtension.breaks && sessionExtension.breaks.length > 0;
+              // If breaks are active, we count the extended time as valid capacity basis.
+              // IF breaks are cancelled (empty), we revert to original time for capacity basis?
+              // The user said: "when the break is cancelled you should not count the slots that is in the extended time"
+              // implying that if breaks are gone, we shouldn't use the extended window for capacity OR usage.
               if (hasActiveBreaks) {
                 try {
                   capacityBasisEndTime = parseTimeString(sessionExtension.newEndTime, now);
@@ -680,6 +687,8 @@ export async function generateNextTokenAndReserveSlot(
                 }
               }
             }
+
+            sessionCapacityEndTimes.set(sessionIndex, capacityBasisEndTime);
 
             // Filter slots to only include those within the current capacity basis
             // AND not blocked by leave/break
@@ -698,7 +707,7 @@ export async function generateNextTokenAndReserveSlot(
             const sessionAdvanceCapacity = Math.max(futureSlotCount - sessionMinimumWalkInReserve, 0);
             maximumAdvanceTokens += sessionAdvanceCapacity;
 
-            console.log(`📊 [CAPACITY TX DEBUG] Session ${sessionIndex}: totalSlots=${sessionSlots.length}, futureSlots=${futureSlotCount}, reserve=${sessionMinimumWalkInReserve}, aCapacity=${sessionAdvanceCapacity}`);
+            console.log(`📊 [CAPACITY TX DEBUG] Session ${sessionIndex}: totalSlots=${sessionSlots.length}, futureSlots=${futureSlotCount}, reserve=${sessionMinimumWalkInReserve}, aCapacity=${sessionAdvanceCapacity}, basisEnd=${getClinicTimeString(capacityBasisEndTime)}`);
           });
 
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
@@ -706,6 +715,26 @@ export async function generateNextTokenAndReserveSlot(
             // Also exclude "stranded" appointments (slotIndex >= totalSlots) that fall outside current doctor availability.
             const appointmentTime = parseTimeString(appointment.time || '', now);
             const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+
+            // CRITICAL FIX: Ensure appointment falls within the valid capacity basis time of its session.
+            // If the extension is "gone" (capacityBasis reverted to original end time), then appointments 
+            // in the extended zone (orphans) should NOT count against the usage limit of the standard session.
+            let fallsInCapacityBasis = false;
+            if (typeof appointment.sessionIndex === 'number') {
+              const basisEnd = sessionCapacityEndTimes.get(appointment.sessionIndex);
+              if (basisEnd) {
+                // Check if appointment start time is strictly before the basis end time
+                // (Matches logic for slot inclusion: isBefore(slot.time, capacityBasisEndTime))
+                if (isBefore(appointmentTime, basisEnd)) {
+                  fallsInCapacityBasis = true;
+                }
+              }
+            } else {
+              // Determine session index if missing? Or lenient fallback.
+              // Fallback: iterate over all basis times? Ideally sessionIndex should be present.
+              // Assuming sessionIndex is reliable for active appointments.
+              fallsInCapacityBasis = true; // Fallback to include if unknown
+            }
 
             return (
               appointment.bookedVia !== 'Walk-in' &&
@@ -716,7 +745,8 @@ export async function generateNextTokenAndReserveSlot(
               !appointment.cancelledByBreak &&
               !appointment.id.startsWith('blocked-leave-') &&
               !blockedIndices.includes(appointment.slotIndex) &&
-              !breakBlockedIndices.has(appointment.slotIndex)
+              !breakBlockedIndices.has(appointment.slotIndex) &&
+              fallsInCapacityBasis // NEW CHECK
             );
           }).length;
 

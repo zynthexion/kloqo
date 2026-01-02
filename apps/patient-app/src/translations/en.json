@@ -293,7 +293,8 @@
     "noDoctorsForWalkIn": "No doctors are available for walk-in at this time",
     "walkInOpens30MinutesBefore": "Walk-in registration is available 30 minutes before consultation start.",
     "doctorNotAvailableWalkIn": "is not available for walk-in at this time. Walk-in registration opens 30 minutes before consultation start.",
-    "noWalkInSlotsAvailableToday": "No available slots today"
+    "noWalkInSlotsAvailableToday": "No available slots today",
+    "unableToBookDoctor": "Unable to book the doctor. Please see the clinic reception staff."
   },
   "liveToken": {
     "title": "Live Token Status",

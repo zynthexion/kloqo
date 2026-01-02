@@ -969,12 +969,17 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 } catch (walkInError: any) {
                     console.error(`[WALK-IN DEBUG] Error calculating walk-in details:`, walkInError);
                     const errorMessage = walkInError?.message || "";
-                    const isNoSlotsAvailable = errorMessage.includes("No walk-in slots are available") ||
+                    const isAllocationError =
+                        errorMessage.includes("Unable to allocate walk-in slot") ||
+                        errorMessage.includes("No walk-in slots are available") ||
                         errorMessage.includes("No available slots match");
+
                     toast({
                         variant: "destructive",
                         title: t.consultToday.bookingFailed,
-                        description: isNoSlotsAvailable ? t.consultToday.noWalkInSlotsAvailableToday : (walkInError?.message || t.consultToday.bookingFailed)
+                        description: isAllocationError
+                            ? t.consultToday.unableToBookDoctor
+                            : (walkInError?.message || t.consultToday.bookingFailed)
                     });
                     setIsSubmitting(false);
                     return;

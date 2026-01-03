@@ -107,13 +107,13 @@ export async function loadDoctorAndSlots(
     }
 
     while (isBefore(currentTime, endTime)) {
-      const slotTime = new Date(currentTime);
-      // Skip slots that are blocked by leave or break
-      if (!isSlotBlockedByLeave(doctor, slotTime)) {
-        slots.push({ index: slotIndex, time: slotTime, sessionIndex });
-        slotIndex += 1;
-      }
+      // CRITICAL FIX: Include ALL physical slots to ensure Absolute Indexing matches appointment-service.ts
+      // Previously, we skipped blocked slots, which shifted indices (e.g., 11:25 became slot 5 instead of 11).
+      // Now we push every slot. Blocked slots will validly exist at their correct index.
+      // The scheduler will see them as occupied (via BreakBlock appointments) and skip them naturally.
+      slots.push({ index: slotIndex, time: new Date(currentTime), sessionIndex });
       currentTime = addMinutes(currentTime, slotDuration);
+      slotIndex += 1;
     }
   });
 
@@ -729,6 +729,7 @@ export async function generateNextTokenAndReserveSlot(
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
             return (
               appointment.bookedVia !== 'Walk-in' &&
+              (appointment.bookedVia as string) !== 'BreakBlock' && // CRITICAL FIX: Breaks shouldn't count towards Advance Token Cap
               typeof appointment.slotIndex === 'number' &&
               ACTIVE_STATUSES.has(appointment.status)
             );

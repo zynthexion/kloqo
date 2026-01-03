@@ -1270,15 +1270,19 @@ export default function DoctorsPage() {
       );
 
       if (extensionMinutes !== null && extensionMinutes > 0) {
-        // User chose to extend - calculate new end time
-        const originalEndTimeDate = sessionEnd;
-        const newEndTimeDate = addMinutes(originalEndTimeDate, extensionMinutes);
+        // BUG FIX: Stack with existing extension
+        const existingTotalExtendedBy = (sessionExtIndex >= 0)
+          ? availabilityExtensions[dateKey].sessions[sessionExtIndex].totalExtendedBy
+          : 0;
+
+        const newTotalExtendedBy = existingTotalExtendedBy + extensionMinutes;
+        const newEndTimeDate = addMinutes(sessionEnd, newTotalExtendedBy);
         const newEndTime = format(newEndTimeDate, 'hh:mm a');
 
         const sessionExtension = {
           sessionIndex: sessionIndex,
           breaks: mergedBreaks,
-          totalExtendedBy: extensionMinutes,
+          totalExtendedBy: newTotalExtendedBy,
           originalEndTime: format(sessionEnd, 'hh:mm a'),
           newEndTime
         };
@@ -1289,15 +1293,20 @@ export default function DoctorsPage() {
           availabilityExtensions[dateKey].sessions.push(sessionExtension);
         }
       } else {
-        // User chose not to extend - just store breaks without extension
-        // But we still need to track the break duration for session calculations
-        const breakDuration = mergedBreaks.reduce((sum, b) => sum + b.duration, 0);
+        // If NO new extension requested, preserve existing extension values
+        const existingSessionExt = (sessionExtIndex >= 0)
+          ? availabilityExtensions[dateKey].sessions[sessionExtIndex]
+          : null;
+
+        const currentTotalExtendedBy = existingSessionExt ? existingSessionExt.totalExtendedBy : 0;
+        const currentNewEndTime = existingSessionExt ? existingSessionExt.newEndTime : format(sessionEnd, 'hh:mm a');
+
         const sessionExtension = {
           sessionIndex: sessionIndex,
           breaks: mergedBreaks,
-          totalExtendedBy: 0, // No extension
+          totalExtendedBy: currentTotalExtendedBy, // Preserve existing
           originalEndTime: format(sessionEnd, 'hh:mm a'),
-          newEndTime: format(sessionEnd, 'hh:mm a') // Same as original
+          newEndTime: currentNewEndTime // Preserve existing
         };
 
         if (sessionExtIndex >= 0) {

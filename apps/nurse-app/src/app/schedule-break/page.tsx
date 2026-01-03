@@ -863,12 +863,19 @@ function ScheduleBreakContent() {
             const sessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => s.sessionIndex === sessionIndex);
 
             if (extensionMinutes !== null && extensionMinutes > 0) {
-                const newEndTimeDate = addMinutes(sessionEnd, extensionMinutes);
+                // BUG FIX: Stack with existing extension
+                const existingTotalExtendedBy = (sessionExtIndex >= 0)
+                    ? availabilityExtensions[dateStr].sessions[sessionExtIndex].totalExtendedBy
+                    : 0;
+
+                const newTotalExtendedBy = existingTotalExtendedBy + extensionMinutes;
+                const newEndTimeDate = addMinutes(sessionEnd, newTotalExtendedBy);
                 const newEndTime = format(newEndTimeDate, 'hh:mm a');
+
                 const sessionExtension = {
                     sessionIndex,
                     breaks: mergedBreaks,
-                    totalExtendedBy: extensionMinutes,
+                    totalExtendedBy: newTotalExtendedBy,
                     originalEndTime: format(sessionEnd, 'hh:mm a'),
                     newEndTime
                 };
@@ -879,12 +886,27 @@ function ScheduleBreakContent() {
                     availabilityExtensions[dateStr].sessions.push(sessionExtension);
                 }
             } else {
+                // If NO new extension requested, we still need to preserve existing extension if present?
+                // The user might be adding a break provided it fits without extension.
+                // But wait, if they say "Don't Extend" (extensionMinutes=0 or null), 
+                // do we keep the OLD extension?
+                // Logic: If extensionMinutes is 0, we are just adding a break.
+                // We should PRESERVE the existing extension info (breaks, totalExtendedBy, endTimes).
+                // BUT we need to update the 'breaks' list to 'mergedBreaks'.
+
+                const existingSessionExt = (sessionExtIndex >= 0)
+                    ? availabilityExtensions[dateStr].sessions[sessionExtIndex]
+                    : null;
+
+                const currentTotalExtendedBy = existingSessionExt ? existingSessionExt.totalExtendedBy : 0;
+                const currentNewEndTime = existingSessionExt ? existingSessionExt.newEndTime : format(sessionEnd, 'hh:mm a');
+
                 const sessionExtension = {
                     sessionIndex,
                     breaks: mergedBreaks,
-                    totalExtendedBy: 0,
+                    totalExtendedBy: currentTotalExtendedBy,
                     originalEndTime: format(sessionEnd, 'hh:mm a'),
-                    newEndTime: format(sessionEnd, 'hh:mm a')
+                    newEndTime: currentNewEndTime
                 };
 
                 if (sessionExtIndex >= 0) {

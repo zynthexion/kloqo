@@ -97,34 +97,17 @@ const dayAbbreviations = ["S", "M", "T", "W", "T", "F", "S"];
 const timeSlotSchema = z.object({
   from: z.string().min(1, "Required"),
   to: z.string().min(1, "Required"),
-}).refine(data => {
-  if (!data.from || !data.to) return true; // Let the min(1) handle empty fields
-  return data.from < data.to;
-}, {
-  message: "End time must be after start time.",
-  path: ["to"],
 });
 
 const availabilitySlotSchema = z.object({
   day: z.string(),
   timeSlots: z.array(timeSlotSchema).min(1, "At least one time slot is required."),
-}).refine(data => {
-  const sortedSlots = [...data.timeSlots].sort((a, b) => a.from.localeCompare(b.from));
-  for (let i = 0; i < sortedSlots.length - 1; i++) {
-    if (sortedSlots[i].to > sortedSlots[i + 1].from) {
-      return false; // Overlap detected
-    }
-  }
-  return true;
-}, {
-  message: "Time slots cannot overlap.",
-  path: ["timeSlots"],
 });
 
 
 const weeklyAvailabilityFormSchema = z.object({
   availableDays: z.array(z.string()).default([]),
-  availabilitySlots: z.array(availabilitySlotSchema).min(1, "At least one availability slot is required."),
+  availabilitySlots: z.array(availabilitySlotSchema),
 });
 
 type WeeklyAvailabilityFormValues = z.infer<typeof weeklyAvailabilityFormSchema>;
@@ -2671,7 +2654,14 @@ export default function DoctorsPage() {
                           <CardContent>
                             {isEditingAvailability ? (
                               <Form {...form}>
-                                <form onSubmit={form.handleSubmit(handleAvailabilitySave)} className="space-y-4">
+                                <form onSubmit={form.handleSubmit(handleAvailabilitySave, (errors) => {
+                                  console.error("Doctors Page Form Validation Errors:", errors);
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Validation Error",
+                                    description: "Please check the form for errors.",
+                                  });
+                                })} className="space-y-4">
                                   <div className="space-y-2">
                                     <Label>1. Select days to apply time slots to</Label>
                                     <ToggleGroup type="multiple" value={selectedDays} onValueChange={setSelectedDays} variant="outline" className="flex-wrap justify-start">
@@ -2796,7 +2786,7 @@ export default function DoctorsPage() {
 
                                   <div className="flex justify-end gap-2 mt-4">
                                     <Button type="button" variant="ghost" onClick={() => setIsEditingAvailability(false)} disabled={isPending}>Cancel</Button>
-                                    <Button type="submit" disabled={isPending || !form.formState.isValid}>
+                                    <Button type="submit" disabled={isPending}>
                                       {isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Save Schedule'}
                                     </Button>
                                   </div>

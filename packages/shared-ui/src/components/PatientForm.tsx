@@ -36,8 +36,8 @@ import {
     getClinicNow,
     getClinicDayOfWeek,
     getClinicDateString,
+    getClinicTimeString,
     buildBreakIntervalsFromPeriods as buildBreakIntervals,
-    applyBreakOffsets
 } from '@kloqo/shared-core';
 
 
@@ -456,35 +456,16 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 if (queueDiff > QUEUE_THRESHOLD || timeDiffMinutes > TIME_THRESHOLD) {
                     console.log(`[WALK-IN DEBUG] ${bookingRequestId}: Significant change detected - updating estimate and requiring re-confirmation`);
 
-                    // Update the displayed estimate (apply session break offsets)
-                    const now = getClinicNow();
-                    const appointmentDate = parse(getClinicDateString(now), "d MMMM yyyy", new Date());
-                    const sessionBreaks = freshDetails.sessionIndex !== undefined && freshDetails.sessionIndex !== null
-                        ? getSessionBreakIntervals(selectedDoctor, appointmentDate, freshDetails.sessionIndex)
-                        : [];
-                    const breakIntervals = buildBreakIntervals(selectedDoctor, appointmentDate);
-                    const chosenBreaks = sessionBreaks.length > 0 ? sessionBreaks : breakIntervals;
-                    const adjustedFreshTime = chosenBreaks.length > 0
-                        ? applyBreakOffsets(freshDetails.estimatedTime, chosenBreaks)
-                        : freshDetails.estimatedTime;
+                    // Update the displayed estimate
+                    const adjustedFreshTime = freshDetails.estimatedTime;
+
                     console.log('[PF:ESTIMATE-RECALC] Fresh estimate', {
-                        estimated: freshDetails.estimatedTime?.toISOString?.() || freshDetails.estimatedTime,
+                        doctor: selectedDoctor.name,
+                        estimated: getClinicTimeString(adjustedFreshTime),
+                        patientsAhead: freshDetails.patientsAhead,
+                        slotIndex: freshDetails.slotIndex,
                         sessionIndex: freshDetails.sessionIndex,
-                        sessionBreaks: sessionBreaks.map(b => ({
-                            start: b.start.toISOString(),
-                            end: b.end.toISOString(),
-                            sessionIndex: b.sessionIndex
-                        })),
-                        fallbackBreaks: breakIntervals.map(b => ({
-                            start: b.start.toISOString(),
-                            end: b.end.toISOString()
-                        })),
-                        chosenBreaks: chosenBreaks.map(b => ({
-                            start: b.start.toISOString(),
-                            end: b.end.toISOString(),
-                            sessionIndex: (b as any).sessionIndex
-                        })),
-                        adjusted: adjustedFreshTime?.toISOString?.() || adjustedFreshTime,
+                        timestamp: new Date().toISOString()
                     });
 
                     setPatientsAhead(freshDetails.patientsAhead);
@@ -502,7 +483,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     // Show toast notification to user
                     toast({
                         title: "Queue Updated",
-                        description: `The queue has changed. Now ${freshDetails.patientsAhead} patient${freshDetails.patientsAhead !== 1 ? 's' : ''} ahead, estimated time ${format(freshDetails.estimatedTime, 'hh:mm a')}.`,
+                        description: `The queue has changed. Now ${freshDetails.patientsAhead} patient${freshDetails.patientsAhead !== 1 ? 's' : ''} ahead, estimated time ${getClinicTimeString(freshDetails.estimatedTime)}.`,
                         duration: 6000,
                     });
 
@@ -554,35 +535,14 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 setGeneratedToken(result.tokenNumber);
             }
             if (result?.estimatedTime) {
-                const now = getClinicNow();
-                const appointmentDate = parse(getClinicDateString(now), 'd MMMM yyyy', new Date());
-                const sessionBreaks = result?.estimatedDetails?.sessionIndex !== undefined && result?.estimatedDetails?.sessionIndex !== null
-                    ? getSessionBreakIntervals(selectedDoctor, appointmentDate, result.estimatedDetails.sessionIndex)
-                    : [];
-                const breakIntervals = buildBreakIntervals(selectedDoctor, appointmentDate);
-                const chosenBreaks = sessionBreaks.length > 0 ? sessionBreaks : breakIntervals;
                 const estimated = new Date(result.estimatedTime);
-                const adjusted = chosenBreaks.length > 0 ? applyBreakOffsets(estimated, chosenBreaks) : estimated;
                 console.log('[PF:ESTIMATE-POSTBOOK]', {
-                    estimated: estimated.toISOString(),
-                    adjusted: adjusted.toISOString(),
-                    sessionIndex: result?.estimatedDetails?.sessionIndex,
-                    sessionBreaks: sessionBreaks.map(b => ({
-                        start: b.start.toISOString(),
-                        end: b.end.toISOString(),
-                        sessionIndex: b.sessionIndex
-                    })),
-                    fallbackBreaks: breakIntervals.map(b => ({
-                        start: b.start.toISOString(),
-                        end: b.end.toISOString()
-                    })),
-                    chosenBreaks: chosenBreaks.map(b => ({
-                        start: b.start.toISOString(),
-                        end: b.end.toISOString(),
-                        sessionIndex: (b as any).sessionIndex
-                    })),
+                    doctor: selectedDoctor.name,
+                    estimated: getClinicTimeString(estimated),
+                    patientsAhead: result.patientsAhead,
+                    timestamp: new Date().toISOString()
                 });
-                setEstimatedConsultationTime(adjusted);
+                setEstimatedConsultationTime(estimated);
             }
             setPatientsAhead(result.patientsAhead);
             if (result?.estimatedDetails) {
@@ -617,9 +577,14 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
 
     async function onSubmit(data: FormData) {
         setIsSubmitting(true);
-        console.log('[PF:SUBMIT] START', data);
+        console.log('[PF:SUBMIT] START - Get Token / Consult Today button clicked', {
+            appointmentType,
+            doctor: selectedDoctor.name,
+            formData: data,
+            timestamp: new Date().toISOString()
+        });
         if (!firestore || !user?.phoneNumber) {
-            console.log('[PF:SUBMIT] Missing firestore or user.phoneNumber', { firestore, phone: user?.phoneNumber });
+            console.warn('[PF:SUBMIT] ❌ Missing firestore or user.phoneNumber', { firestore, phone: user?.phoneNumber });
             toast({ variant: "destructive", title: t.common.error, description: t.bookAppointment.incompleteDetails });
             setIsSubmitting(false);
             return;
@@ -884,75 +849,52 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     const estimatedDetails = await calculateWalkInDetails(firestore, selectedDoctor, walkInTokenAllotment, walkInCapacityThreshold);
                     const now = getClinicNow();
                     const appointmentDate = parse(getClinicDateString(now), "d MMMM yyyy", new Date());
-                    const breakIntervals = buildBreakIntervals(selectedDoctor, appointmentDate);
-                    const sessionBreaks = estimatedDetails.sessionIndex !== undefined && estimatedDetails.sessionIndex !== null
-                        ? getSessionBreakIntervals(selectedDoctor, appointmentDate, estimatedDetails.sessionIndex)
-                        : [];
-                    const chosenBreaks = sessionBreaks.length > 0 ? sessionBreaks : breakIntervals;
-                    const adjustedEstimatedTime = chosenBreaks.length > 0
-                        ? applyBreakOffsets(estimatedDetails.estimatedTime, chosenBreaks)
-                        : estimatedDetails.estimatedTime;
-                    console.log('[PF:ESTIMATE] Raw estimate', {
-                        estimated: estimatedDetails.estimatedTime?.toISOString?.() || estimatedDetails.estimatedTime,
+
+                    const adjustedEstimatedTime = estimatedDetails.estimatedTime;
+
+                    console.log('[PF:ESTIMATE] Estimate Result', {
+                        doctor: selectedDoctor.name,
+                        estimated: getClinicTimeString(adjustedEstimatedTime),
+                        patientsAhead: estimatedDetails.patientsAhead,
+                        slotIndex: estimatedDetails.slotIndex,
                         sessionIndex: estimatedDetails.sessionIndex,
-                        sessionBreaks: sessionBreaks.map(b => ({
-                            start: b.start.toISOString(),
-                            end: b.end.toISOString(),
-                            sessionIndex: b.sessionIndex
-                        })),
-                        fallbackBreaks: breakIntervals.map(b => ({
-                            start: b.start.toISOString(),
-                            end: b.end.toISOString()
-                        })),
-                        chosenBreaks: chosenBreaks.map(b => ({
-                            start: b.start.toISOString(),
-                            end: b.end.toISOString(),
-                            sessionIndex: (b as any).sessionIndex
-                        })),
-                        adjusted: adjustedEstimatedTime?.toISOString?.() || adjustedEstimatedTime,
+                        isForceBooked: estimatedDetails.isForceBooked, // Log force-booked status
+                        timestamp: new Date().toISOString()
                     });
 
                     // Availability guard: block opening modal if estimate is outside availability (incl. extensions)
-                    let availabilityEnd: Date | null = estimatedDetails.sessionIndex !== undefined && estimatedDetails.sessionIndex !== null
+                    const availabilityEnd = estimatedDetails.sessionIndex !== undefined && estimatedDetails.sessionIndex !== null
                         ? getSessionEnd(selectedDoctor, appointmentDate, estimatedDetails.sessionIndex)
                         : null;
-                    let availabilityEndLabel = availabilityEnd ? format(availabilityEnd, 'hh:mm a') : '';
-                    if (!availabilityEnd && selectedDoctor.availabilitySlots?.length) {
-                        const dayStr = format(appointmentDate, 'EEEE');
-                        const availabilityForDay = selectedDoctor.availabilitySlots.find(s => s.day === dayStr);
-                        if (availabilityForDay && availabilityForDay.timeSlots.length > 0) {
-                            const lastSessionIndex = availabilityForDay.timeSlots.length - 1;
-                            const lastSession = availabilityForDay.timeSlots[lastSessionIndex];
-                            const originalEnd = parseTimeUtil(lastSession.to, appointmentDate);
-                            availabilityEnd = originalEnd;
-                            availabilityEndLabel = format(originalEnd, 'hh:mm a');
 
-                            const dateKey = format(appointmentDate, 'd MMMM yyyy');
-                            const ext = (selectedDoctor as any).availabilityExtensions?.[dateKey];
-                            const sessionExt = ext?.sessions?.find((s: any) => s.sessionIndex === lastSessionIndex);
-                            if (sessionExt?.newEndTime) {
-                                try {
-                                    const extendedEnd = parseTimeUtil(sessionExt.newEndTime, appointmentDate);
-                                    if (isAfter(extendedEnd, availabilityEnd)) {
-                                        availabilityEnd = extendedEnd;
-                                        availabilityEndLabel = format(extendedEnd, 'hh:mm a');
-                                    }
-                                } catch {
-                                    // ignore
-                                }
-                            }
-                        }
-                    }
+                    const availabilityEndLabel = availabilityEnd ? getClinicTimeString(availabilityEnd) : '';
 
                     const consultationTime = selectedDoctor?.averageConsultingTime || 15;
                     const apptEnd = addMinutes(adjustedEstimatedTime, consultationTime);
-                    const isOutside = availabilityEnd ? isAfter(apptEnd, availabilityEnd) : false;
 
-                    if (isOutside) {
+                    // CRITICAL: Relaxed for Walk-ins
+                    // We trust the backend calculateWalkInDetails to decide if a walk-in is available.
+                    // If it returns a result, we allow it even if it overflows the nominal session.
+                    const isOutside = availabilityEnd ? isAfter(apptEnd, availabilityEnd) : false;
+                    const canProceed = true; // Trust the service result for walk-ins
+
+                    console.log('[PF:ESTIMATE] Availability Check (RELAXED)', {
+                        apptEnd: getClinicTimeString(apptEnd),
+                        availabilityEnd: availabilityEndLabel,
+                        isOutside,
+                        canProceed
+                    });
+
+                    if (!canProceed) {
+                        // This block is now effectively disabled for walk-ins but kept for structural clarity
+                        console.warn('[PF:ESTIMATE] ⚠️ BLOCKING: Estimated time is outside availability', {
+                            estimated: getClinicTimeString(adjustedEstimatedTime),
+                            availabilityEnd: availabilityEndLabel
+                        });
                         toast({
                             variant: "destructive",
                             title: "Walk-in Not Available",
-                            description: `Next estimated time ~${format(adjustedEstimatedTime, 'hh:mm a')} is outside availability (ends at ${availabilityEndLabel || 'N/A'}).`,
+                            description: `${t.consultToday.doctorNotAvailableTill} ${availabilityEndLabel}. ${t.consultToday.estimate} ${getClinicTimeString(adjustedEstimatedTime)}`,
                         });
                         setIsSubmitting(false);
                         return;
@@ -1457,7 +1399,10 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                             const apptEnd = adjustedTime ? addMinutes(adjustedTime, consultationTime) : null;
                             const isOutside = apptEnd && availabilityEnd ? isAfter(apptEnd, availabilityEnd) : false;
 
-                            if (isOutside) {
+                            // CRITICAL: Relaxed for Walk-ins in preview
+                            // We allow showing the estimate even if it's slightly outside the nominal session end.
+                            // The actual blocking is handled if calculateWalkInDetails throws an error.
+                            if (isOutside && appointmentType !== 'Walk-in') {
                                 return (
                                     <div className="text-center py-4">
                                         <CardTitle className="text-base text-red-700">Walk-in Not Available</CardTitle>
@@ -1473,12 +1418,12 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                                     <div className="flex flex-col items-center">
                                         <Clock className="w-8 h-8 text-primary mb-2" />
                                         <span className="text-xl font-bold">{adjustedTime ? `~ ${format(adjustedTime, 'hh:mm a')}` : 'N/A'}</span>
-                                        <span className="text-xs text-muted-foreground">{t.patientForm.estimatedDelay}</span>
+                                        <span className="text-xs text-muted-foreground">Est. Time</span>
                                     </div>
                                     <div className="flex flex-col items-center">
                                         <Users className="w-8 h-8 text-primary mb-2" />
                                         <span className="text-2xl font-bold">{patientsAhead}</span>
-                                        <span className="text-xs text-muted-foreground">{t.patientForm.patientsAhead}</span>
+                                        <span className="text-xs text-muted-foreground">People Ahead</span>
                                     </div>
                                 </div>
                             );

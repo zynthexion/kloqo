@@ -1999,10 +1999,17 @@ export async function prepareAdvanceShift({
       // Normal scheduling - run scheduler
       // Include cancelled slots in bucket as "blocked" advance appointments
       // so the scheduler treats them as occupied and doesn't assign walk-ins to them
-      const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
-        id: entry.id,
-        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-      }));
+      const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
+        // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
+        // The scheduler treats IDs starting with '__blocked_' as immovable.
+        const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
+        const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+
+        return {
+          id,
+          slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+        };
+      });
 
       // CRITICAL: REMOVED the hack that added existing walk-ins as blocked advance appointments.
       // This was causing a type mismatch ('type: A') in the scheduler's occupancy map,
@@ -2959,6 +2966,16 @@ export async function calculateWalkInDetails(
 
   const [{ slots }, appointments, clinicSnap] = await Promise.all(fetchPromises);
 
+  console.log('[WALK-IN:ESTIMATE] Total appointments fetched:', {
+    count: appointments.length,
+    appointments: appointments.map(a => ({
+      id: a.id,
+      bookedVia: a.bookedVia,
+      status: a.status,
+      slotIndex: a.slotIndex
+    }))
+  });
+
   // Extract walkInTokenAllotment from clinic data if needed
   if (walkInTokenAllotment === undefined && clinicSnap?.exists()) {
     try {
@@ -3031,6 +3048,12 @@ export async function calculateWalkInDetails(
   const oneHourAhead = addMinutes(now, 60);
   const hasExistingWalkIns = activeWalkIns.length > 0;
 
+  console.log('[WALK-IN:SCHEDULER-INPUT] Prep:', {
+    activeAdvanceCount: activeAdvanceAppointments.length,
+    activeWalkInCount: activeWalkIns.length,
+    hasExistingWalkIns
+  });
+
   // Calculate bucket count logic (same as appointment-service.ts)
   const cancelledSlotsInWindow: Array<{ slotIndex: number; slotTime: Date }> = [];
   let bucketCount = 0;
@@ -3052,10 +3075,22 @@ export async function calculateWalkInDetails(
     .filter(item => item.slotTime !== undefined);
 
   // Restore variable initialization
-  const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
-    id: entry.id,
-    slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-  }));
+  const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
+    // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
+    // The scheduler treats IDs starting with '__blocked_' as immovable and excludes them from spacing.
+    const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
+    const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+
+    return {
+      id,
+      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+    };
+  });
+
+  console.log('[WALK-IN:ESTIMATE] Blocked/Immovable appointments:', {
+    count: blockedAdvanceAppointments.length,
+    blocked: blockedAdvanceAppointments.filter(a => a.id.startsWith('__blocked_'))
+  });
 
   // EXISTING WALK-IN HACK REMOVED: 
   // We no longer add existing walk-ins to blockedAdvanceAppointments here.
@@ -3275,12 +3310,24 @@ export async function calculateWalkInDetails(
   const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
 
   try {
+    console.log('[WALK-IN:SCHEDULER-INPUT] Calling computeWalkInSchedule', {
+      slotsCount: slots.length,
+      walkInTokenAllotment,
+      blockedAdvance: blockedAdvanceAppointments.map(a => ({ id: a.id, slot: a.slotIndex })),
+      walkInCandidates: activeWalkInCandidates.map(c => ({ id: c.id, token: c.numericToken, currentSlot: (c as any).currentSlotIndex }))
+    });
+
     schedule = computeWalkInSchedule({
       slots,
       now,
       walkInTokenAllotment: walkInTokenAllotment || 0,
       advanceAppointments: blockedAdvanceAppointments,
       walkInCandidates: activeWalkInCandidates,
+    });
+
+    console.log('[WALK-IN:SCHEDULER-OUTPUT] Schedule result', {
+      assignmentsCount: schedule?.assignments.length,
+      newWalkIn: schedule?.assignments.find(a => a.id === '__new_walk_in__')
     });
   } catch (error) {
     // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
@@ -3370,14 +3417,30 @@ export async function calculateWalkInDetails(
     throw new Error('No walk-in slots are available at this time.');
   }
 
-  const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped']);
-  const patientsAhead = appointments.filter(appointment => {
-    return (
-      typeof appointment.slotIndex === 'number' &&
+  const allActiveStatusesCount = new Set(['Pending', 'Confirmed', 'Skipped']);
+  const patientsAheadDetails = appointments.filter(appointment => {
+    const isMatched = typeof appointment.slotIndex === 'number' &&
       appointment.slotIndex < chosenSlotIndex &&
-      allActiveStatuses.has(appointment.status)
-    );
-  }).length;
+      allActiveStatusesCount.has(appointment.status);
+
+    return isMatched;
+  });
+
+  const patientsAhead = patientsAheadDetails.length;
+
+  console.log('[WALK-IN:ESTIMATE] Patients Ahead Calculation:', {
+    doctor: doctor.name,
+    chosenSlotIndex,
+    totalAppointments: appointments.length,
+    activeAppointmentsCount: appointments.filter(a => ACTIVE_STATUSES.has(a.status)).length,
+    patientsAhead,
+    matchedAppointments: patientsAheadDetails.map(a => ({
+      id: a.id,
+      slotIndex: a.slotIndex,
+      status: a.status,
+      bookedVia: a.bookedVia
+    }))
+  });
 
   return {
     estimatedTime: chosenTime,

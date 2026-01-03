@@ -332,6 +332,12 @@ export function computeWalkInSchedule({
         break;
       }
       if (occupant.type === 'A') {
+        // CRITICAL FIX: If we hit a blocked appointment, we CANNOT shift this block.
+        // We must skip this entire block and try finding space AFTER it.
+        // This prevents BreakBlocks and Completed appointments from being moved.
+        if (occupant.id.startsWith('__blocked_') || occupant.id.startsWith('__reserved_')) {
+          return makeSpaceForWalkIn(pos + 1, isExistingWalkIn);
+        }
         blockPositions.push(pos);
       }
     }

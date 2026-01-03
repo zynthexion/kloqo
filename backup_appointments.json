@@ -1,0 +1,612 @@
+[
+  {
+    "id": "19fwp2UydGlh3j09KGMN",
+    "sessionIndex": 0,
+    "previousAppointmentId": "",
+    "place": "Kloqo Clinic",
+    "status": "Completed",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767431100,
+      "nanoseconds": 0
+    },
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428190,
+      "nanoseconds": 271000000
+    },
+    "bookedVia": "BreakBlock",
+    "time": "02:50 PM",
+    "communicationPhone": "0000000000",
+    "arriveByTime": "02:50 PM",
+    "sex": "Other",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "tokenNumber": "Break",
+    "age": 0,
+    "date": "3 January 2026",
+    "numericToken": 0,
+    "patientId": "dummy-break-patient",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432900,
+      "nanoseconds": 0
+    },
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "cancelledByBreak": true,
+    "doctor": "Neha Wilson",
+    "phone": "0000000000",
+    "slotIndex": 4,
+    "patientName": "kloqo dummy",
+    "department": "Cardiology"
+  },
+  {
+    "id": "5oDXRqI9TA31mbwZXCHa",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767430200,
+      "nanoseconds": 0
+    },
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "slotIndex": 1,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428190,
+      "nanoseconds": 271000000
+    },
+    "tokenNumber": "Break",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "doctor": "Neha Wilson",
+    "department": "Cardiology",
+    "sessionIndex": 0,
+    "patientId": "dummy-break-patient",
+    "time": "02:35 PM",
+    "place": "Kloqo Clinic",
+    "arriveByTime": "02:35 PM",
+    "status": "Completed",
+    "bookedVia": "BreakBlock",
+    "patientName": "kloqo dummy",
+    "cancelledByBreak": true,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432000,
+      "nanoseconds": 0
+    },
+    "age": 0,
+    "phone": "0000000000",
+    "previousAppointmentId": "",
+    "date": "3 January 2026",
+    "communicationPhone": "0000000000",
+    "numericToken": 0,
+    "sex": "Other"
+  },
+  {
+    "id": "6Lx0GAQ82fZCyGMcX3Vw",
+    "doctor": "Neha Wilson",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767433500,
+      "nanoseconds": 0
+    },
+    "tokenNumber": "A013",
+    "age": 21,
+    "numericToken": 13,
+    "slotIndex": 12,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767435300,
+      "nanoseconds": 0
+    },
+    "sessionIndex": 0,
+    "bookedVia": "Online",
+    "patientName": "Some",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428290,
+      "nanoseconds": 171000000
+    },
+    "date": "3 January 2026",
+    "communicationPhone": "+919074297611",
+    "department": "Cardiology",
+    "sex": "Female",
+    "time": "03:30 PM",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "place": "Kannur",
+    "patientId": "QanZrLvI7WWGoB42kisg",
+    "status": "Pending",
+    "arriveByTime": "03:30 PM"
+  },
+  {
+    "id": "I16R5Ur19mAPt5a9X5ER",
+    "slotIndex": 5,
+    "sex": "Other",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428190,
+      "nanoseconds": 272000000
+    },
+    "time": "02:55 PM",
+    "tokenNumber": "Break",
+    "previousAppointmentId": "",
+    "date": "3 January 2026",
+    "communicationPhone": "0000000000",
+    "doctor": "Neha Wilson",
+    "age": 0,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767431400,
+      "nanoseconds": 0
+    },
+    "sessionIndex": 0,
+    "cancelledByBreak": true,
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767433200,
+      "nanoseconds": 0
+    },
+    "arriveByTime": "02:55 PM",
+    "bookedVia": "BreakBlock",
+    "phone": "0000000000",
+    "status": "Completed",
+    "patientId": "dummy-break-patient",
+    "numericToken": 0,
+    "patientName": "kloqo dummy",
+    "place": "Kloqo Clinic",
+    "department": "Cardiology"
+  },
+  {
+    "id": "JspZEPlmyasmSHaJ3Z92",
+    "patientName": "Manju",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767435000,
+      "nanoseconds": 0
+    },
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428283,
+      "nanoseconds": 72000000
+    },
+    "department": "Cardiology",
+    "arriveByTime": "03:25 PM",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "doctor": "Neha Wilson",
+    "patientId": "5bM7HhhbxMZKikipDIC9",
+    "tokenNumber": "A012",
+    "slotIndex": 11,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767433200,
+      "nanoseconds": 0
+    },
+    "sex": "Female",
+    "date": "3 January 2026",
+    "age": 25,
+    "sessionIndex": 0,
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "place": "Toronto",
+    "status": "Pending",
+    "communicationPhone": "+919074030814",
+    "bookedVia": "Online",
+    "time": "03:25 PM",
+    "numericToken": 12
+  },
+  {
+    "id": "KJm0XvdCbAAl2aczYQQU",
+    "arriveByTime": "03:05 PM",
+    "slotIndex": 7,
+    "age": 30,
+    "patientName": "Anju",
+    "status": "Pending",
+    "communicationPhone": "+919074030814",
+    "sex": "Female",
+    "numericToken": 8,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432000,
+      "nanoseconds": 0
+    },
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "date": "3 January 2026",
+    "place": "Poonthanam",
+    "doctor": "Neha Wilson",
+    "time": "03:05 PM",
+    "patientId": "MegIwe6eucfmafwERHge",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "sessionIndex": 0,
+    "bookedVia": "Online",
+    "tokenNumber": "A008",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428252,
+      "nanoseconds": 610000000
+    },
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767433800,
+      "nanoseconds": 0
+    },
+    "department": "Cardiology"
+  },
+  {
+    "id": "QtJS8MEtcTXN4AyPIKr2",
+    "doctor": "Neha Wilson",
+    "numericToken": 10,
+    "sessionIndex": 0,
+    "communicationPhone": "+919074297611",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432600,
+      "nanoseconds": 0
+    },
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "patientId": "P2RwuCG00JEkrUfI1zlC",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767434400,
+      "nanoseconds": 0
+    },
+    "bookedVia": "Online",
+    "sex": "Female",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "patientName": "Jaicy",
+    "place": "Kannur",
+    "arriveByTime": "03:15 PM",
+    "tokenNumber": "A010",
+    "date": "3 January 2026",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428265,
+      "nanoseconds": 875000000
+    },
+    "slotIndex": 9,
+    "status": "Pending",
+    "department": "Cardiology",
+    "age": 50,
+    "time": "03:15 PM"
+  },
+  {
+    "id": "cMdPHCVgKeS7Prg3ZcZR",
+    "place": "Kloqo Clinic",
+    "phone": "0000000000",
+    "cancelledByBreak": true,
+    "patientName": "kloqo dummy",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767429900,
+      "nanoseconds": 0
+    },
+    "communicationPhone": "0000000000",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428190,
+      "nanoseconds": 271000000
+    },
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "patientId": "dummy-break-patient",
+    "date": "3 January 2026",
+    "bookedVia": "BreakBlock",
+    "age": 0,
+    "numericToken": 0,
+    "previousAppointmentId": "",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "slotIndex": 0,
+    "arriveByTime": "02:30 PM",
+    "sex": "Other",
+    "doctor": "Neha Wilson",
+    "status": "Completed",
+    "sessionIndex": 0,
+    "tokenNumber": "Break",
+    "time": "02:30 PM",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767431700,
+      "nanoseconds": 0
+    },
+    "department": "Cardiology"
+  },
+  {
+    "id": "fSPiCvYZQS5W7uKAJ5MR",
+    "patientId": "dummy-break-patient",
+    "department": "Cardiology",
+    "tokenNumber": "Break",
+    "phone": "0000000000",
+    "bookedVia": "BreakBlock",
+    "communicationPhone": "0000000000",
+    "place": "Kloqo Clinic",
+    "patientName": "kloqo dummy",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "doctor": "Neha Wilson",
+    "cancelledByBreak": true,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767430500,
+      "nanoseconds": 0
+    },
+    "age": 0,
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "time": "02:40 PM",
+    "sessionIndex": 0,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428190,
+      "nanoseconds": 271000000
+    },
+    "numericToken": 0,
+    "slotIndex": 2,
+    "status": "Completed",
+    "date": "3 January 2026",
+    "sex": "Other",
+    "previousAppointmentId": "",
+    "arriveByTime": "02:40 PM",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432300,
+      "nanoseconds": 0
+    }
+  },
+  {
+    "id": "fjoBB34Gn6skHmUUQ64w",
+    "arriveByTime": "03:00 PM",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "sex": "Male",
+    "doctor": "Neha Wilson",
+    "department": "Cardiology",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "numericToken": 7,
+    "patientName": "Jino",
+    "sessionIndex": 0,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767433500,
+      "nanoseconds": 0
+    },
+    "communicationPhone": "+919074297611",
+    "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+    "date": "3 January 2026",
+    "bookedVia": "Online",
+    "age": 23,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767431700,
+      "nanoseconds": 0
+    },
+    "place": "Kannur",
+    "slotIndex": 6,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428203,
+      "nanoseconds": 209000000
+    },
+    "time": "03:00 PM",
+    "tokenNumber": "A007",
+    "status": "Pending"
+  },
+  {
+    "id": "mMHpLSKvVJt0A7X2vVll",
+    "status": "Pending",
+    "place": "Perinthalmanna",
+    "numericToken": 11,
+    "department": "Cardiology",
+    "arriveByTime": "03:20 PM",
+    "patientId": "bzQqSFLOoqXEJHTYiRXp",
+    "time": "03:20 PM",
+    "doctor": "Neha Wilson",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "patientName": "Smokey",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "sessionIndex": 0,
+    "sex": "Male",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767434700,
+      "nanoseconds": 0
+    },
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432900,
+      "nanoseconds": 0
+    },
+    "slotIndex": 10,
+    "date": "3 January 2026",
+    "tokenNumber": "A011",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428277,
+      "nanoseconds": 454000000
+    },
+    "communicationPhone": "+919496097611",
+    "bookedVia": "Online",
+    "age": 30
+  },
+  {
+    "id": "q9ADJOr5raFutE2HoJud",
+    "tokenNumber": "A009",
+    "communicationPhone": "+919496097611",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767434100,
+      "nanoseconds": 0
+    },
+    "sessionIndex": 0,
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "age": 30,
+    "date": "3 January 2026",
+    "department": "Cardiology",
+    "doctor": "Neha Wilson",
+    "sex": "Male",
+    "bookedVia": "Online",
+    "time": "03:10 PM",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428230,
+      "nanoseconds": 556000000
+    },
+    "patientName": "Willy",
+    "place": "Perinthalmanna",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "numericToken": 9,
+    "arriveByTime": "03:10 PM",
+    "status": "Pending",
+    "slotIndex": 8,
+    "patientId": "35qHoVD1wkdXdDtrRcHd",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432300,
+      "nanoseconds": 0
+    }
+  },
+  {
+    "id": "rNaCZ3FKnIfyTooWXcDs",
+    "bookedVia": "Online",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767435600,
+      "nanoseconds": 0
+    },
+    "tokenNumber": "A014",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767433800,
+      "nanoseconds": 0
+    },
+    "numericToken": 14,
+    "patientId": "TF51IeRhT4b4ZF4847Xm",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428302,
+      "nanoseconds": 28000000
+    },
+    "age": 18,
+    "status": "Pending",
+    "patientName": "Memaw",
+    "time": "03:35 PM",
+    "sessionIndex": 0,
+    "communicationPhone": "+919496097611",
+    "slotIndex": 13,
+    "department": "Cardiology",
+    "date": "3 January 2026",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "arriveByTime": "03:35 PM",
+    "sex": "Female",
+    "place": "Vandoor",
+    "doctor": "Neha Wilson"
+  },
+  {
+    "id": "tJXpVAR1hnfzRh7ama9L",
+    "patientId": "dummy-break-patient",
+    "previousAppointmentId": "",
+    "sessionIndex": 0,
+    "phone": "0000000000",
+    "bookedVia": "BreakBlock",
+    "tokenNumber": "Break",
+    "status": "Completed",
+    "patientName": "kloqo dummy",
+    "communicationPhone": "0000000000",
+    "place": "Kloqo Clinic",
+    "doctor": "Neha Wilson",
+    "sex": "Other",
+    "age": 0,
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428190,
+      "nanoseconds": 271000000
+    },
+    "numericToken": 0,
+    "date": "3 January 2026",
+    "arriveByTime": "02:45 PM",
+    "department": "Cardiology",
+    "time": "02:45 PM",
+    "cancelledByBreak": true,
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767430800,
+      "nanoseconds": 0
+    },
+    "slotIndex": 3,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767432600,
+      "nanoseconds": 0
+    }
+  },
+  {
+    "id": "uhtzQ6WTntN7uScx3590",
+    "communicationPhone": "+919074297612",
+    "patientName": "Walking Test",
+    "age": 30,
+    "slotIndex": 15,
+    "sessionIndex": 0,
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "arriveByTime": "03:45 PM",
+    "patientId": "7KOimpjUcGqOrx3sxigE",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767436200,
+      "nanoseconds": 0
+    },
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428363,
+      "nanoseconds": 365000000
+    },
+    "time": "03:45 PM",
+    "tokenNumber": "A016",
+    "status": "Pending",
+    "sex": "Male",
+    "place": "Kannur",
+    "doctor": "Neha Wilson",
+    "department": "Cardiology",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767434400,
+      "nanoseconds": 0
+    },
+    "date": "3 January 2026",
+    "bookedVia": "Online",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "numericToken": 16
+  },
+  {
+    "id": "umrIaZRhmCyzWrbjrmwJ",
+    "bookedVia": "Online",
+    "doctorId": "doc-1766034747205-2h9l8z9ll",
+    "communicationPhone": "+919074030814",
+    "tokenNumber": "A015",
+    "time": "03:40 PM",
+    "age": 63,
+    "date": "3 January 2026",
+    "patientName": "Achankunju",
+    "department": "Cardiology",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767428312,
+      "nanoseconds": 468000000
+    },
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "slotIndex": 14,
+    "patientId": "LdyrSI8xkNyOWN4brxTn",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767435900,
+      "nanoseconds": 0
+    },
+    "sex": "Male",
+    "numericToken": 15,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767434100,
+      "nanoseconds": 0
+    },
+    "place": "Calicut",
+    "sessionIndex": 0,
+    "doctor": "Neha Wilson",
+    "arriveByTime": "03:40 PM",
+    "status": "Pending"
+  }
+]

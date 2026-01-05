@@ -194,6 +194,12 @@ export default function DoctorsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [leaveCalDate, setLeaveCalDate] = useState<Date>(new Date());
   const [clinicDetails, setClinicDetails] = useState<any | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [newAvgTime, setNewAvgTime] = useState<number | string>("");
@@ -1809,54 +1815,70 @@ export default function DoctorsPage() {
     return undefined;
   };
 
-  const handleConsultationStatusToggle = useCallback(async () => {
-    if (!selectedDoctor || selectedDoctor.consultationStatus === 'In') {
-      return;
-    }
+  const handleConsultationStatusToggle = useCallback(async (forcedStatus?: 'In' | 'Out') => {
+    if (!selectedDoctor) return;
 
-    const sessionIndex = getCurrentSessionIndex();
-    if (sessionIndex === undefined) {
-      toast({
-        variant: 'destructive',
-        title: 'Outside Session Window',
-        description: 'Consultation can be started only during an active session.',
-      });
-      return;
+    const currentStatus = selectedDoctor.consultationStatus || 'Out';
+    const targetStatus = forcedStatus || (currentStatus === 'In' ? 'Out' : 'In');
+
+    if (targetStatus === 'In') {
+      const sessionIndex = getCurrentSessionIndex();
+      if (sessionIndex === undefined) {
+        toast({
+          variant: 'destructive',
+          title: 'Outside Session Window',
+          description: 'Consultation can be started only during an active session.',
+        });
+        return;
+      }
     }
 
     setIsUpdatingConsultationStatus(true);
     try {
       await updateDoc(doc(db, 'doctors', selectedDoctor.id), {
-        consultationStatus: 'In',
+        consultationStatus: targetStatus,
         updatedAt: new Date(),
       });
       setSelectedDoctor(prev => {
         if (!prev || prev.id !== selectedDoctor.id) return prev;
-        return { ...prev, consultationStatus: 'In' };
+        return { ...prev, consultationStatus: targetStatus };
       });
       setDoctors(prev =>
         prev.map(docItem =>
-          docItem.id === selectedDoctor.id ? { ...docItem, consultationStatus: 'In' } : docItem
+          docItem.id === selectedDoctor.id ? { ...docItem, consultationStatus: targetStatus } : docItem
         )
       );
 
-      if (selectedDoctor.clinicId) {
+      if (targetStatus === 'In' && selectedDoctor.clinicId) {
         const clinicDocRef = doc(db, 'clinics', selectedDoctor.clinicId);
         const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
         const clinicName = clinicDoc?.data()?.name || 'The clinic';
         const { notifySessionPatientsOfConsultationStart } = await import('@kloqo/shared-core');
         const today = format(new Date(), 'd MMMM yyyy');
-        await notifySessionPatientsOfConsultationStart({ db, doctor: selectedDoctor, clinicName, today, sessionIndex });
+        const sessionIndex = getCurrentSessionIndex();
+        if (sessionIndex !== undefined) {
+          await notifySessionPatientsOfConsultationStart({
+            firestore: db,
+            clinicId: selectedDoctor.clinicId || '',
+            clinicName,
+            doctorName: selectedDoctor.name,
+            date: today,
+            sessionIndex
+          });
+        }
       }
 
-      toast({ title: 'Consultation Started', description: 'Your consultation session has begun.' });
+      toast({
+        title: targetStatus === 'In' ? 'Consultation Started' : 'Consultation Paused',
+        description: targetStatus === 'In' ? 'Your consultation session has begun.' : 'Your status has been set to Out.'
+      });
     } catch (error) {
       console.error('Error updating consultation status:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to update consultation status.' });
     } finally {
       setIsUpdatingConsultationStatus(false);
     }
-  }, [selectedDoctor, setDoctors, setSelectedDoctor, toast]);
+  }, [selectedDoctor, setDoctors, setSelectedDoctor, toast, getCurrentSessionIndex]);
 
 
   return (
@@ -2066,35 +2088,60 @@ export default function DoctorsPage() {
                     )}
                     <div className="flex-grow"></div>
                     <div className="flex flex-col items-end gap-2">
-                      <Button
-                        variant="secondary"
-                        disabled={isUpdatingConsultationStatus || selectedDoctor.consultationStatus === 'In'}
-                        onClick={handleConsultationStatusToggle}
-                        className={cn(
-                          'flex items-center gap-3 rounded-full px-4 py-2 text-white border-none shadow-md transition-colors',
-                          selectedDoctor.consultationStatus === 'In'
-                            ? 'bg-green-500'
-                            : 'bg-red-500 hover:bg-red-600',
-                          isUpdatingConsultationStatus && 'opacity-70 cursor-not-allowed'
-                        )}
-                      >
-                        <div className="relative flex h-3 w-3">
-                          {selectedDoctor.consultationStatus === 'In' && (
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                          )}
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
-                        </div>
-                        <span className="font-semibold">
-                          {isUpdatingConsultationStatus
-                            ? 'Updating...'
-                            : selectedDoctor.consultationStatus === 'In'
-                              ? 'Doctor Online'
-                              : 'Mark as In'}
-                        </span>
-                      </Button>
-                      <span className="text-xs uppercase tracking-wide text-white/80">
-                        Current: {selectedDoctor.consultationStatus || 'Out'}
-                      </span>
+                      {(() => {
+                        const todayStr = format(currentTime, 'd MMMM yyyy');
+                        const todayBreaks = selectedDoctor?.breakPeriods?.[todayStr] || [];
+                        const activeBreak = todayBreaks.find(bp => {
+                          try {
+                            const start = new Date(bp.startTime);
+                            const end = new Date(bp.endTime);
+                            return currentTime >= start && currentTime <= end;
+                          } catch (e) {
+                            return false;
+                          }
+                        });
+
+                        const showBreakToggle = !!activeBreak;
+                        const isOnline = selectedDoctor.consultationStatus === 'In';
+
+                        // If NOT on break AND already online, hide the button as per request
+                        if (!showBreakToggle && isOnline) return null;
+
+                        return (
+                          <>
+                            <Button
+                              variant="secondary"
+                              disabled={isUpdatingConsultationStatus}
+                              onClick={() => handleConsultationStatusToggle()}
+                              className={cn(
+                                'flex items-center gap-3 rounded-full px-4 py-2 text-white border-none shadow-md transition-colors',
+                                isOnline
+                                  ? 'bg-amber-500 hover:bg-amber-600'
+                                  : 'bg-red-500 hover:bg-red-600',
+                                isUpdatingConsultationStatus && 'opacity-70 cursor-not-allowed'
+                              )}
+                            >
+                              <div className="relative flex h-3 w-3">
+                                {isOnline && (
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                )}
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
+                              </div>
+                              <span className="font-semibold">
+                                {isUpdatingConsultationStatus
+                                  ? 'Updating...'
+                                  : showBreakToggle
+                                    ? (isOnline ? 'Start Break' : 'End Break')
+                                    : 'Mark as In'}
+                              </span>
+                            </Button>
+                            <span className="text-xs uppercase tracking-wide text-white/80">
+                              Current: {selectedDoctor.consultationStatus || 'Out'}
+                              {showBreakToggle && ' (Break)'}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>

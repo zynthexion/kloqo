@@ -14,6 +14,7 @@ import { User, Settings, Coffee, CalendarX } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Link from 'next/link';
 import { Badge } from '../ui/badge';
+import { format } from 'date-fns';
 
 type ClinicHeaderProps = {
     doctors: Doctor[];
@@ -26,6 +27,7 @@ type ClinicHeaderProps = {
     pageTitle?: string;
     consultationStatus?: 'In' | 'Out';
     onStatusChange?: (newStatus: 'In' | 'Out') => void;
+    currentTime?: Date;
 };
 
 export default function ClinicHeader({
@@ -39,8 +41,31 @@ export default function ClinicHeader({
     pageTitle,
     consultationStatus = 'Out',
     onStatusChange,
+    currentTime = new Date(),
 }: ClinicHeaderProps) {
     const currentDoctor = doctors.find(d => d.id === selectedDoctor);
+
+    const todayStr = format(currentTime, 'd MMMM yyyy');
+    const todayBreaks = currentDoctor?.breakPeriods?.[todayStr] || [];
+    const activeBreak = todayBreaks.find(bp => {
+        try {
+            const start = new Date(bp.startTime);
+            const end = new Date(bp.endTime);
+            return currentTime >= start && currentTime <= end;
+        } catch (e) {
+            return false;
+        }
+    });
+
+    const hasAnyBreakStarted = todayBreaks.some(bp => {
+        try {
+            return currentTime >= new Date(bp.startTime);
+        } catch (e) {
+            return false;
+        }
+    });
+
+    const showBreakToggle = !!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted);
 
     const utilityMenuItems = [
         {
@@ -116,7 +141,7 @@ export default function ClinicHeader({
                 )}
 
                 <div className="flex flex-col items-center">
-                    {onStatusChange && (
+                    {showBreakToggle && onStatusChange && (
                         <div className="mt-2">
                             <Button
                                 size="sm"
@@ -125,8 +150,8 @@ export default function ClinicHeader({
                                 className={`
                         relative px-6 py-2 rounded-full font-medium transition-all duration-300 shadow-lg
                         ${consultationStatus === 'In'
-                                        ? 'bg-green-500/70 hover:bg-green-500/80 text-white border-2 border-green-400/50'
-                                        : 'bg-red-500/70 hover:bg-red-500/80 text-white border-2 border-red-400/50'
+                                        ? 'bg-amber-500/80 hover:bg-amber-500/90 text-white border-2 border-amber-400/50'
+                                        : 'bg-green-500/80 hover:bg-green-500/90 text-white border-2 border-green-400/50'
                                     }
                       `}
                             >
@@ -135,7 +160,7 @@ export default function ClinicHeader({
                           w-2 h-2 rounded-full animate-pulse
                           ${consultationStatus === 'In' ? 'bg-white' : 'bg-white'}
                         `} />
-                                    {consultationStatus === 'In' ? 'Doctor In' : 'Doctor Out'}
+                                    {consultationStatus === 'In' ? 'Start Break' : 'End Break'}
                                 </span>
                             </Button>
                         </div>

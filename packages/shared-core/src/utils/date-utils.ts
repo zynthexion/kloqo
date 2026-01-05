@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { format, parse, addMinutes } from 'date-fns';
 
 /**
  * Returns the current time as if it were in the Asia/Kolkata timezone,
@@ -114,6 +114,43 @@ export function getClinicShortDateString(date: Date = new Date()): string {
 
     return `${day} ${month} ${year}`;
 }
+
+/**
+ * Parses a time string (e.g., "02:30 PM", "14:30") and a base date, 
+ * interpreting the time specifically in the Asia/Kolkata timezone.
+ */
+export function parseClinicTime(timeStr: string, baseDate: Date): Date {
+    let localDate: Date;
+
+    if (timeStr.includes('AM') || timeStr.includes('PM')) {
+        localDate = parse(timeStr, 'hh:mm a', baseDate);
+    } else if (timeStr.includes(':')) {
+        const [h, m] = timeStr.split(':').map(Number);
+        localDate = new Date(baseDate);
+        localDate.setHours(h, m, 0, 0);
+    } else {
+        localDate = parse(timeStr, 'hh:mm a', baseDate);
+    }
+
+    const IST_OFFSET = 330;
+    const systemOffset = -localDate.getTimezoneOffset();
+    const diff = systemOffset - IST_OFFSET;
+    return addMinutes(localDate, diff);
+}
+
+/**
+ * Parses a date string (e.g., "4 January 2026"), 
+ * interpreting it specifically in the Asia/Kolkata timezone.
+ */
+export function parseClinicDate(dateStr: string): Date {
+    const localDate = parse(dateStr, 'd MMMM yyyy', new Date());
+    localDate.setHours(0, 0, 0, 0);
+    const IST_OFFSET = 330;
+    const systemOffset = -localDate.getTimezoneOffset();
+    const diff = systemOffset - IST_OFFSET;
+    return addMinutes(localDate, diff);
+}
+
 
 
 

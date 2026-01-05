@@ -24,7 +24,7 @@ import {
   isSlotBlockedByLeave,
   parseTime as parseTimeString
 } from '../utils/break-helpers';
-import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicShortDateString, getClinicNow } from '../utils/date-utils';
+import { getClinicDateString, getClinicDayOfWeek, getClinicTimeString, getClinicISOString, getClinicShortDateString, getClinicNow, parseClinicDate, parseClinicTime } from '../utils/date-utils';
 import { buildReservationDocId } from '../utils/reservation-utils';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 
@@ -1852,6 +1852,8 @@ const prepareAdvanceShift = async ({
   if (isForceBooked || (!scheduleAttempt && allSlotsFilled && (hasExistingWalkIns || firestoreBucketCount > 0) && firestoreBucketCount > 0)) {
     console.info('[Walk-in Scheduling] DEBUG - ✅ Strategy 4 TRIGGERED - Bucket Compensation Starting');
 
+    let newSlotIndex = -1;
+
     // CRITICAL: Re-calculate bucket count within transaction to prevent concurrent usage
     // Count walk-ins placed outside availability (they're "using" bucket slots)
     const walkInsOutsideAvailabilityInTx = effectiveAppointments.filter(appt => {
@@ -1898,106 +1900,23 @@ const prepareAdvanceShift = async ({
     // Find the last slotIndex from the slots array (represents last slot in last session)
     const lastSlotIndexFromSlots = slots.length > 0 ? slots.length - 1 : -1;
 
-    // Calculate new slotIndex based on walkInTokenAllotment interval logic
-    let newSlotIndex: number;
+    // Simplified Overflow Logic (No-Push): Always append after ALL appointments
+    const allSlotIndicesFromAppointments = effectiveAppointments
+      .map(appointment => typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1)
+      .filter(idx => idx >= 0);
 
-    if (lastWalkInSlotIndex >= 0 && walkInSpacingValue > 0) {
-      // CRITICAL: Implement interval logic - place walk-in after nth advance appointment
-      // where n = walkInTokenAllotment (walkInSpacingValue)
+    const maxSlotIndexFromAppointments = allSlotIndicesFromAppointments.length > 0
+      ? Math.max(...allSlotIndicesFromAppointments)
+      : -1;
 
-      // Find all advance appointments after the last walk-in
-      const advanceAppointmentsAfterLastWalkIn = activeAdvanceAppointments
-        .filter(appt => {
-          const apptSlotIndex = typeof appt.slotIndex === 'number' ? appt.slotIndex : -1;
-          return apptSlotIndex > lastWalkInSlotIndex;
-        })
-        .sort((a, b) => {
-          const aIdx = typeof a.slotIndex === 'number' ? a.slotIndex : -1;
-          const bIdx = typeof b.slotIndex === 'number' ? b.slotIndex : -1;
-          return aIdx - bIdx;
-        });
+    // The new slot index is simply the next one after everything else
+    newSlotIndex = Math.max(maxSlotIndexFromAppointments + 1, lastSlotIndexFromSlots + 1);
 
-      const advanceCountAfterLastWalkIn = advanceAppointmentsAfterLastWalkIn.length;
-
-      console.info('[Walk-in Scheduling] Bucket compensation - interval calculation:', {
-        lastWalkInSlotIndex,
-        walkInSpacingValue,
-        advanceCountAfterLastWalkIn,
-        advanceAppointmentsAfterLastWalkIn: advanceAppointmentsAfterLastWalkIn.map(a => ({
-          id: a.id,
-          slotIndex: a.slotIndex
-        }))
-      });
-
-      if (advanceCountAfterLastWalkIn > walkInSpacingValue) {
-        // Place walk-in after the nth advance appointment (where n = walkInSpacingValue)
-        const nthAdvanceAppointment = advanceAppointmentsAfterLastWalkIn[walkInSpacingValue - 1];
-        const nthAdvanceSlotIndex = typeof nthAdvanceAppointment.slotIndex === 'number'
-          ? nthAdvanceAppointment.slotIndex
-          : -1;
-
-        if (nthAdvanceSlotIndex >= 0) {
-          // Place walk-in right after the nth advance appointment
-          newSlotIndex = nthAdvanceSlotIndex + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - placing after nth advance:', {
-            nth: walkInSpacingValue,
-            nthAdvanceSlotIndex,
-            newSlotIndex
-          });
-        } else {
-          // Fallback: place after last advance appointment
-          const lastAdvanceAfterWalkIn = advanceAppointmentsAfterLastWalkIn[advanceAppointmentsAfterLastWalkIn.length - 1];
-          const lastAdvanceSlotIndex = typeof lastAdvanceAfterWalkIn.slotIndex === 'number'
-            ? lastAdvanceAfterWalkIn.slotIndex
-            : -1;
-          newSlotIndex = lastAdvanceSlotIndex >= 0 ? lastAdvanceSlotIndex + 1 : lastSlotIndexFromSlots + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - fallback: placing after last advance:', {
-            lastAdvanceSlotIndex,
-            newSlotIndex
-          });
-        }
-      } else {
-        // Not enough advance appointments - place after the last advance appointment
-        if (advanceAppointmentsAfterLastWalkIn.length > 0) {
-          const lastAdvanceAfterWalkIn = advanceAppointmentsAfterLastWalkIn[advanceAppointmentsAfterLastWalkIn.length - 1];
-          const lastAdvanceSlotIndex = typeof lastAdvanceAfterWalkIn.slotIndex === 'number'
-            ? lastAdvanceAfterWalkIn.slotIndex
-            : -1;
-          newSlotIndex = lastAdvanceSlotIndex >= 0 ? lastAdvanceSlotIndex + 1 : lastSlotIndexFromSlots + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - not enough advances, placing after last:', {
-            lastAdvanceSlotIndex,
-            newSlotIndex
-          });
-        } else {
-          // No advance appointments after last walk-in - place after last walk-in
-          newSlotIndex = lastWalkInSlotIndex + 1;
-          console.info('[Walk-in Scheduling] Bucket compensation - no advances after walk-in, placing after walk-in:', {
-            lastWalkInSlotIndex,
-            newSlotIndex
-          });
-        }
-      }
-    } else {
-      // No walk-ins exist or no spacing configured - use sequential placement
-      // Find the last slotIndex used across ALL sessions for this day
-      const allSlotIndicesFromAppointments = effectiveAppointments
-        .map(appointment => typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1)
-        .filter(idx => idx >= 0);
-
-      const maxSlotIndexFromAppointments = allSlotIndicesFromAppointments.length > 0
-        ? Math.max(...allSlotIndicesFromAppointments)
-        : -1;
-
-      const maxSlotIndex = Math.max(maxSlotIndexFromAppointments, lastSlotIndexFromSlots);
-      newSlotIndex = maxSlotIndex + 1;
-
-      console.info('[Walk-in Scheduling] Bucket compensation - sequential placement (no walk-ins or spacing):', {
-        maxSlotIndexFromAppointments,
-        lastSlotIndexFromSlots,
-        maxSlotIndex,
-        newSlotIndex
-      });
-    }
+    console.info('[Walk-in Scheduling] Bucket compensation - simplified append logic (No-Push):', {
+      maxSlotIndexFromAppointments,
+      lastSlotIndexFromSlots,
+      newSlotIndex
+    });
 
     // CRITICAL: Ensure the calculated slot is NOT already occupied
     // Use the occupiedSlots set calculated earlier in the transaction
@@ -2087,8 +2006,8 @@ const prepareAdvanceShift = async ({
       if (referenceAppointment && referenceAppointment.time) {
         // Use the reference appointment's time + slot duration
         try {
-          const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          const referenceTime = parse(referenceAppointment.time, 'hh:mm a', appointmentDate);
+          const appointmentDate = parseClinicDate(dateStr);
+          const referenceTime = parseClinicTime(referenceAppointment.time, appointmentDate);
           newSlotTime = addMinutes(referenceTime, slotDuration);
           console.info('[Walk-in Scheduling] Bucket compensation - time from reference appointment:', {
             referenceSlotIndex: referenceAppointment.slotIndex,
@@ -2174,7 +2093,7 @@ const prepareAdvanceShift = async ({
       slotIndex: newSlotIndex,
       sessionIndex: syntheticAssignment.sessionIndex,
       slotTime: newSlotTime,
-      maxSlotIndexUsed: maxSlotIndex,
+      maxSlotIndexFromAppointments,
     });
     usedBucketSlotIndex = newSlotIndex;
   }

@@ -172,6 +172,28 @@ export default function LiveDashboard() {
     previousConsultationStatusRef.current = consultationStatus;
   }, [consultationStatus, appointments, toast]);
 
+  const handleStatusChange = useCallback(async (newStatus: 'In' | 'Out') => {
+    if (!selectedDoctor) return;
+
+    try {
+      await updateDoc(doc(db, 'doctors', selectedDoctor), {
+        consultationStatus: newStatus,
+        updatedAt: serverTimestamp(),
+      });
+      toast({
+        title: "Status Updated",
+        description: `Doctor status manually set to ${newStatus}.`
+      });
+    } catch (error) {
+      console.error("Error updating doctor status:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update doctor status."
+      });
+    }
+  }, [selectedDoctor, toast]);
+
   const handleUpdateStatus = useCallback((id: string, status: 'completed' | 'Cancelled' | 'No-show' | 'Skipped') => {
     startTransition(async () => {
       try {
@@ -511,6 +533,8 @@ export default function LiveDashboard() {
         showSettings={false}
         pageTitle="Live Queue"
         consultationStatus={consultationStatus}
+        onStatusChange={handleStatusChange}
+        currentTime={currentTime}
       />
       {isOnline ? (
         <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">

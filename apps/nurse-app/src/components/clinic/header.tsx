@@ -28,6 +28,7 @@ type ClinicHeaderProps = {
     consultationStatus?: 'In' | 'Out';
     onStatusChange?: (newStatus: 'In' | 'Out') => void;
     currentTime?: Date;
+    isBreakMode?: boolean;
 };
 
 export default function ClinicHeader({
@@ -42,6 +43,7 @@ export default function ClinicHeader({
     consultationStatus = 'Out',
     onStatusChange,
     currentTime = new Date(),
+    isBreakMode = false,
 }: ClinicHeaderProps) {
     const currentDoctor = doctors.find(d => d.id === selectedDoctor);
 
@@ -65,7 +67,9 @@ export default function ClinicHeader({
         }
     });
 
-    const showBreakToggle = !!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted);
+    const showBreakToggle = isBreakMode
+        ? (!!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted))
+        : true;
 
     const utilityMenuItems = [
         {
@@ -150,9 +154,10 @@ export default function ClinicHeader({
                                 className={`
                         relative px-6 py-2 rounded-full font-medium transition-all duration-300 shadow-lg
                         ${consultationStatus === 'In'
-                                        ? 'bg-amber-500/80 hover:bg-amber-500/90 text-white border-2 border-amber-400/50'
-                                        : 'bg-green-500/80 hover:bg-green-500/90 text-white border-2 border-green-400/50'
+                                        ? (isBreakMode ? 'bg-amber-500/80 hover:bg-amber-500/90' : 'bg-green-500/70 hover:bg-green-500/80')
+                                        : (isBreakMode ? 'bg-green-500/80 hover:bg-green-500/90' : 'bg-red-500/70 hover:bg-red-500/80')
                                     }
+                        text-white border-2 border-white/20
                       `}
                             >
                                 <span className="flex items-center gap-2">
@@ -160,7 +165,10 @@ export default function ClinicHeader({
                           w-2 h-2 rounded-full animate-pulse
                           ${consultationStatus === 'In' ? 'bg-white' : 'bg-white'}
                         `} />
-                                    {consultationStatus === 'In' ? 'Start Break' : 'End Break'}
+                                    {isBreakMode
+                                        ? (consultationStatus === 'In' ? 'Start Break' : 'End Break')
+                                        : (consultationStatus === 'In' ? 'Doctor In' : 'Doctor Out')
+                                    }
                                 </span>
                             </Button>
                         </div>

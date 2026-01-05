@@ -535,6 +535,7 @@ export default function LiveDashboard() {
         consultationStatus={consultationStatus}
         onStatusChange={handleStatusChange}
         currentTime={currentTime}
+        isBreakMode={true}
       />
       {isOnline ? (
         <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">

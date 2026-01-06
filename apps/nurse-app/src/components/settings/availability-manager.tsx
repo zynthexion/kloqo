@@ -170,13 +170,16 @@ export default function AvailabilityManager() {
             })
             .filter(slot => slot.timeSlots.length > 0);
 
-        const newAvailabilitySlots = validSlots.map(s => ({
-            ...s,
-            timeSlots: s.timeSlots.map(ts => ({
-                from: format(parse(ts.from, "HH:mm", new Date()), "hh:mm a"),
-                to: format(parse(ts.to, "HH:mm", new Date()), "hh:mm a")
-            }))
-        }));
+        const newAvailabilitySlots = validSlots.map(s => {
+            const sortedTimeSlots = [...s.timeSlots].sort((a, b) => a.from.localeCompare(b.from));
+            return {
+                ...s,
+                timeSlots: sortedTimeSlots.map(ts => ({
+                    from: format(parse(ts.from, "HH:mm", new Date()), "hh:mm a"),
+                    to: format(parse(ts.to, "HH:mm", new Date()), "hh:mm a")
+                }))
+            };
+        });
 
         const scheduleString = newAvailabilitySlots
             ?.sort((a, b) => daysOfWeek.indexOf(a.day) - daysOfWeek.indexOf(b.day))

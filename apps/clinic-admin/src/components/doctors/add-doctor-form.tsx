@@ -449,7 +449,10 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
 
         const scheduleString = values.availabilitySlots
           ?.sort((a, b) => daysOfWeek.indexOf(a.day) - daysOfWeek.indexOf(b.day))
-          .map(slot => `${slot.day}: ${slot.timeSlots.map(ts => `${format(parse(ts.from, "HH:mm", new Date()), "hh:mm a")}-${format(parse(ts.to, "HH:mm", new Date()), "hh:mm a")}`).join(', ')}`)
+          .map(slot => {
+            const sortedTimeSlots = [...slot.timeSlots].sort((a, b) => a.from.localeCompare(b.from));
+            return `${slot.day}: ${sortedTimeSlots.map(ts => `${format(parse(ts.from, "HH:mm", new Date()), "hh:mm a")}-${format(parse(ts.to, "HH:mm", new Date()), "hh:mm a")}`).join(', ')}`;
+          })
           .join('; ');
 
         // Generate unique ID: use existing ID for edit mode, or generate a unique one for new doctors
@@ -493,12 +496,16 @@ export function AddDoctorForm({ onSave, isOpen, setIsOpen, doctor, departments, 
           experience: values.experience,
           consultationFee: values.consultationFee,
           averageConsultingTime: values.averageConsultingTime,
-          availabilitySlots: values.availabilitySlots.map(s => ({
-            ...s, timeSlots: s.timeSlots.map(ts => ({
-              from: format(parse(ts.from, "HH:mm", new Date()), "hh:mm a"),
-              to: format(parse(ts.to, "HH:mm", new Date()), "hh:mm a")
-            }))
-          })),
+          availabilitySlots: values.availabilitySlots.map(s => {
+            const sortedTimeSlots = [...s.timeSlots].sort((a, b) => a.from.localeCompare(b.from));
+            return {
+              ...s,
+              timeSlots: sortedTimeSlots.map(ts => ({
+                from: format(parse(ts.from, "HH:mm", new Date()), "hh:mm a"),
+                to: format(parse(ts.to, "HH:mm", new Date()), "hh:mm a")
+              }))
+            };
+          }),
           freeFollowUpDays: values.freeFollowUpDays,
           advanceBookingDays: values.advanceBookingDays,
         };

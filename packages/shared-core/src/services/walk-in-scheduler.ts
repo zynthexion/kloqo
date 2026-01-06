@@ -168,7 +168,7 @@ export function computeWalkInSchedule({
   const countAdvanceAfter = (anchorPosition: number): number => {
     let count = 0;
     for (
-      let pos = Math.max(anchorPosition + 1, effectiveFirstFuturePosition);
+      let pos = anchorPosition + 1;
       pos < positionCount;
       pos += 1
     ) {
@@ -188,7 +188,7 @@ export function computeWalkInSchedule({
     }
     let count = 0;
     for (
-      let pos = Math.max(anchorPosition + 1, effectiveFirstFuturePosition);
+      let pos = anchorPosition + 1;
       pos < positionCount;
       pos += 1
     ) {
@@ -207,7 +207,7 @@ export function computeWalkInSchedule({
 
   const findLastAdvanceAfter = (anchorPosition: number): number => {
     for (let pos = positionCount - 1; pos > anchorPosition; pos -= 1) {
-      if (occupancy[pos]?.type === 'A' && !isBefore(orderedSlots[pos].time, now)) {
+      if (occupancy[pos]?.type === 'A') {
         return pos;
       }
     }

@@ -561,12 +561,65 @@ export async function generateNextTokenAndReserveSlot(
       type === 'W' ? getDoc(doc(firestore, 'clinics', clinicId)) : Promise.resolve(null)
     ];
 
-  const [{ doctor, slots }, clinicSnap] = await Promise.all(fetchPromises);
+  const [{ doctor, slots: allSlots }, clinicSnap] = await Promise.all(fetchPromises);
+
+  // Generate request ID early for logging throughout the function
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   let walkInSpacingValue = 0;
   if (type === 'W' && clinicSnap?.exists()) {
     const rawSpacing = Number(clinicSnap.data()?.walkInTokenAllotment ?? 0);
     walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
+  }
+
+  // CRITICAL: For walk-in bookings, restrict to active session only
+  // This prevents concurrent bookings from spilling over into distant future sessions
+  let slots = allSlots;
+  let activeSessionIndex: number | null = null;
+
+  if (type === 'W') {
+    // Identify "Active Session" for this walk-in
+    // A session is active if current time is within the session or up to 30 minutes before it starts
+    activeSessionIndex = (() => {
+      if (allSlots.length === 0) return 0;
+      const sessionMap = new Map<number, { start: Date; end: Date }>();
+      allSlots.forEach((s) => {
+        const current = sessionMap.get(s.sessionIndex);
+        if (!current) {
+          sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
+        } else {
+          if (isBefore(s.time, current.start)) current.start = s.time;
+          if (isAfter(s.time, current.end)) current.end = s.time;
+        }
+      });
+      const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
+      for (const [sIdx, range] of sortedSessions) {
+        // Session is active if now is before session end AND within 30 minutes of session start
+        if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+          return sIdx;
+        }
+      }
+      return null;
+    })();
+
+    if (activeSessionIndex === null) {
+      console.error(`[BOOKING DEBUG] Request ${requestId}: No active session found for walk-in booking`, {
+        now: now.toISOString(),
+        sessions: Array.from(new Set(allSlots.map(s => s.sessionIndex))),
+        timestamp: new Date().toISOString()
+      });
+      throw new Error('No walk-in slots are available. The next session has not started yet.');
+    }
+
+    // Filter slots to only include those in the active session
+    slots = allSlots.filter((s) => s.sessionIndex === activeSessionIndex);
+
+    console.log(`[BOOKING DEBUG] Request ${requestId}: Active session identified`, {
+      activeSessionIndex,
+      totalSlots: allSlots.length,
+      sessionSlots: slots.length,
+      timestamp: new Date().toISOString()
+    });
   }
 
   const totalSlots = slots.length;
@@ -641,7 +694,6 @@ export async function generateNextTokenAndReserveSlot(
     orderBy('slotIndex', 'asc')
   );
 
-  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   console.log(`[BOOKING DEBUG] ====== NEW BOOKING REQUEST (PATIENT APP) ======`, {
     requestId,
     clinicId,
@@ -711,9 +763,32 @@ export async function generateNextTokenAndReserveSlot(
 
         const excludeAppointmentId =
           typeof appointmentData.existingAppointmentId === 'string' ? appointmentData.existingAppointmentId : undefined;
-        const effectiveAppointments = excludeAppointmentId
+        let effectiveAppointments = excludeAppointmentId
           ? appointments.filter(appointment => appointment.id !== excludeAppointmentId)
           : appointments;
+
+        // CRITICAL: For walk-in bookings, filter appointments to only include those in the active session
+        // This prevents the scheduler from considering appointments in other sessions
+        if (type === 'W' && activeSessionIndex !== null) {
+          effectiveAppointments = effectiveAppointments.filter(appointment => {
+            // Include appointment if it has the same sessionIndex
+            if (appointment.sessionIndex === activeSessionIndex) {
+              return true;
+            }
+            // Also include if slotIndex maps to the active session (fallback for older appointments)
+            if (typeof appointment.slotIndex === 'number' && appointment.slotIndex < allSlots.length) {
+              return allSlots[appointment.slotIndex]?.sessionIndex === activeSessionIndex;
+            }
+            return false;
+          });
+
+          console.log(`[BOOKING DEBUG] Request ${requestId}: Filtered appointments to active session`, {
+            totalAppointments: appointments.length,
+            sessionAppointments: effectiveAppointments.length,
+            activeSessionIndex,
+            timestamp: new Date().toISOString()
+          });
+        }
 
         if (DEBUG_BOOKING) {
           console.info('[patient booking] attempt', attempt, {
@@ -796,6 +871,7 @@ export async function generateNextTokenAndReserveSlot(
             effectiveAppointments,
             totalSlots,
             newWalkInNumericToken: nextWalkInNumericToken,
+            forceBook: !!appointmentData.isForceBooked,
           });
 
           numericToken = nextWalkInNumericToken;
@@ -1455,13 +1531,14 @@ export async function prepareAdvanceShift({
     slotIndex: number;
     sessionIndex: number;
     timeString: string;
-    arriveByTime: string; // Added this
+    arriveByTime: string;
     noShowTime: Date;
   }>;
   usedBucketSlotIndex: number | null;
   existingReservations: Map<number, Date>;
 }> {
-  const activeAdvanceAppointments = effectiveAppointments.filter(appointment => {
+  let hasReservationConflict = false; // Add this definition at function start
+  const activeAdvanceAppointments = effectiveAppointments.filter((appointment: any) => {
     return (
       appointment.bookedVia !== 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
@@ -1469,7 +1546,7 @@ export async function prepareAdvanceShift({
     );
   });
 
-  const activeWalkIns = effectiveAppointments.filter(appointment => {
+  const activeWalkIns = effectiveAppointments.filter((appointment: any) => {
     return (
       appointment.bookedVia === 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
@@ -2115,6 +2192,14 @@ export async function prepareAdvanceShift({
         return null; // Reject this assignment, will use bucket compensation instead
       }
 
+      // CRITICAL FIX: Verify the assignment is valid. If it's an overflow slot (index >= totalSlots),
+      // we must have explicit permission (forceBook) or valid bucket compensation.
+      const isOverflowSlot = newAssignment.slotIndex >= slots.length;
+      if (isOverflowSlot && !forceBook && cancelledSlotsInBucket.size === 0) {
+        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned virtual overflow slot without forceBook or bucket credits - rejecting:', newAssignment.slotIndex);
+        return null;
+      }
+
       return { schedule, newAssignment, placeholderIds: new Set() };
     } catch {
       return null;
@@ -2153,7 +2238,7 @@ export async function prepareAdvanceShift({
   let usedBucket = false;
   let usedBucketSlotIndex: number | null = null;
   let bucketReservationRef: DocumentReference | null = null;
-  let hasReservationConflict = false; // Track if failure was due to reservation conflict
+  hasReservationConflict = false; // Track if failure was due to reservation conflict
   let newSlotIndex = -1;
   let lastWalkInSlotIndex = -1;
 
@@ -2817,826 +2902,865 @@ export async function prepareAdvanceShift({
       });
     }
 
-    return {
-      newAssignment,
-      reservationDeletes: Array.from(reservationDeletes.values()),
-      appointmentUpdates,
-      usedBucketSlotIndex,
-      existingReservations,
-    };
   }
+
+  return {
+    newAssignment,
+    reservationDeletes: Array.from(reservationDeletes.values()),
+    appointmentUpdates,
+    usedBucketSlotIndex,
+    existingReservations,
+  };
 }
 
-  export async function calculateWalkInDetails(
-    firestore: Firestore,
-    doctor: Doctor,
-    walkInTokenAllotment?: number,
-    walkInCapacityThreshold: number = 0,
-    forceBook: boolean = false
-  ): Promise<{
-    estimatedTime: Date;
-    patientsAhead: number;
-    numericToken: number;
-    slotIndex: number;
-    sessionIndex: number;
-    actualSlotTime: Date;
-    isForceBooked?: boolean;
-  }> {
-    const now = getClinicNow();
-    const date = now;
+export async function calculateWalkInDetails(
+  firestore: Firestore,
+  doctor: Doctor,
+  walkInTokenAllotment?: number,
+  walkInCapacityThreshold: number = 0,
+  forceBook: boolean = false
+): Promise<{
+  estimatedTime: Date;
+  patientsAhead: number;
+  numericToken: number;
+  slotIndex: number;
+  sessionIndex: number;
+  actualSlotTime: Date;
+  isForceBooked?: boolean;
+}> {
+  const now = getClinicNow();
+  const date = now;
 
-    // PERFORMANCE OPTIMIZATION: Parallelize initial data fetches for preview
-    // This improves preview calculation speed by ~40%
-    const fetchPromises: [
-      Promise<LoadedDoctor>,
-      Promise<Appointment[]>,
-      Promise<DocumentSnapshot | null>
-    ] = [
-        loadDoctorAndSlots(firestore, doctor.clinicId || '', doctor.name, date, doctor.id),
-        fetchDayAppointments(firestore, doctor.clinicId || '', doctor.name, date),
-        walkInTokenAllotment === undefined && doctor.clinicId
-          ? getDoc(doc(firestore, 'clinics', doctor.clinicId))
-          : Promise.resolve(null)
-      ];
-
-    const [{ slots }, appointments, clinicSnap] = await Promise.all(fetchPromises);
-
-    console.log('[WALK-IN:ESTIMATE] Total appointments fetched:', {
-      count: appointments.length,
-      appointments: appointments.map(a => ({
-        id: a.id,
-        bookedVia: a.bookedVia,
-        status: a.status,
-        slotIndex: a.slotIndex
-      }))
-    });
-
-    // Extract walkInTokenAllotment from clinic data if needed
-    if (walkInTokenAllotment === undefined && clinicSnap?.exists()) {
-      try {
-        const data = clinicSnap.data();
-        const rawSpacing = Number(data?.walkInTokenAllotment ?? 0);
-        if (Number.isFinite(rawSpacing) && rawSpacing > 0) {
-          walkInTokenAllotment = Math.floor(rawSpacing);
-        }
-      } catch (e) {
-        console.warn('Failed to extract walk-in token allotment:', e);
-      }
-    }
-
-    // Calculate numeric token first
-    const existingNumericTokens = appointments
-      .filter(appointment => appointment.bookedVia === 'Walk-in')
-      .map(appointment => {
-        if (typeof appointment.numericToken === 'number') {
-          return appointment.numericToken;
-        }
-        const parsed = Number(appointment.numericToken);
-        return Number.isFinite(parsed) ? parsed : 0;
-      })
-      .filter(token => token > 0);
-
-    const numericToken =
-      (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
-
-    // Use smart scheduler to find the slot
-    const activeAdvanceAppointments = appointments.filter(appointment => {
-      return (
-        appointment.bookedVia !== 'Walk-in' &&
-        typeof appointment.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appointment.status)
-      );
-    });
-
-    const activeWalkIns = appointments.filter(appointment => {
-      return (
-        appointment.bookedVia === 'Walk-in' &&
-        typeof appointment.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appointment.status)
-      );
-    });
-
-
-
-    // For preview, we include both existing walk-ins and the new candidate
-    // so the scheduler can correctly account for spacing between walk-ins.
-    const baseWalkInCandidates = activeWalkIns.map(appt => ({
-      id: appt.id,
-      numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
-      createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
-      currentSlotIndex: appt.slotIndex,
-    }));
-
-    const activeWalkInCandidates = [
-      ...baseWalkInCandidates,
-      {
-        id: '__new_walk_in__',
-        numericToken,
-        createdAt: now,
-      }
+  // PERFORMANCE OPTIMIZATION: Parallelize initial data fetches for preview
+  // This improves preview calculation speed by ~40%
+  const fetchPromises: [
+    Promise<LoadedDoctor>,
+    Promise<Appointment[]>,
+    Promise<DocumentSnapshot | null>
+  ] = [
+      loadDoctorAndSlots(firestore, doctor.clinicId || '', doctor.name, date, doctor.id),
+      fetchDayAppointments(firestore, doctor.clinicId || '', doctor.name, date),
+      walkInTokenAllotment === undefined && doctor.clinicId
+        ? getDoc(doc(firestore, 'clinics', doctor.clinicId))
+        : Promise.resolve(null)
     ];
 
-    // ============================================================================
-    // ORDER PROTECTION: Identify cancelled slots that MUST remain blocked
-    // ============================================================================
-    // Include cancelled slots logic for bucket compensation
-    const oneHourAhead = addMinutes(now, 60);
-    const hasExistingWalkIns = activeWalkIns.length > 0;
+  const [{ slots: allSlots }, appointments, clinicSnap] = await Promise.all(fetchPromises);
 
-    console.log('[WALK-IN:SCHEDULER-INPUT] Prep:', {
-      activeAdvanceCount: activeAdvanceAppointments.length,
-      activeWalkInCount: activeWalkIns.length,
-      hasExistingWalkIns
-    });
-
-    // Calculate bucket count logic (same as appointment-service.ts)
-    const cancelledSlotsInWindow: Array<{ slotIndex: number; slotTime: Date }> = [];
-    let bucketCount = 0;
-
-    // Build set of slots with active appointments
-    const slotsWithActiveAppointments = new Set<number>();
-    appointments.forEach(appt => {
-      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
-        slotsWithActiveAppointments.add(appt.slotIndex);
+  // 1. Identify "Active Session" for this walk-in.
+  const activeSessionIndex = (() => {
+    if (allSlots.length === 0) return 0;
+    const sessionMap = new Map<number, { start: Date; end: Date }>();
+    allSlots.forEach((s: any) => {
+      const current = sessionMap.get(s.sessionIndex);
+      if (!current) {
+        sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
+      } else {
+        if (isBefore(s.time, current.start)) current.start = s.time;
+        if (isAfter(s.time, current.end)) current.end = s.time;
       }
     });
+    const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
+    for (const [sIdx, range] of sortedSessions) {
+      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+        return sIdx;
+      }
+    }
+    return null;
+  })();
 
-    const activeWalkInsWithTimes = activeWalkIns
-      .filter(appt => typeof appt.slotIndex === 'number')
-      .map(appt => ({
-        slotIndex: appt.slotIndex!,
-        slotTime: slots[appt.slotIndex!]?.time,
-      }))
-      .filter(item => item.slotTime !== undefined);
+  const targetSessionIndex = activeSessionIndex ?? 0;
+  const slots = allSlots.filter((s: any) => s.sessionIndex === targetSessionIndex);
 
-    // Restore variable initialization
-    const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
-      // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
-      // The scheduler treats IDs starting with '__blocked_' as immovable and excludes them from spacing.
-      const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
-      const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+  const lastSlotIndexInSession = slots.length > 0
+    ? Math.max(...slots.map((s: any) => s.index))
+    : -1;
 
-      return {
-        id,
-        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-      };
-    });
+  // Filter appointments to only include those in the active session
+  const sessionAppointments = appointments.filter((appointment: any) => {
+    return (
+      appointment.sessionIndex === targetSessionIndex ||
+      (typeof appointment.slotIndex === 'number' && allSlots[appointment.slotIndex]?.sessionIndex === targetSessionIndex)
+    );
+  });
 
-    console.log('[WALK-IN:ESTIMATE] Blocked/Immovable appointments:', {
-      count: blockedAdvanceAppointments.length,
-      blocked: blockedAdvanceAppointments.filter(a => a.id.startsWith('__blocked_'))
-    });
+  const allSlotIndicesFromSessionAppointments = sessionAppointments
+    .filter((a: any) => typeof a.slotIndex === 'number')
+    .map((appointment: any) => appointment.slotIndex as number);
 
-    // EXISTING WALK-IN HACK REMOVED: 
-    // We no longer add existing walk-ins to blockedAdvanceAppointments here.
-    // They are now correctly handled via activeWalkInCandidates above.
+  const maxSlotIndexInSession = allSlotIndicesFromSessionAppointments.length > 0
+    ? Math.max(...allSlotIndicesFromSessionAppointments)
+    : -1;
 
-    // Identify blocked cancelled slots (Order Protection) & Bucket Count
-    const cancelledSlotsInBucket = new Set<number>();
+  console.log('[WALK-IN:ESTIMATE] Total appointments in session:', {
+    count: sessionAppointments.length,
+    sessionIndex: targetSessionIndex,
+    appointments: sessionAppointments.map(a => ({
+      id: a.id,
+      bookedVia: a.bookedVia,
+      status: a.status,
+      slotIndex: a.slotIndex
+    }))
+  });
 
-    appointments.forEach(appt => {
-      if (
-        (appt.status === 'Cancelled' || appt.status === 'No-show') &&
-        typeof appt.slotIndex === 'number' &&
-        (appt.bookedVia as string) !== 'BreakBlock' // CRITICAL: Ignore administrative blocks
-      ) {
-        const slotMeta = slots[appt.slotIndex];
-        if (slotMeta) {
-          // For bucket count: Include past slots (within 1 hour window)
-          const isInBucketWindow = !isAfter(slotMeta.time, oneHourAhead);
+  // Extract walkInTokenAllotment from clinic data if needed
+  if (walkInTokenAllotment === undefined && clinicSnap?.exists()) {
+    try {
+      const data = clinicSnap.data();
+      const rawSpacing = Number(data?.walkInTokenAllotment ?? 0);
+      if (Number.isFinite(rawSpacing) && rawSpacing > 0) {
+        walkInTokenAllotment = Math.floor(rawSpacing);
+      }
+    } catch (e) {
+      console.warn('Failed to extract walk-in token allotment:', e);
+    }
+  }
 
-          if (isInBucketWindow) {
-            // Only process if there's no active appointment at this slot
-            if (!slotsWithActiveAppointments.has(appt.slotIndex)) {
-              const hasWalkInsAfter = activeWalkInsWithTimes.some(w => isAfter(w.slotTime!, slotMeta.time));
+  // Calculate numeric token first
+  const existingNumericTokens = sessionAppointments
+    .filter(appointment => appointment.bookedVia === 'Walk-in')
+    .map(appointment => {
+      if (typeof appointment.numericToken === 'number') {
+        return appointment.numericToken;
+      }
+      const parsed = Number(appointment.numericToken);
+      return Number.isFinite(parsed) ? parsed : 0;
+    })
+    .filter(token => token > 0);
 
-              if (hasWalkInsAfter) {
-                // Cancelled slot with walk-ins after -> Bucket Credit
-                if (hasExistingWalkIns) {
-                  bucketCount += 1;
-                }
-                cancelledSlotsInBucket.add(appt.slotIndex);
-                blockedAdvanceAppointments.push({
-                  id: `__blocked_cancelled_${appt.slotIndex}`,
-                  slotIndex: appt.slotIndex
+  const numericToken =
+    (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
+
+  // Use smart scheduler to find the slot
+  const activeAdvanceAppointments = sessionAppointments.filter((appointment: any) => {
+    return (
+      appointment.bookedVia !== 'Walk-in' &&
+      (appointment.bookedVia as string) !== 'BreakBlock' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+  const activeWalkIns = sessionAppointments.filter((appointment: any) => {
+    return (
+      appointment.bookedVia === 'Walk-in' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+
+
+  // For preview, we include both existing walk-ins and the new candidate
+  // so the scheduler can correctly account for spacing between walk-ins.
+  const baseWalkInCandidates = activeWalkIns.map((appt: any) => ({
+    id: appt.id,
+    numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
+    createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
+    currentSlotIndex: appt.slotIndex,
+  }));
+
+  const activeWalkInCandidates = [
+    ...baseWalkInCandidates,
+    {
+      id: '__new_walk_in__',
+      numericToken,
+      createdAt: now,
+    }
+  ];
+
+  // ============================================================================
+  // ORDER PROTECTION: Identify cancelled slots that MUST remain blocked
+  // ============================================================================
+  // Include cancelled slots logic for bucket compensation
+  const oneHourAhead = addMinutes(now, 60);
+  const hasExistingWalkIns = activeWalkIns.length > 0;
+
+  console.log('[WALK-IN:SCHEDULER-INPUT] Prep:', {
+    activeAdvanceCount: activeAdvanceAppointments.length,
+    activeWalkInCount: activeWalkIns.length,
+    hasExistingWalkIns
+  });
+
+  // Calculate bucket count logic (same as appointment-service.ts)
+  const cancelledSlotsInWindow: Array<{ slotIndex: number; slotTime: Date }> = [];
+  let bucketCount = 0;
+
+  // Build set of slots with active appointments
+  const slotsWithActiveAppointments = new Set<number>();
+  sessionAppointments.forEach((appt: any) => {
+    if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+      slotsWithActiveAppointments.add(appt.slotIndex);
+    }
+  });
+
+  const activeWalkInsWithTimes = activeWalkIns
+    .filter(appt => typeof appt.slotIndex === 'number')
+    .map(appt => ({
+      slotIndex: appt.slotIndex!,
+      slotTime: slots[appt.slotIndex!]?.time,
+    }))
+    .filter(item => item.slotTime !== undefined);
+
+  // Restore variable initialization
+  const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
+    // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
+    // The scheduler treats IDs starting with '__blocked_' as immovable and excludes them from spacing.
+    const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
+    const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+
+    return {
+      id,
+      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+    };
+  });
+
+  console.log('[WALK-IN:ESTIMATE] Blocked/Immovable appointments:', {
+    count: blockedAdvanceAppointments.length,
+    blocked: blockedAdvanceAppointments.filter(a => a.id.startsWith('__blocked_'))
+  });
+
+  // EXISTING WALK-IN HACK REMOVED: 
+  // We no longer add existing walk-ins to blockedAdvanceAppointments here.
+  // They are now correctly handled via activeWalkInCandidates above.
+
+  // Identify blocked cancelled slots (Order Protection) & Bucket Count
+  const cancelledSlotsInBucket = new Set<number>();
+
+  appointments.forEach(appt => {
+    if (
+      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
+      typeof appt.slotIndex === 'number' &&
+      (appt.bookedVia as string) !== 'BreakBlock' // CRITICAL: Ignore administrative blocks
+    ) {
+      const slotMeta = slots[appt.slotIndex];
+      if (slotMeta) {
+        // For bucket count: Include past slots (within 1 hour window)
+        const isInBucketWindow = !isAfter(slotMeta.time, oneHourAhead);
+
+        if (isInBucketWindow) {
+          // Only process if there's no active appointment at this slot
+          if (!slotsWithActiveAppointments.has(appt.slotIndex)) {
+            const hasWalkInsAfter = activeWalkInsWithTimes.some(w => isAfter(w.slotTime!, slotMeta.time));
+
+            if (hasWalkInsAfter) {
+              // Cancelled slot with walk-ins after -> Bucket Credit
+              if (hasExistingWalkIns) {
+                bucketCount += 1;
+              }
+              cancelledSlotsInBucket.add(appt.slotIndex);
+              blockedAdvanceAppointments.push({
+                id: `__blocked_cancelled_${appt.slotIndex}`,
+                slotIndex: appt.slotIndex
+              });
+            } else {
+              // No walk-ins after -> Can be used directly
+              if (!hasExistingWalkIns && !isBefore(slotMeta.time, now)) {
+                cancelledSlotsInWindow.push({
+                  slotIndex: appt.slotIndex,
+                  slotTime: slotMeta.time,
                 });
-              } else {
-                // No walk-ins after -> Can be used directly
-                if (!hasExistingWalkIns && !isBefore(slotMeta.time, now)) {
-                  cancelledSlotsInWindow.push({
-                    slotIndex: appt.slotIndex,
-                    slotTime: slotMeta.time,
-                  });
-                }
+              }
 
-                // No walk-ins yet -> Count as potential bucket credit if not reused
-                if (!hasExistingWalkIns) {
-                  const isNotInCancelledWindow = cancelledSlotsInWindow.every(
-                    cs => cs.slotIndex !== appt.slotIndex
-                  );
-                  if (isNotInCancelledWindow) {
-                    bucketCount += 1;
-                  }
+              // No walk-ins yet -> Count as potential bucket credit if not reused
+              if (!hasExistingWalkIns) {
+                const isNotInCancelledWindow = cancelledSlotsInWindow.every(
+                  cs => cs.slotIndex !== appt.slotIndex
+                );
+                if (isNotInCancelledWindow) {
+                  bucketCount += 1;
                 }
               }
             }
           }
         }
       }
-    });
-
-    // Calculate effective bucket count
-    const walkInsOutsideAvailability = activeWalkIns.filter(appt => {
-      if (typeof appt.slotIndex !== 'number') return false;
-      return appt.slotIndex >= slots.length; // Outside availability
-    });
-    const usedBucketSlots = walkInsOutsideAvailability.length;
-    const firestoreBucketCount = Math.max(0, bucketCount - usedBucketSlots);
-
-
-    // ============================================================================
-    // PREVIEW ACCURACY FIX: Check existing reservations
-    // ============================================================================
-    // Read existing slot reservations to match booking behavior
-    // This ensures preview shows accurate time by accounting for reserved slots
-    const reservedSlots = new Set<number>();
-    const maxSlotToCheck = Math.min(slots.length + 50, 200); // Check reasonable range
-    const dateStr = getClinicDateString(date);
-
-    // Batch read reservations for better performance
-    const reservationChecks: Promise<{ slotIdx: number; snap: DocumentSnapshot }>[] = [];
-
-    for (let slotIdx = 0; slotIdx < maxSlotToCheck; slotIdx++) {
-      const reservationId = buildReservationDocId(
-        doctor.clinicId || '',
-        doctor.name,
-        dateStr,
-        slotIdx
-      );
-
-      reservationChecks.push(
-        getDoc(doc(firestore, 'slot-reservations', reservationId))
-          .then(snap => ({ slotIdx, snap }))
-          .catch(() => ({ slotIdx, snap: null as any }))
-      );
     }
+  });
 
-    // Wait for all reservation checks to complete
-    const reservationResults = await Promise.all(reservationChecks);
-
-
-
-    // Process reservation results
-    reservationResults.forEach(({ slotIdx, snap }) => {
-      if (!snap || !snap.exists()) return;
-
-      try {
-        const data = snap.data();
-        const reservedAt = data?.reservedAt;
-
-        if (!reservedAt) return;
-
-        // Parse reservation time
-        let reservedTime: Date | null = null;
-        if (typeof reservedAt.toDate === 'function') {
-          reservedTime = reservedAt.toDate();
-        } else if (reservedAt instanceof Date) {
-          reservedTime = reservedAt;
-        } else if (reservedAt.seconds) {
-          reservedTime = new Date(reservedAt.seconds * 1000);
-        }
-
-        if (!reservedTime) return;
-
-        // Check if reservation is still valid (not stale)
-        const ageInSeconds = (now.getTime() - reservedTime.getTime()) / 1000;
-        const isBooked = data.status === 'booked';
-        const threshold = isBooked ? 300 : 30; // 5 minutes for booked, 30 seconds for temporary
-
-        if (ageInSeconds <= threshold) {
-          // Skip reservations from advance booking (they don't block walk-ins in actual booking)
-          const reservedBy = data?.reservedBy as string | undefined;
-          if (reservedBy !== 'appointment-booking') {
-            reservedSlots.add(slotIdx);
+  // Calculate effective bucket count
+  const walkInsOutsideAvailability = activeWalkIns.filter(appt => {
+    if (typeof appt.slotIndex !== 'number') return false;
+    return appt.slotIndex >= slots.length; // Outside availability
+  });
+  const usedBucketSlots = walkInsOutsideAvailability.length;
+  const firestoreBucketCount = Math.max(0, bucketCount - usedBucketSlots);
 
 
-          }
-        }
-      } catch (e) {
-        // Ignore parsing errors, continue with other slots
-      }
-    });
+  // ============================================================================
+  // PREVIEW ACCURACY FIX: Check existing reservations
+  // ============================================================================
+  // Read existing slot reservations to match booking behavior
+  // This ensures preview shows accurate time by accounting for reserved slots
+  const reservedSlots = new Set<number>();
+  const maxSlotToCheck = Math.min(slots.length + 50, 200); // Check reasonable range
+  const dateStr = getClinicDateString(date);
 
-    // Add reserved slots to blocked appointments so scheduler avoids them
-    reservedSlots.forEach(slotIdx => {
-      blockedAdvanceAppointments.push({
-        id: `__reserved_${slotIdx}`,
-        slotIndex: slotIdx
-      });
-    });
+  // Batch read reservations for better performance
+  const reservationChecks: Promise<{ slotIdx: number; snap: DocumentSnapshot }>[] = [];
 
-    let schedule: { assignments: SchedulerAssignment[] } | null = null;
+  for (let slotIdx = 0; slotIdx < maxSlotToCheck; slotIdx++) {
+    const reservationId = buildReservationDocId(
+      doctor.clinicId || '',
+      doctor.name,
+      dateStr,
+      slotIdx
+    );
+
+    reservationChecks.push(
+      getDoc(doc(firestore, 'slot-reservations', reservationId))
+        .then(snap => ({ slotIdx, snap }))
+        .catch(() => ({ slotIdx, snap: null as any }))
+    );
+  }
+
+  // Wait for all reservation checks to complete
+  const reservationResults = await Promise.all(reservationChecks);
 
 
 
-    // Strategy 4: Bucket Compensation Check (Calculate early for error handling)
-    // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
-    const allSlotsFilled = (() => {
-      // ------------------------------------------------------------------------
-      // REVISED LOGIC: Account for "Overflow" appointments filling gaps in Scheduler
-      // ------------------------------------------------------------------------
-      let freeFutureSlotsCount = 0;
-      const occupiedIndices = new Set<number>();
-
-      // 1. Identify Occupied Indices from Appointments & Blocked
-      const registerOccupancy = (idx: number) => {
-        if (typeof idx === 'number') occupiedIndices.add(idx);
-      };
-
-      appointments.forEach(appt => {
-        if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
-          registerOccupancy(appt.slotIndex);
-        }
-      });
-      blockedAdvanceAppointments.forEach(blocked => {
-        if (typeof blocked.slotIndex === 'number') registerOccupancy(blocked.slotIndex);
-      });
-
-      // 2. Count "Free" Slots in the future
-      for (let i = 0; i < slots.length; i++) {
-        if (isBefore(slots[i].time, now)) continue;
-        if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) continue; // Blocked by bucket
-
-        if (!occupiedIndices.has(i)) {
-          freeFutureSlotsCount++;
-        }
-      }
-
-      // 3. Count "Overflow" Appointments (Indices >= slots.length)
-      // These will be back-filled by the Scheduler into the Free Slots
-      let overflowCount = 0;
-      appointments.forEach(appt => {
-        if (ACTIVE_STATUSES.has(appt.status)) {
-          // If valid index but outside range, OR no index (though we filter for number usually)
-          if (typeof appt.slotIndex === 'number' && appt.slotIndex >= slots.length) {
-            overflowCount++;
-          }
-        }
-      });
-      // Also check blocked advance if any are out of bounds (unlikely if derived from active)
-      blockedAdvanceAppointments.forEach(blocked => {
-        if (typeof blocked.slotIndex === 'number' && blocked.slotIndex >= slots.length) {
-          // De-duplicate if already counted?
-          // blockedAdvanceAppointments is usually a subset/map of active.
-          // We can just rely on appointments loop above for the count to be safe/simple
-          // BUT blocked might include cancelled-in-bucket which are separate.
-          // CancelledInBucket indices are usually valid (within range).
-          // So we primarily care about 'Active Advance' that are out of bounds.
-        }
-      });
-
-      if (overflowCount >= freeFutureSlotsCount) {
-        return true; // Overflow will fill all gaps, so session is full
-      }
-
-      return false; // Steps above confirm explicitly active slots
-    })();
-
-    const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
+  // Process reservation results
+  reservationResults.forEach(({ slotIdx, snap }) => {
+    if (!snap || !snap.exists()) return;
 
     try {
-      console.log('[WALK-IN:SCHEDULER-INPUT] Calling computeWalkInSchedule', {
-        slotsCount: slots.length,
-        walkInTokenAllotment,
-        blockedAdvance: blockedAdvanceAppointments.map(a => ({ id: a.id, slot: a.slotIndex })),
-        walkInCandidates: activeWalkInCandidates.map(c => ({ id: c.id, token: c.numericToken, currentSlot: (c as any).currentSlotIndex }))
-      });
+      const data = snap.data();
+      const reservedAt = data?.reservedAt;
 
-      schedule = computeWalkInSchedule({
-        slots,
-        now,
-        walkInTokenAllotment: walkInTokenAllotment || 0,
-        advanceAppointments: blockedAdvanceAppointments,
-        walkInCandidates: activeWalkInCandidates,
-      });
+      if (!reservedAt) return;
 
-      console.log('[WALK-IN:SCHEDULER-OUTPUT] Schedule result', {
-        assignmentsCount: schedule?.assignments.length,
-        newWalkIn: schedule?.assignments.find(a => a.id === '__new_walk_in__')
-      });
-    } catch (error) {
-      // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
-      // ONLY if explicit forceBook is requested OR bucket compensation is available.
-      // Automatic overflow based solely on allSlotsFilled is disabled to ensure UI prompts are shown.
-      if (!forceBook && !canUseBucketCompensation) {
-        throw error;
+      // Parse reservation time
+      let reservedTime: Date | null = null;
+      if (typeof reservedAt.toDate === 'function') {
+        reservedTime = reservedAt.toDate();
+      } else if (reservedAt instanceof Date) {
+        reservedTime = reservedAt;
+      } else if (reservedAt.seconds) {
+        reservedTime = new Date(reservedAt.seconds * 1000);
       }
-    }
 
-    const newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
+      if (!reservedTime) return;
 
-    let chosenSlotIndex = -1;
-    let chosenSessionIndex = 0;
-    let chosenTime = now;
+      // Check if reservation is still valid (not stale)
+      const ageInSeconds = (now.getTime() - reservedTime.getTime()) / 1000;
+      const isBooked = data.status === 'booked';
+      const threshold = isBooked ? 300 : 30; // 5 minutes for booked, 30 seconds for temporary
 
-    if (newAssignment) {
-      chosenSlotIndex = newAssignment.slotIndex;
-      chosenSessionIndex = newAssignment.sessionIndex;
-      chosenTime = newAssignment.slotTime;
-
-
-    }
-
-    if (!newAssignment || chosenSlotIndex === -1) {
-      // Strategy 4: Bucket Compensation Check
-      // If forceBook is enabled OR bucket compensation is valid, create an overflow slot
-      if (forceBook || canUseBucketCompensation) {
+      if (ageInSeconds <= threshold) {
+        // Skip reservations from advance booking (they don't block walk-ins in actual booking)
+        const reservedBy = data?.reservedBy as string | undefined;
+        if (reservedBy !== 'appointment-booking') {
+          reservedSlots.add(slotIdx);
 
 
-        // Find the last slot index from all appointments and slots
-        const allSlotIndices = [
-          ...appointments
-            .filter(apt => typeof apt.slotIndex === 'number')
-            .map(apt => apt.slotIndex as number),
-          ...slots.map(s => s.index)
-        ];
-
-        const maxSlotIndex = allSlotIndices.length > 0 ? Math.max(...allSlotIndices) : -1;
-        const overflowSlotIndex = maxSlotIndex + 1;
-
-        // Find last slot time or use last session end time
-        let overflowTime: Date;
-        const consultationTime = doctor.averageConsultingTime || 15;
-
-        if (slots.length > 0) {
-          const lastSlot = slots[slots.length - 1];
-          overflowTime = addMinutes(lastSlot.time, consultationTime);
-        } else {
-          // No slots exist, use current time
-          overflowTime = addMinutes(now, consultationTime);
         }
-
-        // Determine session index (use last session)
-        const dayOfWeek = getClinicDayOfWeek(date);
-        const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-        const lastSessionIndex = availabilityForDay?.timeSlots?.length
-          ? availabilityForDay.timeSlots.length - 1
-          : 0;
-
-        // Count patients ahead (all active appointments)
-        const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped']);
-        const patientsAhead = appointments.filter(appointment =>
-          allActiveStatuses.has(appointment.status)
-        ).length;
-
-        console.log('[OVERFLOW] Created overflow slot:', {
-          slotIndex: overflowSlotIndex,
-          time: getClinicTimeString(overflowTime),
-          sessionIndex: lastSessionIndex,
-          numericToken,
-          patientsAhead,
-          reason: forceBook ? 'ForceBook' : 'BucketCompensation'
-        });
-
-        return {
-          estimatedTime: overflowTime,
-          patientsAhead,
-          numericToken,
-          slotIndex: overflowSlotIndex,
-          sessionIndex: lastSessionIndex,
-          actualSlotTime: overflowTime,
-          isForceBooked: true, // Mark as force booked so UI accepts it (it's valid "overflow")
-        };
       }
-
-      throw new Error('No walk-in slots are available at this time.');
+    } catch (e) {
+      // Ignore parsing errors, continue with other slots
     }
+  });
 
-    const allActiveStatusesCount = new Set(['Pending', 'Confirmed', 'Skipped']);
-    const patientsAheadDetails = appointments.filter(appointment => {
-      const isMatched = typeof appointment.slotIndex === 'number' &&
-        appointment.slotIndex < chosenSlotIndex &&
-        allActiveStatusesCount.has(appointment.status);
-
-      return isMatched;
+  // Add reserved slots to blocked appointments so scheduler avoids them
+  reservedSlots.forEach(slotIdx => {
+    blockedAdvanceAppointments.push({
+      id: `__reserved_${slotIdx}`,
+      slotIndex: slotIdx
     });
+  });
 
-    const patientsAhead = patientsAheadDetails.length;
+  let schedule: { assignments: SchedulerAssignment[] } | null = null;
 
-    console.log('[WALK-IN:ESTIMATE] Patients Ahead Calculation:', {
-      doctor: doctor.name,
-      chosenSlotIndex,
-      totalAppointments: appointments.length,
-      activeAppointmentsCount: appointments.filter(a => ACTIVE_STATUSES.has(a.status)).length,
-      patientsAhead,
-      matchedAppointments: patientsAheadDetails.map(a => ({
-        id: a.id,
-        slotIndex: a.slotIndex,
-        status: a.status,
-        bookedVia: a.bookedVia
-      }))
-    });
 
-    return {
-      estimatedTime: chosenTime,
-      patientsAhead,
-      numericToken,
-      slotIndex: chosenSlotIndex,
-      sessionIndex: chosenSessionIndex,
-      actualSlotTime: chosenTime,
+
+  // Strategy 4: Bucket Compensation Check (Calculate early for error handling)
+  // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
+  const allSlotsFilled = (() => {
+    // ------------------------------------------------------------------------
+    // REVISED LOGIC: Account for "Overflow" appointments filling gaps in Scheduler
+    // ------------------------------------------------------------------------
+    let freeFutureSlotsCount = 0;
+    const occupiedIndices = new Set<number>();
+
+    // 1. Identify Occupied Indices from Appointments & Blocked
+    const registerOccupancy = (idx: number) => {
+      if (typeof idx === 'number') occupiedIndices.add(idx);
     };
-  }
 
-  export interface WalkInPreviewShift {
-    id: string;
-    tokenNumber?: string;
-    fromSlot: number;
-    toSlot: number;
-    fromTime?: Date | null;
-    toTime: Date;
-  }
-
-  export interface WalkInPreviewResult {
-    placeholderAssignment: SchedulerAssignment | null;
-    advanceShifts: WalkInPreviewShift[];
-    walkInAssignments: SchedulerAssignment[];
-  }
-
-  export async function previewWalkInPlacement(
-    firestore: Firestore,
-    clinicId: string,
-    doctorName: string,
-    date: Date,
-    walkInTokenAllotment: number,
-    doctorId?: string
-  ): Promise<WalkInPreviewResult> {
-    const DEBUG = process.env.NEXT_PUBLIC_DEBUG_WALK_IN === 'true';
-    const { slots } = await loadDoctorAndSlots(firestore, clinicId, doctorName, date, doctorId);
-    const appointments = await fetchDayAppointments(firestore, clinicId, doctorName, date);
-
-    const activeAdvanceAppointments = appointments.filter(appointment => {
-      return (
-        appointment.bookedVia !== 'Walk-in' &&
-        typeof appointment.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appointment.status)
-      );
+    sessionAppointments.forEach(appt => {
+      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+        registerOccupancy(appt.slotIndex);
+      }
+    });
+    blockedAdvanceAppointments.forEach(blocked => {
+      if (typeof blocked.slotIndex === 'number') registerOccupancy(blocked.slotIndex);
     });
 
-    const activeWalkIns = appointments.filter(appointment => {
-      return (
-        appointment.bookedVia === 'Walk-in' &&
-        typeof appointment.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appointment.status)
-      );
-    });
+    // 2. Count "Free" Slots in the future
+    for (const slot of slots) {
+      if (isBefore(slot.time, now)) continue;
+      if (hasExistingWalkIns && cancelledSlotsInBucket.has(slot.index)) continue; // Blocked by bucket
 
-    const existingNumericTokens = activeWalkIns
-      .map(appointment => {
-        if (typeof appointment.numericToken === 'number') {
-          return appointment.numericToken;
+      if (!occupiedIndices.has(slot.index)) {
+        freeFutureSlotsCount++;
+      }
+    }
+
+    // 3. Count "Overflow" Appointments (Indices >= lastSlotIndexInSession + 1)
+    let overflowCount = 0;
+    sessionAppointments.forEach(appt => {
+      if (ACTIVE_STATUSES.has(appt.status)) {
+        if (typeof appt.slotIndex === 'number' && appt.slotIndex > lastSlotIndexInSession) {
+          overflowCount++;
         }
-        const parsed = Number(appointment.numericToken);
-        return Number.isFinite(parsed) ? parsed : 0;
-      })
-      .filter(token => token > 0);
+      }
+    });
 
-    const placeholderNumericToken =
-      (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
+    if (overflowCount >= freeFutureSlotsCount) {
+      return true; // Overflow will fill all gaps, so session is full
+    }
 
-    const placeholderId = '__preview_walk_in__';
+    return false; // Steps above confirm explicitly active slots
+  })();
 
-    const walkInCandidates = [
-      ...activeWalkIns.map(appointment => ({
-        id: appointment.id,
-        numericToken:
-          typeof appointment.numericToken === 'number'
-            ? appointment.numericToken
-            : Number(appointment.numericToken ?? 0) || 0,
-        createdAt: toDate(appointment.createdAt),
-        currentSlotIndex: typeof appointment.slotIndex === 'number' ? appointment.slotIndex : undefined,
-      })),
+  const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
+
+  try {
+    schedule = computeWalkInSchedule({
+      slots,
+      now,
+      walkInTokenAllotment: walkInTokenAllotment || 0,
+      advanceAppointments: blockedAdvanceAppointments,
+      walkInCandidates: activeWalkInCandidates,
+    });
+  } catch (error) {
+    // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
+    // ONLY if explicit forceBook is requested OR bucket compensation is available.
+    // Automatic overflow based solely on allSlotsFilled is disabled to ensure UI prompts are shown.
+    if (!forceBook && !canUseBucketCompensation) {
+      throw error;
+    }
+  }
+
+  const newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
+
+  let chosenSlotIndex = -1;
+  let chosenSessionIndex = 0;
+  let chosenTime = now;
+
+  if (newAssignment) {
+    chosenSlotIndex = newAssignment.slotIndex;
+    chosenSessionIndex = newAssignment.sessionIndex;
+    chosenTime = newAssignment.slotTime;
+
+
+  }
+
+  if (!newAssignment || chosenSlotIndex === -1) {
+    // Strategy 4: Bucket Compensation Check
+    // If forceBook is enabled OR bucket compensation is valid, create an overflow slot
+    if (forceBook || canUseBucketCompensation) {
+
+
+      // Find the last slot index from all appointments and slots
+      const allSlotIndices = [
+        ...appointments
+          .filter(apt => typeof apt.slotIndex === 'number')
+          .map(apt => apt.slotIndex as number),
+        ...slots.map(s => s.index)
+      ];
+
+      const overflowSlotIndex = Math.max(maxSlotIndexInSession + 1, lastSlotIndexInSession + 1);
+
+      // Find last slot time or use last session end time
+      let overflowTime: Date;
+      const consultationTime = doctor.averageConsultingTime || 15;
+
+      if (slots.length > 0) {
+        const lastSlot = slots[slots.length - 1];
+        overflowTime = addMinutes(lastSlot.time, consultationTime * (overflowSlotIndex - lastSlotIndexInSession));
+      } else {
+        // No slots exist, use current time
+        overflowTime = addMinutes(now, consultationTime);
+      }
+
+      // Determine session index
+      const lastSessionIndex = targetSessionIndex;
+
+      // Count patients ahead (all active appointments in session)
+      const allActiveStatuses = new Set(['Pending', 'Confirmed', 'Skipped']);
+      const patientsAhead = sessionAppointments.filter(appointment =>
+        allActiveStatuses.has(appointment.status)
+      ).length;
+
+      console.log('[OVERFLOW] Created overflow slot:', {
+        slotIndex: overflowSlotIndex,
+        time: getClinicTimeString(overflowTime),
+        sessionIndex: lastSessionIndex,
+        numericToken,
+        patientsAhead,
+        reason: forceBook ? 'ForceBook' : 'BucketCompensation'
+      });
+
+      return {
+        estimatedTime: overflowTime,
+        patientsAhead,
+        numericToken,
+        slotIndex: overflowSlotIndex,
+        sessionIndex: lastSessionIndex,
+        actualSlotTime: overflowTime,
+        isForceBooked: true, // Mark as force booked so UI accepts it (it's valid "overflow")
+      };
+    }
+
+    throw new Error('No walk-in slots are available at this time.');
+  }
+
+  const allActiveStatusesCount = new Set(['Pending', 'Confirmed', 'Skipped']);
+  const patientsAheadDetails = sessionAppointments.filter(appointment => {
+    const isMatched = typeof appointment.slotIndex === 'number' &&
+      appointment.slotIndex < chosenSlotIndex &&
+      allActiveStatusesCount.has(appointment.status);
+
+    return isMatched;
+  });
+
+  const patientsAhead = patientsAheadDetails.length;
+
+  console.log('[WALK-IN:ESTIMATE] Patients Ahead Calculation:', {
+    doctor: doctor.name,
+    chosenSlotIndex,
+    totalAppointments: appointments.length,
+    activeAppointmentsCount: appointments.filter(a => ACTIVE_STATUSES.has(a.status)).length,
+    patientsAhead,
+    matchedAppointments: patientsAheadDetails.map(a => ({
+      id: a.id,
+      slotIndex: a.slotIndex,
+      status: a.status,
+      bookedVia: a.bookedVia
+    }))
+  });
+
+  const consultationTime = doctor.averageConsultingTime || 15;
+  const apptEnd = addMinutes(chosenTime, consultationTime);
+
+  // Identify if this assignment spills over the formal session end
+  let isSpillover = false;
+  const sessionSlots = allSlots.filter((s: any) => s.sessionIndex === chosenSessionIndex);
+  if (sessionSlots.length > 0) {
+    const lastSlotTime = Math.max(...sessionSlots.map((s: any) => s.time.getTime()));
+    const formalSessionEnd = addMinutes(new Date(lastSlotTime), consultationTime);
+    if (apptEnd.getTime() > formalSessionEnd.getTime()) {
+      isSpillover = true;
+    }
+  }
+
+  // CRITICAL FIX: If we have a spillover (virtual slot), we MUST enforce forceBook or bucket compensation.
+  // The scheduler is permissive (to support force booking), but we must be strict here to prevent accidental overbooking.
+  if (isSpillover && !forceBook && !canUseBucketCompensation) {
+    throw new Error('No walk-in slots are available. (Session Full)');
+  }
+
+  return {
+    estimatedTime: chosenTime,
+    patientsAhead,
+    numericToken,
+    slotIndex: chosenSlotIndex,
+    sessionIndex: chosenSessionIndex,
+    actualSlotTime: chosenTime,
+    isForceBooked: forceBook || isSpillover, // Respect input forceBook AND auto-detect spillover
+  };
+}
+
+export interface WalkInPreviewShift {
+  id: string;
+  tokenNumber?: string;
+  fromSlot: number;
+  toSlot: number;
+  fromTime?: Date | null;
+  toTime: Date;
+}
+
+export interface WalkInPreviewResult {
+  placeholderAssignment: SchedulerAssignment | null;
+  advanceShifts: WalkInPreviewShift[];
+  walkInAssignments: SchedulerAssignment[];
+}
+
+export async function previewWalkInPlacement(
+  firestore: Firestore,
+  clinicId: string,
+  doctorName: string,
+  date: Date,
+  walkInTokenAllotment: number,
+  doctorId?: string
+): Promise<WalkInPreviewResult> {
+  const DEBUG = process.env.NEXT_PUBLIC_DEBUG_WALK_IN === 'true';
+  const { slots } = await loadDoctorAndSlots(firestore, clinicId, doctorName, date, doctorId);
+  const appointments = await fetchDayAppointments(firestore, clinicId, doctorName, date);
+
+  const activeAdvanceAppointments = appointments.filter(appointment => {
+    return (
+      appointment.bookedVia !== 'Walk-in' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+  const activeWalkIns = appointments.filter(appointment => {
+    return (
+      appointment.bookedVia === 'Walk-in' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+  const existingNumericTokens = activeWalkIns
+    .map(appointment => {
+      if (typeof appointment.numericToken === 'number') {
+        return appointment.numericToken;
+      }
+      const parsed = Number(appointment.numericToken);
+      return Number.isFinite(parsed) ? parsed : 0;
+    })
+    .filter(token => token > 0);
+
+  const placeholderNumericToken =
+    (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
+
+  const placeholderId = '__preview_walk_in__';
+
+  const walkInCandidates = [
+    ...activeWalkIns.map(appointment => ({
+      id: appointment.id,
+      numericToken:
+        typeof appointment.numericToken === 'number'
+          ? appointment.numericToken
+          : Number(appointment.numericToken ?? 0) || 0,
+      createdAt: toDate(appointment.createdAt),
+      currentSlotIndex: typeof appointment.slotIndex === 'number' ? appointment.slotIndex : undefined,
+    })),
+    {
+      id: placeholderId,
+      numericToken: placeholderNumericToken,
+      createdAt: new Date(),
+    },
+  ];
+
+  const schedule = computeWalkInSchedule({
+    slots,
+    now: getClinicNow(),
+    walkInTokenAllotment,
+    advanceAppointments: activeAdvanceAppointments.map(entry => ({
+      id: entry.id,
+      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+    })),
+    walkInCandidates,
+  });
+
+  const assignmentById = new Map(schedule.assignments.map(assignment => [assignment.id, assignment]));
+
+  const advanceShifts: WalkInPreviewShift[] = activeAdvanceAppointments.flatMap(appointment => {
+    const assignment = assignmentById.get(appointment.id);
+    if (!assignment) {
+      return [];
+    }
+    const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
+    if (currentSlotIndex === assignment.slotIndex) {
+      return [];
+    }
+
+    const fromTime = currentSlotIndex >= 0 ? slots[currentSlotIndex]?.time ?? null : null;
+
+    return [
       {
-        id: placeholderId,
-        numericToken: placeholderNumericToken,
-        createdAt: new Date(),
+        id: appointment.id,
+        tokenNumber: appointment.tokenNumber,
+        fromSlot: currentSlotIndex,
+        toSlot: assignment.slotIndex,
+        fromTime,
+        toTime: assignment.slotTime,
       },
     ];
+  });
+
+  const placeholderAssignment = assignmentById.get(placeholderId) ?? null;
+  const walkInAssignments = schedule.assignments.filter(assignment => assignment.id !== placeholderId);
+
+  if (DEBUG) {
+    console.group('[walk-in preview] result');
+    console.info('placeholder', placeholderAssignment);
+    console.info('advance shifts', advanceShifts);
+    console.info('walk-in assignments', walkInAssignments);
+    console.groupEnd();
+  }
+
+  return { placeholderAssignment, advanceShifts, walkInAssignments };
+}
+
+export async function rebalanceWalkInSchedule(
+  firestore: Firestore,
+  clinicId: string,
+  doctorName: string,
+  date: Date,
+  doctorId?: string
+): Promise<void> {
+  const clinicSnap = await getDoc(doc(firestore, 'clinics', clinicId));
+  const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
+  const walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
+
+  const { doctor, slots } = await loadDoctorAndSlots(firestore, clinicId, doctorName, date, doctorId);
+  const appointments = await fetchDayAppointments(firestore, clinicId, doctorName, date);
+  const averageConsultingTime = doctor.averageConsultingTime || 15;
+
+  const ACTIVE = (appointment: Appointment) =>
+    appointment.bookedVia === 'Walk-in' &&
+    typeof appointment.slotIndex === 'number' &&
+    ACTIVE_STATUSES.has(appointment.status);
+
+  const activeAdvanceAppointments = appointments.filter(appointment => {
+    return (
+      appointment.bookedVia !== 'Walk-in' &&
+      typeof appointment.slotIndex === 'number' &&
+      ACTIVE_STATUSES.has(appointment.status)
+    );
+  });
+
+  const activeWalkIns = appointments.filter(ACTIVE);
+
+  if (DEBUG_BOOKING) {
+    console.info('[patient booking] rebalance start', {
+      clinicId,
+      doctorName,
+      date,
+      walkInSpacingValue,
+      activeAdvanceAppointments: activeAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })),
+      activeWalkIns: activeWalkIns.map(w => ({ id: w.id, slotIndex: w.slotIndex })),
+    });
+  }
+
+  if (activeWalkIns.length === 0) {
+    return;
+  }
+
+  await runTransaction(firestore, async transaction => {
+    const advanceRefs = activeAdvanceAppointments.map(appointment => doc(firestore, 'appointments', appointment.id));
+    const walkInRefs = activeWalkIns.map(appointment => doc(firestore, 'appointments', appointment.id));
+
+    const [advanceSnapshots, walkInSnapshots] = await Promise.all([
+      Promise.all(advanceRefs.map(ref => transaction.get(ref))),
+      Promise.all(walkInRefs.map(ref => transaction.get(ref))),
+    ]);
+
+    const freshAdvanceAppointments = advanceSnapshots
+      .filter(snapshot => snapshot.exists())
+      .map(snapshot => {
+        const data = snapshot.data() as Appointment;
+        return { ...data, id: snapshot.id };
+      })
+      .filter(appointment => {
+        return (
+          appointment.bookedVia !== 'Walk-in' &&
+          typeof appointment.slotIndex === 'number' &&
+          ACTIVE_STATUSES.has(appointment.status)
+        );
+      });
+
+    const freshWalkIns = walkInSnapshots
+      .filter(snapshot => snapshot.exists())
+      .map(snapshot => {
+        const data = snapshot.data() as Appointment;
+        return { ...data, id: snapshot.id };
+      })
+      .filter(ACTIVE);
+
+    if (freshWalkIns.length === 0) {
+      return;
+    }
+
+    const walkInCandidates = freshWalkIns.map(appointment => ({
+      id: appointment.id,
+      numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : 0,
+      createdAt: toDate(appointment.createdAt),
+      currentSlotIndex: typeof appointment.slotIndex === 'number' ? appointment.slotIndex : undefined,
+    }));
 
     const schedule = computeWalkInSchedule({
       slots,
       now: getClinicNow(),
-      walkInTokenAllotment,
-      advanceAppointments: activeAdvanceAppointments.map(entry => ({
+      walkInTokenAllotment: walkInSpacingValue,
+      advanceAppointments: freshAdvanceAppointments.map(entry => ({
         id: entry.id,
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
       })),
       walkInCandidates,
     });
 
+    if (DEBUG_BOOKING) {
+      console.info('[patient booking] rebalance schedule', schedule.assignments);
+    }
+
     const assignmentById = new Map(schedule.assignments.map(assignment => [assignment.id, assignment]));
 
-    const advanceShifts: WalkInPreviewShift[] = activeAdvanceAppointments.flatMap(appointment => {
+    for (const appointment of freshAdvanceAppointments) {
       const assignment = assignmentById.get(appointment.id);
-      if (!assignment) {
-        return [];
-      }
+      if (!assignment) continue;
+
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-      if (currentSlotIndex === assignment.slotIndex) {
-        return [];
+      const newSlotIndex = assignment.slotIndex;
+      const newTimeString = getClinicTimeString(assignment.slotTime);
+
+      if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
+        continue;
       }
 
-      const fromTime = currentSlotIndex >= 0 ? slots[currentSlotIndex]?.time ?? null : null;
-
-      return [
-        {
-          id: appointment.id,
-          tokenNumber: appointment.tokenNumber,
-          fromSlot: currentSlotIndex,
-          toSlot: assignment.slotIndex,
-          fromTime,
-          toTime: assignment.slotTime,
-        },
-      ];
-    });
-
-    const placeholderAssignment = assignmentById.get(placeholderId) ?? null;
-    const walkInAssignments = schedule.assignments.filter(assignment => assignment.id !== placeholderId);
-
-    if (DEBUG) {
-      console.group('[walk-in preview] result');
-      console.info('placeholder', placeholderAssignment);
-      console.info('advance shifts', advanceShifts);
-      console.info('walk-in assignments', walkInAssignments);
-      console.groupEnd();
-    }
-
-    return { placeholderAssignment, advanceShifts, walkInAssignments };
-  }
-
-  export async function rebalanceWalkInSchedule(
-    firestore: Firestore,
-    clinicId: string,
-    doctorName: string,
-    date: Date,
-    doctorId?: string
-  ): Promise<void> {
-    const clinicSnap = await getDoc(doc(firestore, 'clinics', clinicId));
-    const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
-    const walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
-
-    const { doctor, slots } = await loadDoctorAndSlots(firestore, clinicId, doctorName, date, doctorId);
-    const appointments = await fetchDayAppointments(firestore, clinicId, doctorName, date);
-    const averageConsultingTime = doctor.averageConsultingTime || 15;
-
-    const ACTIVE = (appointment: Appointment) =>
-      appointment.bookedVia === 'Walk-in' &&
-      typeof appointment.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appointment.status);
-
-    const activeAdvanceAppointments = appointments.filter(appointment => {
-      return (
-        appointment.bookedVia !== 'Walk-in' &&
-        typeof appointment.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appointment.status)
-      );
-    });
-
-    const activeWalkIns = appointments.filter(ACTIVE);
-
-    if (DEBUG_BOOKING) {
-      console.info('[patient booking] rebalance start', {
-        clinicId,
-        doctorName,
-        date,
-        walkInSpacingValue,
-        activeAdvanceAppointments: activeAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })),
-        activeWalkIns: activeWalkIns.map(w => ({ id: w.id, slotIndex: w.slotIndex })),
+      const appointmentRef = doc(firestore, 'appointments', appointment.id);
+      transaction.update(appointmentRef, {
+        slotIndex: newSlotIndex,
+        sessionIndex: assignment.sessionIndex,
+        time: newTimeString,
+        cutOffTime: subMinutes(assignment.slotTime, averageConsultingTime),
+        noShowTime: addMinutes(assignment.slotTime, averageConsultingTime),
       });
     }
 
-    if (activeWalkIns.length === 0) {
-      return;
-    }
+    for (const appointment of freshWalkIns) {
+      const assignment = assignmentById.get(appointment.id);
+      if (!assignment) continue;
 
-    await runTransaction(firestore, async transaction => {
-      const advanceRefs = activeAdvanceAppointments.map(appointment => doc(firestore, 'appointments', appointment.id));
-      const walkInRefs = activeWalkIns.map(appointment => doc(firestore, 'appointments', appointment.id));
+      const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
+      const newSlotIndex = assignment.slotIndex;
+      const newTimeString = getClinicTimeString(assignment.slotTime);
 
-      const [advanceSnapshots, walkInSnapshots] = await Promise.all([
-        Promise.all(advanceRefs.map(ref => transaction.get(ref))),
-        Promise.all(walkInRefs.map(ref => transaction.get(ref))),
-      ]);
-
-      const freshAdvanceAppointments = advanceSnapshots
-        .filter(snapshot => snapshot.exists())
-        .map(snapshot => {
-          const data = snapshot.data() as Appointment;
-          return { ...data, id: snapshot.id };
-        })
-        .filter(appointment => {
-          return (
-            appointment.bookedVia !== 'Walk-in' &&
-            typeof appointment.slotIndex === 'number' &&
-            ACTIVE_STATUSES.has(appointment.status)
-          );
-        });
-
-      const freshWalkIns = walkInSnapshots
-        .filter(snapshot => snapshot.exists())
-        .map(snapshot => {
-          const data = snapshot.data() as Appointment;
-          return { ...data, id: snapshot.id };
-        })
-        .filter(ACTIVE);
-
-      if (freshWalkIns.length === 0) {
-        return;
+      if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
+        continue;
       }
-
-      const walkInCandidates = freshWalkIns.map(appointment => ({
-        id: appointment.id,
-        numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : 0,
-        createdAt: toDate(appointment.createdAt),
-        currentSlotIndex: typeof appointment.slotIndex === 'number' ? appointment.slotIndex : undefined,
-      }));
-
-      const schedule = computeWalkInSchedule({
-        slots,
-        now: getClinicNow(),
-        walkInTokenAllotment: walkInSpacingValue,
-        advanceAppointments: freshAdvanceAppointments.map(entry => ({
-          id: entry.id,
-          slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-        })),
-        walkInCandidates,
-      });
 
       if (DEBUG_BOOKING) {
-        console.info('[patient booking] rebalance schedule', schedule.assignments);
-      }
-
-      const assignmentById = new Map(schedule.assignments.map(assignment => [assignment.id, assignment]));
-
-      for (const appointment of freshAdvanceAppointments) {
-        const assignment = assignmentById.get(appointment.id);
-        if (!assignment) continue;
-
-        const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-        const newSlotIndex = assignment.slotIndex;
-        const newTimeString = getClinicTimeString(assignment.slotTime);
-
-        if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
-          continue;
-        }
-
-        const appointmentRef = doc(firestore, 'appointments', appointment.id);
-        transaction.update(appointmentRef, {
-          slotIndex: newSlotIndex,
-          sessionIndex: assignment.sessionIndex,
+        console.info('[patient booking] rebalance move', {
+          appointmentId: appointment.id,
+          fromSlot: currentSlotIndex,
+          toSlot: newSlotIndex,
           time: newTimeString,
-          cutOffTime: subMinutes(assignment.slotTime, averageConsultingTime),
-          noShowTime: addMinutes(assignment.slotTime, averageConsultingTime),
         });
       }
 
-      for (const appointment of freshWalkIns) {
-        const assignment = assignmentById.get(appointment.id);
-        if (!assignment) continue;
-
-        const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-        const newSlotIndex = assignment.slotIndex;
-        const newTimeString = getClinicTimeString(assignment.slotTime);
-
-        if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
-          continue;
-        }
-
-        if (DEBUG_BOOKING) {
-          console.info('[patient booking] rebalance move', {
-            appointmentId: appointment.id,
-            fromSlot: currentSlotIndex,
-            toSlot: newSlotIndex,
-            time: newTimeString,
-          });
-        }
-
-        const appointmentRef = doc(firestore, 'appointments', appointment.id);
-        transaction.update(appointmentRef, {
-          slotIndex: newSlotIndex,
-          sessionIndex: assignment.sessionIndex,
-          time: newTimeString,
-          cutOffTime: subMinutes(assignment.slotTime, averageConsultingTime),
-          noShowTime: addMinutes(assignment.slotTime, averageConsultingTime),
-        });
-      }
-    });
-
-    if (DEBUG_BOOKING) {
-      console.info('[patient booking] rebalance complete', {
-        clinicId,
-        doctorName,
-        date,
+      const appointmentRef = doc(firestore, 'appointments', appointment.id);
+      transaction.update(appointmentRef, {
+        slotIndex: newSlotIndex,
+        sessionIndex: assignment.sessionIndex,
+        time: newTimeString,
+        cutOffTime: subMinutes(assignment.slotTime, averageConsultingTime),
+        noShowTime: addMinutes(assignment.slotTime, averageConsultingTime),
       });
     }
+  });
+
+  if (DEBUG_BOOKING) {
+    console.info('[patient booking] rebalance complete', {
+      clinicId,
+      doctorName,
+      date,
+    });
   }
+}
 

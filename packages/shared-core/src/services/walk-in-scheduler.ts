@@ -245,7 +245,12 @@ export function computeWalkInSchedule({
         break;
       }
       if (occupancy[pos] === null) {
-        return pos;
+        // Only return if it's a "true gap" (has later appointments)
+        // Trailing empty slots should be handled by spacing logic or final fallback
+        const hasLaterAppointment = occupancy.slice(pos + 1).some(o => o !== null);
+        if (hasLaterAppointment) {
+          return pos;
+        }
       }
     }
     return -1;
@@ -557,7 +562,7 @@ export function computeWalkInSchedule({
     }
 
     if (assignedPosition === null) {
-      throw new Error('Unable to allocate walk-in slot.');
+      throw new Error('No walk-in slots are available.');
     }
 
     occupancy[assignedPosition] = { type: 'W', id: candidate.id };

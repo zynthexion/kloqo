@@ -16,7 +16,7 @@ import {
     Transaction,
     DocumentReference,
 } from 'firebase/firestore';
-import { format, parse, addMinutes, subMinutes, differenceInMinutes, isSameDay, parseISO, isAfter } from 'date-fns';
+import { format, parse, addMinutes, subMinutes, differenceInMinutes, isSameDay, parseISO, isAfter, isBefore } from 'date-fns';
 import {
     calculateWalkInDetails,
     loadDoctorAndSlots,
@@ -77,7 +77,7 @@ export async function completeStaffWalkInBooking(
     const clinicRef = doc(firestore, 'clinics', clinicId);
     const patientRef = doc(firestore, 'patients', patientId);
 
-    const [clinicSnap, patientSnap, doctorData] = await Promise.all([
+    const [clinicSnap, patientSnap, doctorDataRaw] = await Promise.all([
         getDoc(clinicRef),
         getDoc(patientRef),
         loadDoctorAndSlots(firestore, clinicId, doctor.name, date, doctor.id)
@@ -85,6 +85,45 @@ export async function completeStaffWalkInBooking(
 
     if (!clinicSnap.exists()) throw new Error('Clinic not found');
     const walkInTokenAllotment = Number(clinicSnap.data()?.walkInTokenAllotment ?? 5);
+
+    // CRITICAL: For walk-in bookings, restrict to active session only
+    // This prevents concurrent bookings from spilling over into distant future sessions
+    const allSlots = doctorDataRaw.slots;
+    let slots = allSlots;
+    let activeSessionIndex: number | null = null;
+
+    // Identify "Active Session" for this walk-in
+    // A session is active if current time is within the session or up to 30 minutes before it starts
+    activeSessionIndex = (() => {
+        if (allSlots.length === 0) return 0;
+        const sessionMap = new Map<number, { start: Date; end: Date }>();
+        allSlots.forEach((s) => {
+            const current = sessionMap.get(s.sessionIndex);
+            if (!current) {
+                sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
+            } else {
+                if (isBefore(s.time, current.start)) current.start = s.time;
+                if (isAfter(s.time, current.end)) current.end = s.time;
+            }
+        });
+        const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
+        for (const [sIdx, range] of sortedSessions) {
+            // Session is active if now is before session end AND within 30 minutes of session start
+            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+                return sIdx;
+            }
+        }
+        return null;
+    })();
+
+    if (activeSessionIndex === null) {
+        throw new Error('No walk-in slots are available. The next session has not started yet.');
+    }
+
+    // Filter slots to only include those in the active session
+    slots = allSlots.filter((s) => s.sessionIndex === activeSessionIndex);
+
+    const doctorData = { doctor: doctorDataRaw.doctor, slots };
 
     // 2. Initial Calculation (Optimistic)
     const walkInDetails = await calculateWalkInDetails(
@@ -96,7 +135,7 @@ export async function completeStaffWalkInBooking(
     );
 
     if (!walkInDetails || walkInDetails.slotIndex == null) {
-        throw new Error('No walk-in slots available.');
+        throw new Error('No walk-in slots are available.');
     }
 
     // 3. The Unified Transaction
@@ -149,6 +188,22 @@ export async function completeStaffWalkInBooking(
         // B. Logic Section (No network calls)
         const nextWalkInNumericToken = doctorData.slots.length + counterState.nextNumber + 100;
 
+        // CRITICAL: Filter appointments to only include those in the active session
+        let sessionFilteredAppointments = effectiveAppointments;
+        if (activeSessionIndex !== null) {
+            sessionFilteredAppointments = effectiveAppointments.filter(appointment => {
+                // Include appointment if it has the same sessionIndex
+                if (appointment.sessionIndex === activeSessionIndex) {
+                    return true;
+                }
+                // Also include if slotIndex maps to the active session (fallback for older appointments)
+                if (typeof appointment.slotIndex === 'number' && appointment.slotIndex < allSlots.length) {
+                    return allSlots[appointment.slotIndex]?.sessionIndex === activeSessionIndex;
+                }
+                return false;
+            });
+        }
+
         const shiftPlan = await prepareAdvanceShift({
             transaction,
             firestore,
@@ -159,14 +214,14 @@ export async function completeStaffWalkInBooking(
             doctor: doctorData.doctor,
             now,
             walkInSpacingValue: walkInTokenAllotment,
-            effectiveAppointments,
+            effectiveAppointments: sessionFilteredAppointments,
             totalSlots: doctorData.slots.length,
             newWalkInNumericToken: nextWalkInNumericToken,
             forceBook: isForceBooked,
         });
 
         if (!shiftPlan.newAssignment) {
-            throw new Error('Scheduling conflict - please try again.');
+            throw new Error('No walk-in slots are available.');
         }
 
         const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;
@@ -283,7 +338,7 @@ export async function completePatientWalkInBooking(
     const clinicRef = doc(firestore, 'clinics', clinicId);
     const patientRef = doc(firestore, 'patients', patientId);
 
-    const [clinicSnap, patientSnap, doctorData] = await Promise.all([
+    const [clinicSnap, patientSnap, doctorDataRaw] = await Promise.all([
         getDoc(clinicRef),
         getDoc(patientRef),
         loadDoctorAndSlots(firestore, clinicId, doctor.name, date, doctor.id)
@@ -291,6 +346,45 @@ export async function completePatientWalkInBooking(
 
     if (!clinicSnap.exists()) throw new Error('Clinic not found');
     const walkInTokenAllotment = Number(clinicSnap.data()?.walkInTokenAllotment ?? 5);
+
+    // CRITICAL: For walk-in bookings, restrict to active session only
+    // This prevents concurrent bookings from spilling over into distant future sessions
+    const allSlots = doctorDataRaw.slots;
+    let slots = allSlots;
+    let activeSessionIndex: number | null = null;
+
+    // Identify "Active Session" for this walk-in
+    // A session is active if current time is within the session or up to 30 minutes before it starts
+    activeSessionIndex = (() => {
+        if (allSlots.length === 0) return 0;
+        const sessionMap = new Map<number, { start: Date; end: Date }>();
+        allSlots.forEach((s) => {
+            const current = sessionMap.get(s.sessionIndex);
+            if (!current) {
+                sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
+            } else {
+                if (isBefore(s.time, current.start)) current.start = s.time;
+                if (isAfter(s.time, current.end)) current.end = s.time;
+            }
+        });
+        const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
+        for (const [sIdx, range] of sortedSessions) {
+            // Session is active if now is before session end AND within 30 minutes of session start
+            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+                return sIdx;
+            }
+        }
+        return null;
+    })();
+
+    if (activeSessionIndex === null) {
+        throw new Error('No walk-in slots are available. The next session has not started yet.');
+    }
+
+    // Filter slots to only include those in the active session
+    slots = allSlots.filter((s) => s.sessionIndex === activeSessionIndex);
+
+    const doctorData = { doctor: doctorDataRaw.doctor, slots };
 
     // 1b. Duplicate Check
     const duplicateCheckQuery = query(
@@ -316,7 +410,7 @@ export async function completePatientWalkInBooking(
     );
 
     if (!walkInDetails || walkInDetails.slotIndex == null) {
-        throw new Error('No walk-in slots available.');
+        throw new Error('No walk-in slots are available.');
     }
 
     // 3. Unified Transaction
@@ -361,6 +455,22 @@ export async function completePatientWalkInBooking(
         // B. Logic Section
         const nextWalkInNumericToken = doctorData.slots.length + counterState.nextNumber + 100;
 
+        // CRITICAL: Filter appointments to only include those in the active session
+        let sessionFilteredAppointments = effectiveAppointments;
+        if (activeSessionIndex !== null) {
+            sessionFilteredAppointments = effectiveAppointments.filter(appointment => {
+                // Include appointment if it has the same sessionIndex
+                if (appointment.sessionIndex === activeSessionIndex) {
+                    return true;
+                }
+                // Also include if slotIndex maps to the active session (fallback for older appointments)
+                if (typeof appointment.slotIndex === 'number' && appointment.slotIndex < allSlots.length) {
+                    return allSlots[appointment.slotIndex]?.sessionIndex === activeSessionIndex;
+                }
+                return false;
+            });
+        }
+
         const shiftPlan = await prepareAdvanceShift({
             transaction,
             firestore,
@@ -371,14 +481,14 @@ export async function completePatientWalkInBooking(
             doctor: doctorData.doctor,
             now,
             walkInSpacingValue: walkInTokenAllotment,
-            effectiveAppointments,
+            effectiveAppointments: sessionFilteredAppointments,
             totalSlots: doctorData.slots.length,
             newWalkInNumericToken: nextWalkInNumericToken,
             forceBook: false,
         });
 
         if (!shiftPlan.newAssignment) {
-            throw new Error('Scheduling conflict.');
+            throw new Error('No walk-in slots are available.');
         }
 
         const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;

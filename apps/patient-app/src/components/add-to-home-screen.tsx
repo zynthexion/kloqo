@@ -16,7 +16,7 @@ export default function AddToHomeScreenPrompt() {
   const [isAndroid, setIsAndroid] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
   const { user } = useUser(); // Check if user is logged in
-  
+
   // Get language context
   const { language } = useLanguage();
   const t = translations[language];
@@ -24,7 +24,7 @@ export default function AddToHomeScreenPrompt() {
   useEffect(() => {
     const isAndroidDevice = /Android/.test(navigator.userAgent);
     setIsAndroid(isAndroidDevice);
-    
+
     console.log('🔔 PWA Prompt Check:', {
       isStandalone,
       isAndroidDevice,
@@ -33,53 +33,28 @@ export default function AddToHomeScreenPrompt() {
       showPrompt,
       hasUser: !!user
     });
-    
-    // Show prompt when installable (works for Android, iOS, and Desktop browsers)
+
+    // Show prompt when installable (works for Android, desktop browsers)
     if (!isStandalone && isInstallable) {
-      // Check if dismissed today (not permanently)
       const dismissedDate = localStorage.getItem('pwaPromptDismissedDate');
       const today = new Date().toDateString();
-      
-      console.log('🔔 PWA Install Prompt Available:', {
-        isAndroidDevice,
-        isIOS,
-        isDesktop: !isAndroidDevice && !isIOS,
-        dismissedDate,
-        today,
-        shouldShow: !dismissedDate || dismissedDate !== today
-      });
-      
-      // Show prompt if never dismissed or not dismissed today
       if (!dismissedDate || dismissedDate !== today) {
-        // Show after a short delay
-        console.log('🔔 Showing PWA install prompt in 2 seconds...');
-        const timer = setTimeout(() => {
-          console.log('🔔 Setting PWA prompt visible');
-          setIsVisible(true);
-        }, 2000);
+        const timer = setTimeout(() => setIsVisible(true), 2000);
         return () => clearTimeout(timer);
-      } else {
-        console.log('🔔 PWA prompt dismissed today, not showing');
       }
-    } else if (!isStandalone && isIOS && showPrompt) {
-      // iOS fallback (when beforeinstallprompt doesn't fire)
+    } else if (!isStandalone && isIOS) {
+      // iOS detection - show prompt if they are in Safari (not standalone)
+      // and haven't dismissed it permanently
       const promptDismissed = localStorage.getItem('pwaPromptDismissed');
-      console.log('🔔 iOS PWA Prompt:', {
-        promptDismissed,
-        shouldShow: !promptDismissed
-      });
-      if (!promptDismissed) {
-        console.log('🔔 Setting iOS PWA prompt visible');
-        setIsVisible(true);
+
+      // Check if they arrived via an external link (like WhatsApp)
+      // or if it's their first time seeing the app in Safari
+      const isLandedFromExternal = document.referrer && !document.referrer.includes(window.location.hostname);
+
+      if (!promptDismissed || isLandedFromExternal) {
+        const timer = setTimeout(() => setIsVisible(true), 1500);
+        return () => clearTimeout(timer);
       }
-    } else {
-      console.log('🔔 PWA prompt conditions not met:', {
-        isStandalone,
-        isAndroidDevice,
-        isInstallable,
-        isIOS,
-        showPrompt
-      });
     }
   }, [showPrompt, isIOS, isStandalone, isInstallable, user]);
 
@@ -90,7 +65,7 @@ export default function AddToHomeScreenPrompt() {
       setIsInstalling(true);
       const accepted = await promptInstall();
       setIsInstalling(false);
-      
+
       if (accepted) {
         setIsVisible(false);
       }
@@ -182,11 +157,11 @@ export default function AddToHomeScreenPrompt() {
                       {index + 1}
                     </span>
                     <div className="flex-1">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                          <step.icon className="h-4 w-4 text-primary" />
-                          {step.title}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">{step.description}</p>
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <step.icon className="h-4 w-4 text-primary" />
+                        {step.title}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{step.description}</p>
                     </div>
                   </div>
                 ))}

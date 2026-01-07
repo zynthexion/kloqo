@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  
+
   let from: string | undefined;
   let toFormatted: string;
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-  
+
   // Check for placeholder credentials
   if (accountSid === 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' || authToken === 'your_auth_token') {
     console.warn("Using placeholder Twilio credentials. Message will not be sent.");
@@ -40,26 +40,44 @@ export async function POST(request: NextRequest) {
   const client = twilio(accountSid, authToken);
 
   try {
-    const result = await client.messages.create({
-      body: message,
+    const messageOptions: any = {
       from: from,
       to: toFormatted
-    });
+    };
+
+    // If template SID is provided, use the Content API
+    if (channel === 'whatsapp' && request.body) {
+      const body = await request.clone().json();
+      if (body.contentSid) {
+        messageOptions.contentSid = body.contentSid;
+        if (body.contentVariables) {
+          messageOptions.contentVariables = typeof body.contentVariables === 'string'
+            ? body.contentVariables
+            : JSON.stringify(body.contentVariables);
+        }
+      } else {
+        messageOptions.body = message;
+      }
+    } else {
+      messageOptions.body = message;
+    }
+
+    const result = await client.messages.create(messageOptions);
 
     console.log(`Message sent successfully: ${result.sid}`);
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       messageId: result.sid,
-      message: "Message sent successfully" 
+      message: "Message sent successfully"
     });
 
   } catch (error: any) {
     console.error('Error sending message:', error);
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: error.message || 'Failed to send message',
-        code: error.code 
+        code: error.code
       },
       { status: 500 }
     );

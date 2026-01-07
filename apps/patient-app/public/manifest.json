@@ -2,8 +2,14 @@
   "name": "Kloqo",
   "short_name": "Kloqo",
   "description": "Book appointments and manage your healthcare",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "orientation": "any",
@@ -42,6 +48,3 @@
     }
   ]
 }
-
-
-

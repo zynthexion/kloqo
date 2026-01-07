@@ -468,8 +468,12 @@ function PhoneBookingDetailsContent() {
                 },
                 body: JSON.stringify({
                     to: fullPhoneNumber,
-                    message: message,
-                    channel: 'whatsapp'
+                    channel: 'whatsapp',
+                    contentSid: 'HX8a0b3ef6c58c59d6af56aa45103552b9',
+                    contentVariables: {
+                        "1": clinicName,
+                        "2": bookingLink
+                    }
                 }),
             });
 

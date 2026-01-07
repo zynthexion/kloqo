@@ -276,6 +276,7 @@ export default function LiveDashboard() {
                 time: appointmentToUse.time || '',
                 arriveByTime: appointmentToUse.arriveByTime,
                 cancelledBy: 'clinic',
+                cancelledByBreak: appointmentToUse.cancelledByBreak,
               });
             }
           } catch (notifError) {

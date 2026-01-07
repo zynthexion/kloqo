@@ -186,6 +186,7 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                         doctorName: appointment.doctor,
                         date: appointment.date,
                         time: appointment.time,
+                        cancelledByBreak: appointment.cancelledByBreak,
                     });
                     console.log('Appointment cancelled notification sent');
                 } catch (notifError) {

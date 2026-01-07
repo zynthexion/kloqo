@@ -328,6 +328,7 @@ export default function ClinicDashboard() {
               time: appointmentToUse.time || '',
               arriveByTime: appointmentToUse.arriveByTime,
               cancelledBy: 'clinic',
+              cancelledByBreak: appointmentToUse.cancelledByBreak,
             });
             console.log('[NURSE CANCEL DEBUG] Cancellation notification sent to patient');
           } catch (notifError) {

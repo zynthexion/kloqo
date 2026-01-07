@@ -156,8 +156,14 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     tokenNumber: string;
     bookedBy: 'nurse' | 'admin';
     arriveByTime?: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, bookedBy, arriveByTime } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, bookedBy, arriveByTime, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping booked notification for appointment ${appointmentId} because it was affected by a break.`);
+        return true;
+    }
 
     // Always display user time based on arriveByTime - 15 minutes (or time - 15 if arriveByTime missing)
     // EXCEPTION: For "Walk-in" (W) tokens, display the exact time as they are already at the clinic.
@@ -205,8 +211,14 @@ export async function sendTokenCalledNotification(params: {
     clinicName: string;
     tokenNumber: string;
     doctorName: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping token called notification for appointment ${appointmentId} because it was cancelled by a break.`);
+        return true;
+    }
 
     return sendNotificationToPatient({
         firestore,
@@ -236,8 +248,14 @@ export async function sendAppointmentCancelledNotification(params: {
     time: string;
     cancelledBy: 'patient' | 'clinic';
     arriveByTime?: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, cancelledBy, arriveByTime } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, cancelledBy, arriveByTime, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping cancellation notification for appointment ${appointmentId} because it was cancelled by a break.`);
+        return true; // Return true as we've "handled" it by skipping
+    }
 
     // Always display user time based on arriveByTime - 15 minutes (or time - 15 if arriveByTime missing)
     let displayTime = time;
@@ -279,8 +297,14 @@ export async function sendDoctorRunningLateNotification(params: {
     doctorName: string;
     clinicName: string;
     delayMinutes: number;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, delayMinutes } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, delayMinutes, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping doctor late notification for appointment ${appointmentId} because it was affected by a break.`);
+        return true;
+    }
 
     return sendNotificationToPatient({
         firestore,
@@ -313,8 +337,14 @@ export async function sendBreakUpdateNotification(params: {
     reason?: string;
     oldArriveByTime?: string;
     newArriveByTime?: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, oldTime, newTime, oldDate, newDate, reason, oldArriveByTime, newArriveByTime } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, oldTime, newTime, oldDate, newDate, reason, oldArriveByTime, newArriveByTime, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping break update notification for appointment ${appointmentId} because it was affected by a break.`);
+        return true;
+    }
 
     let displayOldTime = oldTime;
     let displayNewTime = newTime;
@@ -388,14 +418,32 @@ export async function sendAppointmentSkippedNotification(params: {
     date: string;
     time: string;
     tokenNumber: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping skipped notification for appointment ${appointmentId} because it was affected by a break.`);
+        return true;
+    }
+
+    // Always display user time based on 15 minutes early reporting
+    let displayTime = time;
+    try {
+        const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
+        // For skipped, we usually have the raw slot time. Subtract 15m for reporting time.
+        const baseTime = parseTime(time, appointmentDate);
+        const shownTime = subMinutes(baseTime, 15);
+        displayTime = getClinicTimeString(shownTime);
+    } catch (error) {
+        console.error('Error calculating displayTime for skipped notification:', error);
+    }
 
     return sendNotificationToPatient({
         firestore,
         patientId,
         title: 'Appointment Skipped',
-        body: `Your appointment with Dr. ${doctorName} on ${date} at ${time} (Token: ${tokenNumber}) has been marked as Skipped because you didn't confirm your arrival 5 minutes before the appointment time.`,
+        body: `Your appointment with Dr. ${doctorName} on ${date} at ${displayTime} (Token: ${tokenNumber}) has been marked as Skipped because you didn't confirm your arrival 5 minutes before the appointment time.`,
         data: {
             type: 'appointment_skipped',
             appointmentId,
@@ -422,8 +470,14 @@ export async function sendPeopleAheadNotification(params: {
     peopleAhead: number;
     appointmentTime: string;
     appointmentDate: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping people ahead notification for appointment ${appointmentId} because it was cancelled by a break.`);
+        return true;
+    }
 
     // Calculate display time (arriveByTime - 15 minutes)
     let displayTime = appointmentTime;
@@ -473,8 +527,14 @@ export async function sendDoctorConsultationStartedNotification(params: {
     appointmentTime: string;
     appointmentDate: string;
     arriveByTime?: string;
+    cancelledByBreak?: boolean;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping consultation started notification for appointment ${appointmentId} because it was cancelled by a break.`);
+        return true;
+    }
 
     // Calculate display time (arriveByTime - 15 minutes if available, otherwise appointmentTime - 15)
     let displayTime = appointmentTime;
@@ -566,6 +626,7 @@ export async function notifySessionPatientsOfConsultationStart({
                     appointmentTime: appointment.time,
                     appointmentDate: appointment.date,
                     arriveByTime: appointment.arriveByTime,
+                    cancelledByBreak: appointment.cancelledByBreak,
                 });
             } catch (error) {
                 console.error(`Failed to notify patient ${appointment.patientId} for appointment ${docSnap.id}`, error);
@@ -653,6 +714,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
                     peopleAhead,
                     appointmentTime: appointment.time,
                     appointmentDate: appointment.date,
+                    cancelledByBreak: appointment.cancelledByBreak,
                 });
             } catch (error) {
                 console.error(`Failed to send notification to patient ${appointment.patientId}:`, error);

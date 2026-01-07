@@ -164,6 +164,7 @@ export default function NowServing() {
             time: appointment.time,
             arriveByTime: appointment.arriveByTime,
             cancelledBy: 'clinic',
+            cancelledByBreak: appointment.cancelledByBreak,
           });
           console.log('Cancellation notification sent to patient');
         } catch (notifError) {

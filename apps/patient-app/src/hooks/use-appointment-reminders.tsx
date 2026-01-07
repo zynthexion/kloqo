@@ -71,6 +71,7 @@ export function useAppointmentReminders() {
                   doctorName: appointment.doctor,
                   time: appointment.time,
                   tokenNumber: appointment.tokenNumber,
+                  cancelledByBreak: appointment.cancelledByBreak,
                 });
 
                 // Mark as sent

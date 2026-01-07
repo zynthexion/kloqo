@@ -6,6 +6,8 @@ import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { getMessaging } from 'firebase/messaging';
 import type { Firestore } from 'firebase/firestore';
 import { logger } from '@/lib/logger';
+import { parse, subMinutes, format } from 'date-fns';
+import { getClinicTimeString } from '@kloqo/shared-core';
 
 export interface NotificationData {
   type: 'appointment_confirmed' | 'appointment_reminder' | 'appointment_cancelled' | 'token_called' | 'doctor_late' | 'appointment_rescheduled';
@@ -105,20 +107,36 @@ export async function sendAppointmentConfirmedNotification(params: {
   date: string;
   time: string;
   tokenNumber: string;
+  cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, date, time, tokenNumber } = params;
+  const { firestore, userId, appointmentId, doctorName, date, time, tokenNumber, cancelledByBreak } = params;
+
+  if (cancelledByBreak) {
+    logger.info(`Skipping confirmed notification for break-affected appointment ${appointmentId}`);
+    return true;
+  }
+
+  // Calculate reporting time (15 mins early)
+  let displayTime = time;
+  try {
+    const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
+    const baseTime = parse(time, 'hh:mm a', appointmentDate);
+    displayTime = getClinicTimeString(subMinutes(baseTime, 15));
+  } catch (error) {
+    console.error('Error calculating display time for confirmed notification:', error);
+  }
 
   return sendNotification({
     firestore,
     userId,
     title: 'Appointment Confirmed',
-    body: `Your appointment with Dr. ${doctorName} is confirmed for ${date} at ${time}. Token: ${tokenNumber}`,
+    body: `Your appointment with Dr. ${doctorName} is confirmed for ${date} at ${displayTime}. Token: ${tokenNumber}`,
     data: {
       type: 'appointment_confirmed',
       appointmentId,
       doctorName,
       date,
-      time,
+      time: displayTime,
       tokenNumber,
     },
   });
@@ -134,19 +152,35 @@ export async function sendAppointmentReminderNotification(params: {
   doctorName: string;
   time: string;
   tokenNumber: string;
+  cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, time, tokenNumber } = params;
+  const { firestore, userId, appointmentId, doctorName, time, tokenNumber, cancelledByBreak } = params;
+
+  if (cancelledByBreak) {
+    logger.info(`Skipping reminder notification for break-affected appointment ${appointmentId}`);
+    return true;
+  }
+
+  // Reminder shows reporting time
+  let displayTime = time;
+  try {
+    // Note: No date provided here, using today as reference
+    const baseTime = parse(time, 'hh:mm a', new Date());
+    displayTime = getClinicTimeString(subMinutes(baseTime, 15));
+  } catch (error) {
+    console.error('Error calculating display time for reminder:', error);
+  }
 
   return sendNotification({
     firestore,
     userId,
     title: 'Upcoming Appointment',
-    body: `Your appointment with Dr. ${doctorName} is in 2 hours at ${time}. Token: ${tokenNumber}`,
+    body: `Your appointment with Dr. ${doctorName} is in 2 hours at ${displayTime}. Token: ${tokenNumber}`,
     data: {
       type: 'appointment_reminder',
       appointmentId,
       doctorName,
-      time,
+      time: displayTime,
       tokenNumber,
     },
   });
@@ -166,17 +200,27 @@ export async function sendAppointmentCancelledNotification(params: {
 }): Promise<boolean> {
   const { firestore, userId, appointmentId, doctorName, date, time, reason } = params;
 
+  // Cancellation shows reporting time
+  let displayTime = time;
+  try {
+    const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
+    const baseTime = parse(time, 'hh:mm a', appointmentDate);
+    displayTime = getClinicTimeString(subMinutes(baseTime, 15));
+  } catch (error) {
+    console.error('Error calculating display time for cancellation:', error);
+  }
+
   return sendNotification({
     firestore,
     userId,
     title: 'Appointment Cancelled',
-    body: `Your appointment with Dr. ${doctorName} on ${date} at ${time} has been cancelled.${reason ? ` Reason: ${reason}` : ''}`,
+    body: `Your appointment with Dr. ${doctorName} on ${date} at ${displayTime} has been cancelled.${reason ? ` Reason: ${reason}` : ''}`,
     data: {
       type: 'appointment_cancelled',
       appointmentId,
       doctorName,
       date,
-      time,
+      time: displayTime,
       reason,
     },
   });
@@ -189,8 +233,15 @@ export async function sendTokenCalledNotification(params: {
   firestore: Firestore;
   userId: string;
   tokenNumber: string;
+  appointmentId?: string;
+  cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, tokenNumber } = params;
+  const { firestore, userId, tokenNumber, appointmentId, cancelledByBreak } = params;
+
+  if (cancelledByBreak) {
+    logger.info(`Skipping token called notification for break-affected appointment ${appointmentId}`);
+    return true;
+  }
 
   return sendNotification({
     firestore,
@@ -213,8 +264,14 @@ export async function sendDoctorLateNotification(params: {
   appointmentId: string;
   doctorName: string;
   delayMinutes: number;
+  cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, delayMinutes } = params;
+  const { firestore, userId, appointmentId, doctorName, delayMinutes, cancelledByBreak } = params;
+
+  if (cancelledByBreak) {
+    logger.info(`Skipping doctor late notification for break-affected appointment ${appointmentId}`);
+    return true;
+  }
 
   return sendNotification({
     firestore,
@@ -242,21 +299,37 @@ export async function sendAppointmentRescheduledNotification(params: {
   newDate: string;
   time: string;
   tokenNumber?: string;
+  cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, oldDate, newDate, time, tokenNumber } = params;
+  const { firestore, userId, appointmentId, doctorName, oldDate, newDate, time, tokenNumber, cancelledByBreak } = params;
+
+  if (cancelledByBreak) {
+    logger.info(`Skipping rescheduled notification for break-affected appointment ${appointmentId}`);
+    return true;
+  }
+
+  // Rescheduled shows reporting time
+  let displayTime = time;
+  try {
+    const appointmentDate = parse(newDate, 'd MMMM yyyy', new Date());
+    const baseTime = parse(time, 'hh:mm a', appointmentDate);
+    displayTime = getClinicTimeString(subMinutes(baseTime, 15));
+  } catch (error) {
+    console.error('Error calculating display time for reschedule:', error);
+  }
 
   return sendNotification({
     firestore,
     userId,
     title: 'Appointment Rescheduled',
-    body: `Your appointment with Dr. ${doctorName} has been rescheduled from ${oldDate} to ${newDate} at ${time}.`,
+    body: `Your appointment with Dr. ${doctorName} has been rescheduled from ${oldDate} to ${newDate} at ${displayTime}.`,
     data: {
       type: 'appointment_rescheduled',
       appointmentId,
       doctorName,
       oldDate,
       newDate,
-      time,
+      time: displayTime,
       ...(tokenNumber ? { tokenNumber } : {}),
     },
   });

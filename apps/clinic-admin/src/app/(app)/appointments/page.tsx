@@ -2206,6 +2206,7 @@ export default function AppointmentsPage() {
             time: appointment.time,
             arriveByTime: appointment.arriveByTime,
             cancelledBy: 'clinic',
+            cancelledByBreak: appointment.cancelledByBreak,
           });
         } catch (notifError) {
           console.error('Failed to send cancellation notification:', notifError);

@@ -90,7 +90,9 @@ export const getArriveByTimeFromAppointment = (appointment: Appointment, doctor?
     }
 
     const appointmentTime = parseTime(appointment.time, appointmentDate);
-    // Fallback: Use 'time' field if arriveByTime is missing. Apply same rule.
+    // Fallback: Use 'time' field if arriveByTime is missing.
+    // Advance appointments ('A') show reporting time (Slot - 15m).
+    // Walk-in appointments ('W') show the actual predicted time (no deduction).
     const displayTime = isWalkIn ? appointmentTime : subMinutes(appointmentTime, 15);
     return getClinicTimeString(displayTime);
   } catch {

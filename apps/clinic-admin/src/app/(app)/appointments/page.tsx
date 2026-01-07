@@ -1717,9 +1717,10 @@ export default function AppointmentsPage() {
             // Fall back to original time if recalculation fails
           }
 
-          // 'time' field stores reporting time (SlotTime - 15m)
-          const reportingTime = subMinutes(actualAppointmentTime, 15);
-          const adjustedAppointmentTime = reportingTime;
+          // 'time' field stores the actual slot time string (e.g., "10:30 AM")
+          // Logic formerly subtracted 15m here; now we keep raw slot time in DB
+          // and let apps handle the 15m early reporting display.
+          const adjustedAppointmentTime = actualAppointmentTime;
           const appointmentDate = values.date ? parse(appointmentDateStr, "d MMMM yyyy", new Date()) : null;
 
           // Calculate cut-off time and no-show time
@@ -1767,8 +1768,9 @@ export default function AppointmentsPage() {
           }
 
           // Always align arriveByTime with the actual appointment time (new slot),
-          // both for new bookings and reschedules
-          const arriveByTimeValue = format(adjustedAppointmentTime, "hh:mm a");
+          // both for new bookings and reschedules. 
+          // The Patient/Nurse apps will subtract 15 minutes for display.
+          const arriveByTimeValue = actualAppointmentTimeStr;
           const slotDuration = selectedDoctor.averageConsultingTime || 15;
 
           // Validate that the adjusted appointment time is within session availability

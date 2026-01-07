@@ -14,6 +14,7 @@ export interface QueueState {
     skippedQueue: Appointment[];       // Skipped appointments
     currentConsultation: Appointment | null; // Currently consulting (if any)
     consultationCount: number;         // Count of completed consultations for this doctor/session
+    nextBreakDuration: number | null;  // Duration of the next break in minutes
 }
 
 /**
@@ -145,12 +146,25 @@ export async function computeQueues(
     // Current Consultation: First appointment in Buffer Queue (if any)
     const currentConsultation = bufferQueue.length > 0 ? bufferQueue[0] : null;
 
+    // Next Break Duration: Calculate duration of the first block of dummy break appointments 
+    // that appear in this session
+    const breakAppointments = relevantAppointments
+        .filter(apt => apt.status === 'Completed' && apt.patientId === 'dummy-break-patient')
+        .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
+
+    let nextBreakDuration: number | null = null;
+    if (breakAppointments.length > 0) {
+        // Simple logic: sum all dummy slots in this session to get visibility
+        nextBreakDuration = breakAppointments.length * 15;
+    }
+
     return {
         arrivedQueue,
         bufferQueue,
         skippedQueue,
         currentConsultation,
         consultationCount,
+        nextBreakDuration,
     };
 }
 

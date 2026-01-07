@@ -471,8 +471,9 @@ export async function sendPeopleAheadNotification(params: {
     appointmentTime: string;
     appointmentDate: string;
     cancelledByBreak?: boolean;
+    breakDuration?: number;
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak, breakDuration } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping people ahead notification for appointment ${appointmentId} because it was cancelled by a break.`);
@@ -491,14 +492,30 @@ export async function sendPeopleAheadNotification(params: {
     }
 
     const peopleAheadText = peopleAhead === 1 ? '1 person' : `${peopleAhead} people`;
-    const body = peopleAhead === 0
-        ? `There is ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`
-        : `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+
+    let body = '';
+    let title = '';
+
+    if (peopleAhead === 0) {
+        title = 'You are Next!';
+        if (breakDuration && breakDuration > 0) {
+            body = `The doctor is on a ${breakDuration}-minute break. You will be next to see Dr. ${doctorName} at ${clinicName} after the break. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+        } else {
+            body = `There is ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+        }
+    } else {
+        title = `Queue Update: ${peopleAheadText} Ahead`;
+        if (breakDuration && breakDuration > 0) {
+            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. A ${breakDuration}-minute break is also scheduled before your turn. You will see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+        } else {
+            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+        }
+    }
 
     return sendNotificationToPatient({
         firestore,
         patientId,
-        title: peopleAhead === 0 ? 'You are Next!' : `Queue Update: ${peopleAheadText} Ahead`,
+        title,
         body,
         data: {
             type: 'queue_update',
@@ -652,7 +669,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
             collection(firestore, 'appointments'),
             where('doctor', '==', completedAppointment.doctor),
             where('date', '==', completedAppointment.date),
-            where('status', 'in', ['Pending', 'Confirmed'])
+            where('status', 'in', ['Pending', 'Confirmed', 'Completed'])
         );
 
         const appointmentsSnapshot = await getDocs(appointmentsQuery);
@@ -696,12 +713,36 @@ export async function notifyNextPatientsWhenCompleted(params: {
         });
 
         // Send notifications to next patients (limit to first 3 to avoid spam)
-        const appointmentsToNotify = nextAppointments.slice(0, 3);
+        const appointmentsToNotify = nextAppointments.filter(apt => apt.status !== 'Completed').slice(0, 3);
+
+        // Find existing break gaps
+        const breaks = nextAppointments.filter(apt => apt.status === 'Completed' && apt.patientId === 'dummy-break-patient');
+
         for (let i = 0; i < appointmentsToNotify.length; i++) {
             const appointment = appointmentsToNotify[i];
             const peopleAhead = i; // Number of appointments ahead (0-indexed)
 
             if (!appointment.patientId) continue;
+
+            // Detect if there is a break before this patient
+            let breakDuration = 0;
+            const patientSlotIndex = appointment.slotIndex || -1;
+
+            if (patientSlotIndex !== -1) {
+                // Sum up durations of dummy break appointments that appear before this patient 
+                // but after the completed one
+                const breaksBeforePatient = breaks.filter(b =>
+                    typeof b.slotIndex === 'number' &&
+                    b.slotIndex > completedSlotIndex &&
+                    b.slotIndex < patientSlotIndex
+                );
+
+                // Each dummy appointment usually represents one slot (e.g., 15 mins)
+                // We'll assume a standard 15 min or we can try to find session avgConsultingTime if needed.
+                // For now, let's use a safe assumption or try to infer from data if available.
+                // Actually, the most accurate way is to sum up the slots.
+                breakDuration = breaksBeforePatient.length * 15; // Assuming 15 mins per slot
+            }
 
             try {
                 await sendPeopleAheadNotification({
@@ -715,10 +756,10 @@ export async function notifyNextPatientsWhenCompleted(params: {
                     appointmentTime: appointment.time,
                     appointmentDate: appointment.date,
                     cancelledByBreak: appointment.cancelledByBreak,
+                    breakDuration,
                 });
             } catch (error) {
                 console.error(`Failed to send notification to patient ${appointment.patientId}:`, error);
-                // Continue with other notifications
             }
         }
     } catch (error) {

@@ -185,6 +185,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     skippedQueue: [],
                     currentConsultation: null,
                     consultationCount: 0,
+                    nextBreakDuration: null,
                 });
             }
         };
@@ -1153,11 +1154,16 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
         // Priority 1: If it's your turn during consultation
         if (shouldShowQueueInfo && isYourTurn) {
+            const hasBreak = queueState?.nextBreakDuration && queueState.nextBreakDuration > 0;
             return (
                 <div className="w-full text-center py-4">
-                    <div className="bg-green-100 text-green-800 rounded-full px-4 py-3 flex items-center justify-center gap-2">
-                        <UserCheck className="w-6 h-6" />
-                        <span className="font-bold text-lg">{t.liveToken.itsYourTurn}</span>
+                    <div className={`${hasBreak ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'} rounded-full px-4 py-3 flex items-center justify-center gap-2`}>
+                        {hasBreak ? <Clock className="w-6 h-6" /> : <UserCheck className="w-6 h-6" />}
+                        <span className="font-bold text-lg">
+                            {hasBreak
+                                ? (language === 'ml' ? `ഡോക്ടർ വിശ്രമത്തിലാണ് (${queueState.nextBreakDuration} മിനിറ്റ്)` : `Doctor is on break (${queueState.nextBreakDuration} mins)`)
+                                : t.liveToken.itsYourTurn}
+                        </span>
                     </div>
                 </div>
             );
@@ -1165,12 +1171,15 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
         // Priority 2: If consultation started and exactly 1 person ahead
         if (shouldShowQueueInfo && patientsAhead === 1) {
+            const hasBreak = queueState?.nextBreakDuration && queueState.nextBreakDuration > 0;
             return (
                 <div className="w-full text-center py-4">
-                    <div className="bg-green-100 text-green-800 rounded-full px-4 py-3 flex items-center justify-center gap-2">
-                        <Forward className="w-6 h-6" />
+                    <div className={`${hasBreak ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'} rounded-full px-4 py-3 flex items-center justify-center gap-2`}>
+                        {hasBreak ? <Clock className="w-6 h-6" /> : <Forward className="w-6 h-6" />}
                         <span className="font-bold text-lg">
-                            {language === 'ml' ? 'അടുത്തത് നിങ്ങളാണ്' : (t.liveToken.youAreNext || 'You are next')}
+                            {hasBreak
+                                ? (language === 'ml' ? `അടുത്തത് നിങ്ങളാണ് (വിശ്രമത്തിന് ശേഷം)` : `You are next! (After break)`)
+                                : (language === 'ml' ? 'അടുത്തത് നിങ്ങളാണ്' : (t.liveToken.youAreNext || 'You are next'))}
                         </span>
                     </div>
                 </div>

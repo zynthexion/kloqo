@@ -10,7 +10,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { User, Settings, Coffee, CalendarX } from 'lucide-react';
+import { User, Settings, Coffee, CalendarX, Phone } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Link from 'next/link';
 import { Badge } from '../ui/badge';
@@ -29,6 +29,9 @@ type ClinicHeaderProps = {
     onStatusChange?: (newStatus: 'In' | 'Out') => void;
     currentTime?: Date;
     isBreakMode?: boolean;
+    showPhoneModeToggle?: boolean;
+    isPhoneMode?: boolean;
+    onPhoneModeToggle?: () => void;
 };
 
 export default function ClinicHeader({
@@ -44,6 +47,9 @@ export default function ClinicHeader({
     onStatusChange,
     currentTime = new Date(),
     isBreakMode = false,
+    showPhoneModeToggle = false,
+    isPhoneMode = false,
+    onPhoneModeToggle,
 }: ClinicHeaderProps) {
     const currentDoctor = doctors.find(d => d.id === selectedDoctor);
 
@@ -109,13 +115,25 @@ export default function ClinicHeader({
                             )}
                         </div>
                     )}
-                    {showSettings && (
-                        <Link href="/settings">
-                            <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white">
-                                <Settings />
+                    <div className="flex items-center gap-2">
+                        {showPhoneModeToggle && (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onPhoneModeToggle}
+                                className={isPhoneMode ? "text-green-400 bg-green-500/20 hover:bg-green-500/30 animate-pulse" : "text-white/50 hover:bg-white/10 hover:text-white"}
+                            >
+                                <Phone className="h-5 w-5" />
                             </Button>
-                        </Link>
-                    )}
+                        )}
+                        {showSettings && (
+                            <Link href="/settings">
+                                <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white">
+                                    <Settings />
+                                </Button>
+                            </Link>
+                        )}
+                    </div>
                 </div>
 
                 {showLogo && (

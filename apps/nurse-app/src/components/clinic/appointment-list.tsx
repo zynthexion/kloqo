@@ -7,7 +7,7 @@ import type { Appointment } from '@/lib/types';
 import { parse, subMinutes, format } from 'date-fns';
 import { cn, getDisplayTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { User, XCircle, Edit, Check, CheckCircle2, SkipForward } from 'lucide-react';
+import { User, XCircle, Edit, Check, CheckCircle2, SkipForward, Phone } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -40,6 +40,7 @@ type AppointmentListProps = {
   isInBufferQueue?: (appointment: Appointment) => boolean;
   enableSwipeCompletion?: boolean;
   showStatusBadge?: boolean;
+  isPhoneMode?: boolean;
 };
 
 // Helper function to parse time
@@ -55,7 +56,7 @@ function parseTime(timeStr: string, referenceDate: Date): Date {
   }
 }
 
-function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true, showStatusBadge = true }: AppointmentListProps) {
+function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true, showStatusBadge = true, isPhoneMode = false }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
@@ -224,19 +225,6 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
               appointments.map((appt, index) => {
                 const isSwiping = swipeState.id === appt.id;
 
-                // Different background colors for each item
-                const bgColors = [
-                  "bg-white",
-                  "bg-blue-50",
-                  "bg-green-50",
-                  "bg-purple-50",
-                  "bg-pink-50",
-                  "bg-amber-50",
-                  "bg-cyan-50",
-                  "bg-orange-50",
-                ];
-                const bgColor = bgColors[index % bgColors.length];
-
                 const isBuffer = isInBufferQueue && isInBufferQueue(appt);
 
                 return (
@@ -244,12 +232,11 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                     key={appt.id}
                     ref={swipeState.id === appt.id ? swipedItemRef : null}
                     className={cn(
-                      "p-4 flex flex-col gap-3 border rounded-lg",
+                      "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
                       isSwiping && 'text-white',
-                      !isSwiping && "border-border shadow-sm",
-                      !isSwiping && isBuffer && "bg-yellow-100 dark:bg-yellow-900/30 border-yellow-400",
-                      !isSwiping && appt.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50 border-amber-400",
-                      !isSwiping && !isBuffer && !appt.skippedAt && bgColor
+                      !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
+                      !isSwiping && isBuffer && "bg-yellow-50/50 border-yellow-400",
+                      !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
                     )}
                     style={getSwipeStyle(appt.id)}
                     onMouseDown={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
@@ -258,10 +245,9 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                     <div
                       className={cn(
                         "transition-opacity duration-200",
-                        !isSwiping && appt.status === 'Skipped' && 'bg-yellow-50 border-l-4 border-yellow-400',
-                        !isSwiping && appt.status === 'No-show' && 'bg-amber-50 border-amber-200',
-                        !isSwiping && appt.status === 'Completed' && 'bg-green-50/50 opacity-50',
-                        !isSwiping && appt.status === 'Cancelled' && (appt.cancellationReason === 'DOCTOR_LEAVE' ? 'bg-orange-50' : 'bg-gray-100 opacity-60'),
+                        !isSwiping && appt.status === 'Skipped' && 'border-l-4 border-yellow-400 pl-2',
+                        !isSwiping && appt.status === 'Completed' && 'opacity-50',
+                        !isSwiping && appt.status === 'Cancelled' && (appt.cancellationReason === 'DOCTOR_LEAVE' ? 'border-l-4 border-orange-400 pl-2' : 'opacity-60'),
                       )}
                     >
                       <div className="flex items-start justify-between gap-4">
@@ -336,6 +322,25 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                                   )}
                                 </div>
                               </div>
+
+                              {isPhoneMode && (
+                                <div className="mt-2 text-white">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (appt.communicationPhone) {
+                                        window.location.href = `tel:${appt.communicationPhone}`;
+                                      }
+                                    }}
+                                  >
+                                    <Phone className="h-3 w-3" />
+                                    <span>{appt.communicationPhone || 'No Number'}</span>
+                                  </Button>
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-2 mt-1 flex-wrap">

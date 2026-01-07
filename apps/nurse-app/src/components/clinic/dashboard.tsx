@@ -43,6 +43,7 @@ export default function ClinicDashboard() {
   const [isPending, startTransition] = useTransition();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
+  const [isPhoneMode, setIsPhoneMode] = useState(false);
   const { toast } = useToast();
 
   const isAppointmentsPage = pathname === '/appointments';
@@ -499,6 +500,9 @@ export default function ClinicDashboard() {
         showLogo={false}
         showSettings={false}
         pageTitle="All Appointments"
+        showPhoneModeToggle={isAppointmentsPage}
+        isPhoneMode={isPhoneMode}
+        onPhoneModeToggle={() => setIsPhoneMode(!isPhoneMode)}
       />
 
       <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">
@@ -534,6 +538,7 @@ export default function ClinicDashboard() {
                 clinicStatus={isAppointmentsPage ? 'In' : (clinicStatus === 'in' ? 'In' : 'Out')}
                 currentTime={currentTime}
                 enableSwipeCompletion={!isAppointmentsPage}
+                isPhoneMode={isPhoneMode}
               />
             </TabsContent>
             <TabsContent value="completed" className="flex-1 overflow-y-auto m-0">
@@ -546,6 +551,7 @@ export default function ClinicDashboard() {
                 clinicStatus={isAppointmentsPage ? 'In' : (clinicStatus === 'in' ? 'In' : 'Out')}
                 currentTime={currentTime}
                 enableSwipeCompletion={!isAppointmentsPage}
+                isPhoneMode={isPhoneMode}
               />
             </TabsContent>
           </Tabs>

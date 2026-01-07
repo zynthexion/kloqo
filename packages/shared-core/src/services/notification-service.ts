@@ -7,7 +7,10 @@ import { Firestore, doc, getDoc, collection, query, where, getDocs, updateDoc } 
 import { parse, format, subMinutes } from 'date-fns';
 import { parseTime } from '../utils/break-helpers';
 import { getClinicTimeString, getClinicISOString, getClinicNow } from '../utils/date-utils';
+import { compareAppointments } from './appointment-service';
 import type { Appointment } from '@kloqo/shared-types';
+
+declare const window: any;
 
 const CONSULTATION_NOTIFICATION_STATUSES = ['Pending', 'Confirmed', 'Skipped', 'Completed', 'No-show'] as const;
 
@@ -669,7 +672,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
             collection(firestore, 'appointments'),
             where('doctor', '==', completedAppointment.doctor),
             where('date', '==', completedAppointment.date),
-            where('status', 'in', ['Pending', 'Confirmed', 'Completed'])
+            where('status', 'in', ['Pending', 'Confirmed', 'Completed', 'Skipped'])
         );
 
         const appointmentsSnapshot = await getDocs(appointmentsQuery);
@@ -677,43 +680,20 @@ export async function notifyNextPatientsWhenCompleted(params: {
             .map(doc => ({ id: doc.id, ...doc.data() } as Appointment))
             .filter(apt => apt.id !== completedAppointmentId);
 
-        // Sort by slotIndex or time
-        const sortedAppointments = allAppointments.sort((a, b) => {
-            if (typeof a.slotIndex === 'number' && typeof b.slotIndex === 'number') {
-                return a.slotIndex - b.slotIndex;
-            }
-            // Fallback to time comparison
-            try {
-                const dateA = parse(a.date, 'd MMMM yyyy', new Date());
-                const dateB = parse(b.date, 'd MMMM yyyy', new Date());
-                const timeA = parseTime(a.time, dateA);
-                const timeB = parseTime(b.time, dateB);
-                return timeA.getTime() - timeB.getTime();
-            } catch {
-                return 0;
-            }
-        });
+        // Sort using standardized comparison logic
+        const sortedAppointments = allAppointments.sort(compareAppointments);
 
         // Get appointments that come after the completed one
         const completedSlotIndex = typeof completedAppointment.slotIndex === 'number' ? completedAppointment.slotIndex : -1;
+        // Get appointments that come after the completed one using the same comparison logic
         const nextAppointments = sortedAppointments.filter(apt => {
-            if (typeof apt.slotIndex === 'number' && completedSlotIndex >= 0) {
-                return apt.slotIndex > completedSlotIndex;
-            }
-            // Fallback to time comparison
-            try {
-                const dateCompleted = parse(completedAppointment.date, 'd MMMM yyyy', new Date());
-                const dateApt = parse(apt.date, 'd MMMM yyyy', new Date());
-                const timeCompleted = parseTime(completedAppointment.time, dateCompleted);
-                const timeApt = parseTime(apt.time, dateApt);
-                return timeApt.getTime() > timeCompleted.getTime();
-            } catch {
-                return false;
-            }
+            return compareAppointments(apt, completedAppointment) > 0;
         });
 
         // Send notifications to next patients (limit to first 3 to avoid spam)
-        const appointmentsToNotify = nextAppointments.filter(apt => apt.status !== 'Completed').slice(0, 3);
+        const appointmentsToNotify = nextAppointments
+            .filter(apt => apt.status !== 'Completed' && apt.status !== 'Skipped')
+            .slice(0, 3);
 
         // Find existing break gaps
         const breaks = nextAppointments.filter(apt => apt.status === 'Completed' && apt.patientId === 'dummy-break-patient');

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
 
 export async function POST(request: NextRequest) {
-  const { to, message, channel = 'sms' } = await request.json(); // Default to 'sms'
+  const body = await request.json();
+  const { to, message, channel = 'sms' } = body; // Default to 'sms'
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -46,18 +47,15 @@ export async function POST(request: NextRequest) {
     };
 
     // If template SID is provided, use the Content API
-    if (channel === 'whatsapp' && request.body) {
-      const body = await request.clone().json();
-      if (body.contentSid) {
-        messageOptions.contentSid = body.contentSid;
-        if (body.contentVariables) {
-          messageOptions.contentVariables = typeof body.contentVariables === 'string'
-            ? body.contentVariables
-            : JSON.stringify(body.contentVariables);
-        }
-      } else {
-        messageOptions.body = message;
+    if (channel === 'whatsapp' && body.contentSid) {
+      // Body is already parsed at the top
+      messageOptions.contentSid = body.contentSid;
+      if (body.contentVariables) {
+        messageOptions.contentVariables = typeof body.contentVariables === 'string'
+          ? body.contentVariables
+          : JSON.stringify(body.contentVariables);
       }
+      // When using Content API, body field is not allowed/needed if contentSid exists
     } else {
       messageOptions.body = message;
     }

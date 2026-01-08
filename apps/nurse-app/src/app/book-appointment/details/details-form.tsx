@@ -246,10 +246,10 @@ function AppointmentDetailsFormContent() {
 
             // Use the data returned from generateNextTokenAndReserveSlot
             // This trusts shared-core to provide the correct pre-calculated slot times and arrive-by times
-            const actualSlotIndex = tokenData.slotIndex;
-            const reservationId = tokenData.reservationId;
-            const actualAppointmentTimeStr = tokenData.time;
-            const adjustedAppointmentTimeStr = tokenData.arriveByTime;
+            const actualSlotIndex = (tokenData as any).slotIndex;
+            const reservationId = (tokenData as any).reservationId;
+            const actualAppointmentTimeStr = (tokenData as any).time;
+            const adjustedAppointmentTimeStr = (tokenData as any).arriveByTime || (tokenData as any).time;
 
             // Calculate cut-off time and no-show time
             let cutOffTime: Date | undefined;

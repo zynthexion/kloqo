@@ -1,8 +1,7 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { format, addDays, subDays, startOfDay, endOfDay, isSameDay, isPast } from 'date-fns';
+import { format, addDays, subDays, startOfDay, endOfDay, isSameDay, isPast, addMinutes } from 'date-fns';
 import {
     BarChart3,
     ChevronLeft,

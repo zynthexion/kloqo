@@ -1,7 +1,7 @@
 
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { format, parse, set, isBefore, subMinutes } from 'date-fns';
+import { format, parse, set, isBefore, subMinutes, addMinutes } from 'date-fns';
 import type { Appointment } from './types';
 
 export function cn(...inputs: ClassValue[]) {
@@ -27,13 +27,13 @@ export function parseAppointmentDateTime(dateStr?: string, timeStr?: string): Da
   if (!dateStr || !timeStr) return new Date(NaN);
 
   try {
-    const combinedStr = `${dateStr} ${timeStr}`;
+    const combinedStr = `${dateStr} ${timeStr} `;
     const parsedDate = parse(combinedStr, "d MMMM yyyy hh:mm a", new Date());
     if (!isNaN(parsedDate.getTime())) {
       return parsedDate;
     }
   } catch (e) {
-    console.error(`Failed to parse date-time: ${dateStr} ${timeStr}`, e);
+    console.error(`Failed to parse date - time: ${dateStr} ${timeStr} `, e);
     return new Date(NaN);
   }
 
@@ -42,7 +42,7 @@ export function parseAppointmentDateTime(dateStr?: string, timeStr?: string): Da
 
 export function parseTime(timeStr: string, baseDate: Date): Date {
   if (!timeStr) {
-    console.warn(`Invalid time string provided to parseTime: "${timeStr}". Using midnight.`);
+    console.warn(`Invalid time string provided to parseTime: "${timeStr}".Using midnight.`);
     return set(baseDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
   }
 
@@ -62,7 +62,7 @@ export function parseTime(timeStr: string, baseDate: Date): Date {
       hours = parseInt(twentyFourHourMatch[1], 10);
       minutes = parseInt(twentyFourHourMatch[2], 10);
     } else {
-      console.warn(`Invalid time format provided to parseTime: "${timeStr}". Using midnight.`);
+      console.warn(`Invalid time format provided to parseTime: "${timeStr}".Using midnight.`);
       return set(baseDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
     }
   }

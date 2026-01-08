@@ -61,47 +61,47 @@ export default function NowServingItem({ appointment: appt, onUpdateStatus }: No
           </div>
         </div>
       </div>
-    </div>
+
 
       {
-    isActionable && (appt.bookedVia as string) !== 'break' && (
-      <div className="flex items-center justify-end gap-2">
-        {appt.status === 'Pending' && (
-          <>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="text-destructive border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
-                  <X className="mr-2 h-4 w-4" /> Cancel
+        isActionable && (appt.bookedVia as string) !== 'break' && (
+          <div className="flex items-center justify-end gap-2">
+            {appt.status === 'Pending' && (
+              <>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-destructive border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
+                      <X className="mr-2 h-4 w-4" /> Cancel
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to cancel this appointment for {appt.patientName}? This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Go Back</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onUpdateStatus(appt.id, 'Cancelled')} className="bg-destructive hover:bg-destructive/90">
+                        Confirm Cancel
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+
+                <Button variant="outline" size="sm" onClick={() => onUpdateStatus(appt.id, 'No-show')}>
+                  <AlertTriangle className="mr-2 h-4 w-4" /> No-show
                 </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to cancel this appointment for {appt.patientName}? This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Go Back</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => onUpdateStatus(appt.id, 'Cancelled')} className="bg-destructive hover:bg-destructive/90">
-                    Confirm Cancel
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+              </>
+            )}
 
-            <Button variant="outline" size="sm" onClick={() => onUpdateStatus(appt.id, 'No-show')}>
-              <AlertTriangle className="mr-2 h-4 w-4" /> No-show
+            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => onUpdateStatus(appt.id, 'completed')}>
+              <Check className="mr-2 h-4 w-4" /> Complete
             </Button>
-          </>
-        )}
-
-        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => onUpdateStatus(appt.id, 'completed')}>
-          <Check className="mr-2 h-4 w-4" /> Complete
-        </Button>
-      </div>
-    )
-  }
+          </div>
+        )
+      }
     </div >
   );
 }

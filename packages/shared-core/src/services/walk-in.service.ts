@@ -802,10 +802,14 @@ export async function generateNextTokenAndReserveSlot(
 
         if (type === 'A' && maximumAdvanceTokens >= 0) {
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
+            const appointmentTime = parseTimeString(appointment.time || '', date);
+            const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
+
             return (
               appointment.bookedVia !== 'Walk-in' &&
               (appointment.bookedVia as string) !== 'BreakBlock' && // CRITICAL FIX: Breaks shouldn't count towards Advance Token Cap
               typeof appointment.slotIndex === 'number' &&
+              isFutureAppointment &&
               ACTIVE_STATUSES.has(appointment.status)
             );
           }).length;

@@ -1,0 +1,764 @@
+[
+  {
+    "id": "doc-1766034747205-2h9l8z9ll",
+    "reviewList": [
+      {
+        "clinicId": "1gGmk8OjegX8iyEUW254",
+        "feedback": "",
+        "doctorName": "Neha Wilson",
+        "patientName": "Walking test",
+        "id": "idMAlzrzn0aQyd0e263I",
+        "rating": 4,
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766071152,
+          "nanoseconds": 234000000
+        },
+        "doctorId": "doc-1766034747205-2h9l8z9ll",
+        "patientId": "7KOimpjUcGqOrx3sxigE",
+        "appointmentId": "Qd61NShOB1pMZpW5N8ZF"
+      },
+      {
+        "feedback": "Hhh",
+        "clinicId": "1gGmk8OjegX8iyEUW254",
+        "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+        "doctorId": "doc-1766034747205-2h9l8z9ll",
+        "rating": 4,
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766131157,
+          "nanoseconds": 529000000
+        },
+        "appointmentId": "7iNWn23QrdeJqekIaXvZ",
+        "patientName": "Jino",
+        "doctorName": "Neha Wilson",
+        "id": "3xJZHP1VcoA2PSn5INDb"
+      }
+    ],
+    "experience": 5,
+    "reviews": 2,
+    "avatar": "https://storage.googleapis.com/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/doctor_avatars/1gGmk8OjegX8iyEUW254/1766034746628_blob",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "bio": "",
+    "averageConsultingTime": 5,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767586821,
+      "nanoseconds": 554000000
+    },
+    "advanceBookingDays": 15,
+    "historicalData": "No data",
+    "department": "Cardiology",
+    "name": "Neha Wilson",
+    "registrationNumber": "IMA8757",
+    "schedule": "Sunday: 07:30 PM-08:30 PM; Monday: 04:00 PM-05:00 PM; Tuesday: 12:00 AM-01:00 AM; Wednesday: 11:00 PM-12:00 AM; Thursday: 09:15 PM-10:15 PM; Friday: 04:15 PM-05:15 PM; Saturday: 06:00 PM-07:00 PM",
+    "specialty": "Heart Specialist",
+    "rating": 4,
+    "freeFollowUpDays": 7,
+    "preferences": "Not set",
+    "availability": "Unavailable",
+    "availabilitySlots": [
+      {
+        "timeSlots": [
+          {
+            "to": "08:30 PM",
+            "from": "07:30 PM"
+          }
+        ],
+        "day": "Sunday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "05:00 PM",
+            "from": "04:00 PM"
+          }
+        ],
+        "day": "Monday"
+      },
+      {
+        "day": "Tuesday",
+        "timeSlots": [
+          {
+            "from": "12:00 AM",
+            "to": "01:00 AM"
+          }
+        ]
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "11:00 PM",
+            "to": "12:00 AM"
+          }
+        ],
+        "day": "Wednesday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "10:15 PM",
+            "from": "09:15 PM"
+          }
+        ],
+        "day": "Thursday"
+      },
+      {
+        "day": "Friday",
+        "timeSlots": [
+          {
+            "to": "05:15 PM",
+            "from": "04:15 PM"
+          }
+        ]
+      },
+      {
+        "day": "Saturday",
+        "timeSlots": [
+          {
+            "to": "07:00 PM",
+            "from": "06:00 PM"
+          }
+        ]
+      }
+    ],
+    "consultationStatus": "Out",
+    "consultationFee": 500
+  },
+  {
+    "id": "doc-1766035393238-cmvynd0mu",
+    "department": "Pediatrics",
+    "availability": "Unavailable",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1767510000,
+      "nanoseconds": 39000000
+    },
+    "averageConsultingTime": 5,
+    "experience": 5,
+    "specialty": "Child Care Specialist",
+    "preferences": "Not set",
+    "clinicId": "1gGmk8OjegX8iyEUW254",
+    "historicalData": "No data",
+    "avatar": "https://storage.googleapis.com/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/doctor_avatars/1gGmk8OjegX8iyEUW254/1766035392613_blob",
+    "bio": "",
+    "schedule": "Sunday: 10:30 AM-11:30 AM, 03:00 PM-04:00 PM; Monday: 10:00 PM-11:55 PM; Thursday: 10:00 PM-11:54 PM; Friday: 09:00 AM-09:30 AM",
+    "registrationNumber": "IMA8757",
+    "consultationFee": 346,
+    "availabilitySlots": [
+      {
+        "timeSlots": [
+          {
+            "to": "11:30 AM",
+            "from": "10:30 AM"
+          },
+          {
+            "to": "04:00 PM",
+            "from": "03:00 PM"
+          }
+        ],
+        "day": "Sunday"
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "10:00 PM",
+            "to": "11:55 PM"
+          }
+        ],
+        "day": "Monday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "11:54 PM",
+            "from": "10:00 PM"
+          }
+        ],
+        "day": "Thursday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "09:30 AM",
+            "from": "09:00 AM"
+          }
+        ],
+        "day": "Friday"
+      }
+    ],
+    "advanceBookingDays": 30,
+    "name": "Wilson Gomez",
+    "consultationStatus": "Out",
+    "freeFollowUpDays": 7
+  },
+  {
+    "id": "doc-1766066333627-yjug38zsr",
+    "department": "General Medicine",
+    "availability": "Unavailable",
+    "averageConsultingTime": 5,
+    "experience": 4,
+    "specialty": "Geriatric (elderly) care",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "historicalData": "No data",
+    "preferences": "Not set",
+    "bio": "",
+    "avatar": "https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/doctor_male.webp?alt=media&token=b19d8fb5-1812-4eb5-a879-d48739eaa87e",
+    "schedule": "Monday: 09:00 PM-10:00 PM; Tuesday: 07:30 PM-08:30 PM, 09:30 PM-11:00 PM; Wednesday: 08:00 PM-09:00 PM, 10:00 PM-11:00 PM; Thursday: 02:00 PM-03:00 PM, 10:00 PM-11:00 PM; Friday: 09:00 PM-10:00 PM; Saturday: 09:00 PM-10:00 PM",
+    "registrationNumber": "23423",
+    "consultationFee": 400,
+    "availabilitySlots": [
+      {
+        "timeSlots": [
+          {
+            "to": "10:00 PM",
+            "from": "09:00 PM"
+          }
+        ],
+        "day": "Monday"
+      },
+      {
+        "day": "Tuesday",
+        "timeSlots": [
+          {
+            "to": "08:30 PM",
+            "from": "07:30 PM"
+          },
+          {
+            "from": "09:30 PM",
+            "to": "11:00 PM"
+          }
+        ]
+      },
+      {
+        "day": "Wednesday",
+        "timeSlots": [
+          {
+            "to": "09:00 PM",
+            "from": "08:00 PM"
+          },
+          {
+            "from": "10:00 PM",
+            "to": "11:00 PM"
+          }
+        ]
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "02:00 PM",
+            "to": "03:00 PM"
+          },
+          {
+            "from": "10:00 PM",
+            "to": "11:00 PM"
+          }
+        ],
+        "day": "Thursday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "10:00 PM",
+            "from": "09:00 PM"
+          }
+        ],
+        "day": "Friday"
+      },
+      {
+        "day": "Saturday",
+        "timeSlots": [
+          {
+            "to": "10:00 PM",
+            "from": "09:00 PM"
+          }
+        ]
+      }
+    ],
+    "advanceBookingDays": 2,
+    "name": "Jino Devasia",
+    "consultationStatus": "Out",
+    "freeFollowUpDays": 7
+  },
+  {
+    "id": "doc-1766219391236-gj6u71oje",
+    "reviews": 4,
+    "averageConsultingTime": 5,
+    "advanceBookingDays": 30,
+    "availabilityExtensions": {
+      "21 December 2025": {
+        "sessions": [
+          {
+            "originalEndTime": "08:30 PM",
+            "totalExtendedBy": 5,
+            "breaks": [],
+            "newEndTime": "08:35 PM",
+            "sessionIndex": 0
+          }
+        ]
+      }
+    },
+    "department": "Neurology",
+    "historicalData": "No data",
+    "schedule": "Sunday: 07:30 PM-08:30 PM; Monday: 09:00 AM-12:00 PM, 02:00 PM-05:00 PM; Tuesday: 09:00 AM-12:00 PM, 02:00 PM-05:00 PM; Wednesday: 09:00 AM-12:00 PM, 02:00 PM-05:00 PM; Thursday: 09:00 AM-12:00 PM, 02:00 PM-05:00 PM; Friday: 01:00 PM-05:00 PM; Saturday: 06:00 PM-07:00 PM",
+    "consultationFee": 600,
+    "name": "tom issac ",
+    "bio": "",
+    "availabilitySlots": [
+      {
+        "timeSlots": [
+          {
+            "to": "08:30 PM",
+            "from": "07:30 PM"
+          }
+        ],
+        "day": "Sunday"
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "09:00 AM",
+            "to": "12:00 PM"
+          },
+          {
+            "to": "05:00 PM",
+            "from": "02:00 PM"
+          }
+        ],
+        "day": "Monday"
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "09:00 AM",
+            "to": "12:00 PM"
+          },
+          {
+            "to": "05:00 PM",
+            "from": "02:00 PM"
+          }
+        ],
+        "day": "Tuesday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "12:00 PM",
+            "from": "09:00 AM"
+          },
+          {
+            "to": "05:00 PM",
+            "from": "02:00 PM"
+          }
+        ],
+        "day": "Wednesday"
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "09:00 AM",
+            "to": "12:00 PM"
+          },
+          {
+            "to": "05:00 PM",
+            "from": "02:00 PM"
+          }
+        ],
+        "day": "Thursday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "05:00 PM",
+            "from": "01:00 PM"
+          }
+        ],
+        "day": "Friday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "07:00 PM",
+            "from": "06:00 PM"
+          }
+        ],
+        "day": "Saturday"
+      }
+    ],
+    "clinicId": "PJ1p0eiQaZ9viYqrnjMV",
+    "avatar": "https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/doctor_male.webp?alt=media&token=b19d8fb5-1812-4eb5-a879-d48739eaa87e",
+    "specialty": "MBBS,md",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1766337540,
+      "nanoseconds": 668000000
+    },
+    "breakPeriods": {},
+    "preferences": "Not set",
+    "registrationNumber": "Ima45680",
+    "availability": "Unavailable",
+    "consultationStatus": "Out",
+    "freeFollowUpDays": 14,
+    "rating": 5,
+    "reviewList": [
+      {
+        "doctorName": "tom issac ",
+        "patientId": "7KOimpjUcGqOrx3sxigE",
+        "rating": 5,
+        "feedback": "",
+        "id": "5fwOMnYU4JyhfY1vuSin",
+        "patientName": "Walking test",
+        "doctorId": "doc-1766219391236-gj6u71oje",
+        "appointmentId": "kdhSm8lzH7CqzzwXV8Ng",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766337619,
+          "nanoseconds": 577000000
+        },
+        "clinicId": "PJ1p0eiQaZ9viYqrnjMV"
+      },
+      {
+        "doctorName": "tom issac ",
+        "patientName": "Jino",
+        "feedback": "",
+        "rating": 5,
+        "doctorId": "doc-1766219391236-gj6u71oje",
+        "clinicId": "PJ1p0eiQaZ9viYqrnjMV",
+        "id": "IAp8EAImu7rMgLSejdJq",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766372292,
+          "nanoseconds": 448000000
+        },
+        "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+        "appointmentId": "x2Nq4dZYrD1Msu7j8YCj"
+      },
+      {
+        "patientId": "MegIwe6eucfmafwERHge",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766372346,
+          "nanoseconds": 376000000
+        },
+        "doctorId": "doc-1766219391236-gj6u71oje",
+        "id": "rhNOTDium2RD5Y5cXO2T",
+        "rating": 5,
+        "patientName": "Anju",
+        "feedback": "",
+        "clinicId": "PJ1p0eiQaZ9viYqrnjMV",
+        "appointmentId": "GGRtsqD3hiLpt5ScC3CQ",
+        "doctorName": "tom issac "
+      },
+      {
+        "appointmentId": "DXFlabkaljemoxqQWkhv",
+        "doctorId": "doc-1766219391236-gj6u71oje",
+        "rating": 5,
+        "id": "zkDtL8oIaZTShD7FqGkP",
+        "patientName": "Smokey",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766372373,
+          "nanoseconds": 553000000
+        },
+        "feedback": "",
+        "patientId": "35qHoVD1wkdXdDtrRcHd",
+        "doctorName": "tom issac ",
+        "clinicId": "PJ1p0eiQaZ9viYqrnjMV"
+      }
+    ],
+    "experience": 7
+  },
+  {
+    "id": "doc-1766219642577-fqks05b1w",
+    "rating": 5,
+    "preferences": "Not set",
+    "availabilitySlots": [
+      {
+        "day": "Sunday",
+        "timeSlots": [
+          {
+            "from": "02:00 PM",
+            "to": "03:00 PM"
+          }
+        ]
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "04:00 PM",
+            "from": "03:00 PM"
+          }
+        ],
+        "day": "Monday"
+      },
+      {
+        "day": "Tuesday",
+        "timeSlots": [
+          {
+            "to": "01:00 PM",
+            "from": "09:00 AM"
+          },
+          {
+            "from": "02:00 PM",
+            "to": "05:00 PM"
+          }
+        ]
+      },
+      {
+        "day": "Wednesday",
+        "timeSlots": [
+          {
+            "to": "01:00 PM",
+            "from": "09:00 AM"
+          },
+          {
+            "from": "02:00 PM",
+            "to": "05:00 PM"
+          }
+        ]
+      },
+      {
+        "timeSlots": [
+          {
+            "from": "09:00 AM",
+            "to": "01:00 PM"
+          },
+          {
+            "from": "02:00 PM",
+            "to": "05:00 PM"
+          }
+        ],
+        "day": "Thursday"
+      },
+      {
+        "day": "Friday",
+        "timeSlots": [
+          {
+            "to": "01:00 PM",
+            "from": "09:00 AM"
+          },
+          {
+            "to": "05:00 PM",
+            "from": "02:00 PM"
+          }
+        ]
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "05:00 PM",
+            "from": "02:00 PM"
+          }
+        ],
+        "day": "Saturday"
+      }
+    ],
+    "reviewList": [
+      {
+        "doctorName": "sitha ram",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1766415631,
+          "nanoseconds": 629000000
+        },
+        "patientName": "Walking test",
+        "clinicId": "PJ1p0eiQaZ9viYqrnjMV",
+        "id": "eQWJ3gtpPBKIbDV1iZEF",
+        "rating": 5,
+        "appointmentId": "JBVik7OrAUf3gxP3iCbV",
+        "doctorId": "doc-1766219642577-fqks05b1w",
+        "patientId": "7KOimpjUcGqOrx3sxigE",
+        "feedback": ""
+      }
+    ],
+    "experience": 6,
+    "advanceBookingDays": 30,
+    "historicalData": "No data",
+    "registrationNumber": "IMA13467",
+    "availabilityExtensions": {
+      "22 December 2025": {
+        "sessions": [
+          {
+            "breaks": [],
+            "originalEndTime": "04:00 PM",
+            "sessionIndex": 0,
+            "newEndTime": "04:10 PM",
+            "totalExtendedBy": 10
+          }
+        ]
+      },
+      "21 December 2025": {
+        "sessions": [
+          {
+            "totalExtendedBy": 30,
+            "newEndTime": "03:30 PM",
+            "breaks": [
+              {
+                "startTime": "2025-12-21T08:30:00.000Z",
+                "startTimeFormatted": "02:00 PM",
+                "id": "break-1766305800000_merged_break-1766307600000",
+                "slots": [
+                  "2025-12-21T08:30:00.000Z",
+                  "2025-12-21T08:35:00.000Z",
+                  "2025-12-21T08:40:00.000Z",
+                  "2025-12-21T08:45:00.000Z",
+                  "2025-12-21T08:50:00.000Z",
+                  "2025-12-21T08:55:00.000Z",
+                  "2025-12-21T09:00:00.000Z",
+                  "2025-12-21T09:05:00.000Z",
+                  "2025-12-21T09:10:00.000Z",
+                  "2025-12-21T09:15:00.000Z",
+                  "2025-12-21T09:20:00.000Z",
+                  "2025-12-21T09:25:00.000Z"
+                ],
+                "sessionIndex": 0,
+                "endTimeFormatted": "03:00 PM",
+                "duration": 60,
+                "endTime": "2025-12-21T09:30:00.000Z"
+              }
+            ],
+            "sessionIndex": 0,
+            "originalEndTime": "03:00 PM"
+          }
+        ]
+      }
+    },
+    "averageConsultingTime": 5,
+    "consultationFee": 300,
+    "schedule": "Sunday: 02:00 PM-03:00 PM; Monday: 03:00 PM-04:00 PM; Tuesday: 09:00 AM-01:00 PM, 02:00 PM-05:00 PM; Wednesday: 09:00 AM-01:00 PM, 02:00 PM-05:00 PM; Thursday: 09:00 AM-01:00 PM, 02:00 PM-05:00 PM; Friday: 09:00 AM-01:00 PM, 02:00 PM-05:00 PM; Saturday: 02:00 PM-05:00 PM",
+    "bio": "",
+    "clinicId": "PJ1p0eiQaZ9viYqrnjMV",
+    "breakPeriods": {
+      "21 December 2025": [
+        {
+          "slots": [
+            "2025-12-21T08:30:00.000Z",
+            "2025-12-21T08:35:00.000Z",
+            "2025-12-21T08:40:00.000Z",
+            "2025-12-21T08:45:00.000Z",
+            "2025-12-21T08:50:00.000Z",
+            "2025-12-21T08:55:00.000Z",
+            "2025-12-21T09:00:00.000Z",
+            "2025-12-21T09:05:00.000Z",
+            "2025-12-21T09:10:00.000Z",
+            "2025-12-21T09:15:00.000Z",
+            "2025-12-21T09:20:00.000Z",
+            "2025-12-21T09:25:00.000Z"
+          ],
+          "sessionIndex": 0,
+          "endTime": "2025-12-21T09:30:00.000Z",
+          "startTime": "2025-12-21T08:30:00.000Z",
+          "endTimeFormatted": "03:00 PM",
+          "duration": 60,
+          "startTimeFormatted": "02:00 PM",
+          "id": "break-1766305800000_merged_break-1766307600000"
+        }
+      ]
+    },
+    "specialty": "MBBS, md, plastic surgeon",
+    "avatar": "https://firebasestorage.googleapis.com/v0/b/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/o/doctor_female.webp?alt=media&token=0726d154-7371-4db7-9006-0a82fc47f9fa",
+    "freeFollowUpDays": 7,
+    "reviews": 1,
+    "availability": "Unavailable",
+    "department": "Dermatology",
+    "consultationStatus": "Out",
+    "name": "sitha ram",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1766406714,
+      "nanoseconds": 66000000
+    }
+  },
+  {
+    "id": "doc-1767617650281-leqmk7hfy",
+    "availabilitySlots": [
+      {
+        "timeSlots": [
+          {
+            "to": "09:30 AM",
+            "from": "08:30 AM"
+          },
+          {
+            "to": "06:30 PM",
+            "from": "03:30 PM"
+          }
+        ],
+        "day": "Monday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "06:30 PM",
+            "from": "03:30 PM"
+          }
+        ],
+        "day": "Tuesday"
+      },
+      {
+        "day": "Wednesday",
+        "timeSlots": [
+          {
+            "to": "09:30 AM",
+            "from": "08:30 AM"
+          },
+          {
+            "to": "06:30 PM",
+            "from": "03:30 PM"
+          }
+        ]
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "09:30 AM",
+            "from": "08:30 AM"
+          },
+          {
+            "from": "03:30 PM",
+            "to": "06:30 PM"
+          }
+        ],
+        "day": "Thursday"
+      },
+      {
+        "timeSlots": [
+          {
+            "to": "06:30 PM",
+            "from": "03:30 PM"
+          }
+        ],
+        "day": "Friday"
+      },
+      {
+        "day": "Saturday",
+        "timeSlots": [
+          {
+            "to": "09:30 AM",
+            "from": "08:30 AM"
+          },
+          {
+            "from": "03:30 PM",
+            "to": "06:30 PM"
+          }
+        ]
+      }
+    ],
+    "availability": "Unavailable",
+    "schedule": "Monday: 08:30 AM-09:30 AM, 03:30 PM-06:30 PM; Tuesday: 03:30 PM-06:30 PM; Wednesday: 08:30 AM-09:30 AM, 03:30 PM-06:30 PM; Thursday: 08:30 AM-09:30 AM, 03:30 PM-06:30 PM; Friday: 03:30 PM-06:30 PM; Saturday: 08:30 AM-09:30 AM, 03:30 PM-06:30 PM",
+    "freeFollowUpDays": 7,
+    "preferences": "Not set",
+    "bio": "MBBS.DGO.\nChief Gynaecologist & Laproscopic Surgeon\nEMS Memorial Co-operative Hospital\nPerinthalmanna\nKochu S Mani Clinic is a highly qualified gynecologist providing comprehensive women's healthcare services. Expert care in obstetrics, gynecology, and women's health with a focus on patient comfort and advanced medical care.",
+    "avatar": "https://storage.googleapis.com/kloqo-clinic-multi-33968-4c50b.firebasestorage.app/doctor_avatars/FxJvKbeZutWOhXxQgySH/1767617649273_blob",
+    "name": "Dr. Kochu S Mani",
+    "clinicId": "FxJvKbeZutWOhXxQgySH",
+    "department": "OB/GYN",
+    "averageConsultingTime": 5,
+    "advanceBookingDays": 1,
+    "historicalData": "No data",
+    "consultationFee": 300,
+    "consultationStatus": "Out",
+    "specialty": "Consultant Gynaecologist & Laproscopic Surgeon",
+    "experience": 35,
+    "registrationNumber": ""
+  }
+]

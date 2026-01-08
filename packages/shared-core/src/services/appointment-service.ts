@@ -657,7 +657,7 @@ export async function generateNextTokenAndReserveSlot(
         if (type === 'A') {
           // Calculate maximum advance tokens per session atomically
           let maximumAdvanceTokens = 0;
-          const dayOfWeek = getClinicDayOfWeek(now);
+          const dayOfWeek = getClinicDayOfWeek(date);
           const availabilityForDay = (doctorProfile.availabilitySlots || []).find((s: any) => s.day === dayOfWeek);
           const extensionForDate = (doctorProfile as any).availabilityExtensions?.[dateStr];
 
@@ -669,7 +669,7 @@ export async function generateNextTokenAndReserveSlot(
             const sessionSource = availabilityForDay?.timeSlots?.[sessionIndex];
             if (!sessionSource) return;
 
-            const originalSessionEndTime = parseTimeString(sessionSource.to, now);
+            const originalSessionEndTime = parseTimeString(sessionSource.to, date);
             let capacityBasisEndTime = originalSessionEndTime;
 
             const sessionExtension = extensionForDate?.sessions?.find((s: any) => s.sessionIndex === sessionIndex);
@@ -681,7 +681,7 @@ export async function generateNextTokenAndReserveSlot(
               // implying that if breaks are gone, we shouldn't use the extended window for capacity OR usage.
               if (hasActiveBreaks) {
                 try {
-                  capacityBasisEndTime = parseTimeString(sessionExtension.newEndTime, now);
+                  capacityBasisEndTime = parseTimeString(sessionExtension.newEndTime, date);
                 } catch (e) {
                   console.error('Error parsing extension time for capacity:', e);
                 }
@@ -713,7 +713,7 @@ export async function generateNextTokenAndReserveSlot(
           const activeAdvanceTokens = effectiveAppointments.filter(appointment => {
             // CRITICAL: Since capacity is shrinking (future slots only), usage MUST also be future-only to match.
             // Also exclude "stranded" appointments (slotIndex >= totalSlots) that fall outside current doctor availability.
-            const appointmentTime = parseTimeString(appointment.time || '', now);
+            const appointmentTime = parseTimeString(appointment.time || '', date);
             const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
 
             // CRITICAL FIX: Ensure appointment falls within the valid capacity basis time of its session.

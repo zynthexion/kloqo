@@ -2118,6 +2118,7 @@ export async function prepareAdvanceShift({
       console.warn('[Walk-in Scheduling] After blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
       console.warn('[Walk-in Scheduling] Blocked advance appointments:', blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })));
 
+
       const allWalkInCandidates = [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate];
       console.warn('[Walk-in Scheduling] Scheduler inputs:', {
         totalSlots: slots.length,
@@ -2128,17 +2129,84 @@ export async function prepareAdvanceShift({
         reservedSlots: reservedWalkInCandidates.map(w => w.currentSlotIndex),
       });
 
-      const schedule = computeWalkInSchedule({
-        slots,
-        now,
-        walkInTokenAllotment: walkInSpacingValue,
-        advanceAppointments: blockedAdvanceAppointments,
-        walkInCandidates: allWalkInCandidates,
-      });
+      // Declare newAssignment as let so it can be assigned in force booking bypass
+      let newAssignment: SchedulerAssignment | null = null;
 
-      const newAssignment = schedule.assignments.find(
-        assignment => assignment.id === '__new_walk_in__'
-      );
+
+      // FORCE BOOKING BYPASS: Skip scheduler and append to end
+      // Force bookings should not trigger rebalancing or shift existing appointments
+      if (forceBook) {
+        console.log('[Walk-in Scheduling] Force booking detected - skipping scheduler, appending to end');
+
+        // Find the maximum occupied slot index from all active appointments
+        const allOccupiedSlots = effectiveAppointments
+          .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number')
+          .map(apt => apt.slotIndex as number);
+
+        const maxOccupiedSlot = allOccupiedSlots.length > 0
+          ? Math.max(...allOccupiedSlots)
+          : -1;
+
+        const forceBookSlotIndex = maxOccupiedSlot + 1;
+
+        // Determine session index for the force-booked slot
+        const forceBookSessionIndex = (() => {
+          if (forceBookSlotIndex < slots.length) {
+            return slots[forceBookSlotIndex].sessionIndex;
+          }
+          // If beyond available slots, use the last session index
+          const lastSlot = slots[slots.length - 1];
+          return lastSlot ? lastSlot.sessionIndex : 0;
+        })();
+
+        // Calculate time for force-booked slot
+        const slotDuration = doctor.averageConsultingTime || 15;
+        let forceBookTime: Date;
+
+        if (forceBookSlotIndex < slots.length) {
+          // Within availability - use slot's time
+          forceBookTime = slots[forceBookSlotIndex].time;
+        } else {
+          // Beyond availability - calculate from last slot
+          const lastSlot = slots[slots.length - 1];
+          if (lastSlot) {
+            const slotsAfterAvailability = forceBookSlotIndex - (slots.length - 1);
+            forceBookTime = addMinutes(lastSlot.time, slotsAfterAvailability * slotDuration);
+          } else {
+            forceBookTime = now;
+          }
+        }
+
+        console.log('[Walk-in Scheduling] Force booking assigned to slot:', {
+          slotIndex: forceBookSlotIndex,
+          sessionIndex: forceBookSessionIndex,
+          time: forceBookTime.toISOString(),
+          maxOccupiedSlot,
+        });
+
+        // Return assignment without calling scheduler
+        newAssignment = {
+          id: '__new_walk_in__',
+          slotIndex: forceBookSlotIndex,
+          sessionIndex: forceBookSessionIndex,
+          slotTime: forceBookTime,
+        };
+      } else {
+        // Normal walk-in booking - use scheduler
+        const schedule = computeWalkInSchedule({
+          slots,
+          now,
+          walkInTokenAllotment: walkInSpacingValue,
+          advanceAppointments: blockedAdvanceAppointments,
+          walkInCandidates: allWalkInCandidates,
+        });
+
+        newAssignment = schedule.assignments.find(
+          assignment => assignment.id === '__new_walk_in__'
+        ) || null;
+      }
+
+
       if (!newAssignment) {
         console.warn('[Walk-in Scheduling] No assignment found for new walk-in - all slots may be full', {
           totalSlots: slots.length,

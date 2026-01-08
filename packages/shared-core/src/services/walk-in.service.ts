@@ -3394,26 +3394,85 @@ export async function calculateWalkInDetails(
     return false; // Steps above confirm explicitly active slots
   })();
 
+
   const canUseBucketCompensation = allSlotsFilled && firestoreBucketCount > 0;
 
-  try {
-    schedule = computeWalkInSchedule({
-      slots,
-      now,
-      walkInTokenAllotment: walkInTokenAllotment || 0,
-      advanceAppointments: blockedAdvanceAppointments,
-      walkInCandidates: activeWalkInCandidates,
+  // FORCE BOOKING BYPASS: Skip scheduler for force bookings in preview
+  // This ensures preview shows the same time as actual booking
+  let newAssignment: SchedulerAssignment | undefined;
+
+  if (forceBook) {
+    console.log('[WALK-IN:ESTIMATE] Force booking detected - skipping scheduler in preview');
+
+    // Find maximum occupied slot from all active appointments
+    const allOccupiedSlots = sessionAppointments
+      .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number')
+      .map(apt => apt.slotIndex as number);
+
+    const maxOccupiedSlot = allOccupiedSlots.length > 0
+      ? Math.max(...allOccupiedSlots)
+      : -1;
+
+    const forceBookSlotIndex = maxOccupiedSlot + 1;
+
+    // Determine session index
+    const forceBookSessionIndex = (() => {
+      if (forceBookSlotIndex < slots.length) {
+        return slots[forceBookSlotIndex].sessionIndex;
+      }
+      const lastSlot = slots[slots.length - 1];
+      return lastSlot ? lastSlot.sessionIndex : targetSessionIndex;
+    })();
+
+    // Calculate time
+    const slotDuration = doctor.averageConsultingTime || 15;
+    let forceBookTime: Date;
+
+    if (forceBookSlotIndex < slots.length) {
+      forceBookTime = slots[forceBookSlotIndex].time;
+    } else {
+      const lastSlot = slots[slots.length - 1];
+      if (lastSlot) {
+        const slotsAfterAvailability = forceBookSlotIndex - (slots.length - 1);
+        forceBookTime = addMinutes(lastSlot.time, slotsAfterAvailability * slotDuration);
+      } else {
+        forceBookTime = now;
+      }
+    }
+
+    newAssignment = {
+      id: '__new_walk_in__',
+      slotIndex: forceBookSlotIndex,
+      sessionIndex: forceBookSessionIndex,
+      slotTime: forceBookTime,
+    };
+
+    console.log('[WALK-IN:ESTIMATE] Force booking preview assignment:', {
+      slotIndex: forceBookSlotIndex,
+      sessionIndex: forceBookSessionIndex,
+      time: forceBookTime.toISOString(),
     });
-  } catch (error) {
-    // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
-    // ONLY if explicit forceBook is requested OR bucket compensation is available.
-    // Automatic overflow based solely on allSlotsFilled is disabled to ensure UI prompts are shown.
-    if (!forceBook && !canUseBucketCompensation) {
-      throw error;
+  } else {
+    // Normal walk-in preview - use scheduler
+    try {
+      schedule = computeWalkInSchedule({
+        slots,
+        now,
+        walkInTokenAllotment: walkInTokenAllotment || 0,
+        advanceAppointments: blockedAdvanceAppointments,
+        walkInCandidates: activeWalkInCandidates,
+      });
+      newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
+    } catch (error) {
+      // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
+      // ONLY if explicit forceBook is requested OR bucket compensation is available.
+      // Automatic overflow based solely on allSlotsFilled is disabled to ensure UI prompts are shown.
+      if (!forceBook && !canUseBucketCompensation) {
+        throw error;
+      }
     }
   }
 
-  const newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
 
   let chosenSlotIndex = -1;
   let chosenSessionIndex = 0;

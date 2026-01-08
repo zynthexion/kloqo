@@ -26,7 +26,7 @@ import { useRouter } from 'next/navigation';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { parseTime } from '@/lib/utils';
-import { computeQueues, type QueueState } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments } from '@kloqo/shared-core';
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -134,7 +134,8 @@ export default function LiveDashboard() {
         } as Appointment);
       });
 
-      setAppointments(fetchedAppointments.sort(compareAppointmentsByTime));
+      const sorted = fetchedAppointments.sort(compareAppointments);
+      setAppointments(sorted);
 
     }, async (serverError) => {
       const permissionError = new FirestorePermissionError({
@@ -467,7 +468,7 @@ export default function LiveDashboard() {
 
   const confirmedAppointments = useMemo(() => {
     const confirmed = filteredAppointments.filter(a => a.status === 'Confirmed');
-    return confirmed.sort(compareAppointmentsByTime);
+    return confirmed.sort(compareAppointments);
   }, [filteredAppointments]);
 
   // Calculate next sessionIndex for current doctor
@@ -515,12 +516,12 @@ export default function LiveDashboard() {
       });
     }
 
-    return pending.sort(compareAppointmentsByTime);
+    return pending.sort(compareAppointments);
   }, [filteredAppointments, nextSessionIndex, currentDoctor]);
 
   const skippedAppointments = useMemo(() => {
     const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
-    return skipped.sort(compareAppointmentsByTime);
+    return skipped.sort(compareAppointments);
   }, [filteredAppointments]);
 
 
@@ -642,33 +643,4 @@ export default function LiveDashboard() {
   );
 }
 
-function compareAppointmentsByTime(a: Appointment, b: Appointment): number {
-  const dateA = parseAppointmentDate(a.date);
-  const dateB = parseAppointmentDate(b.date);
-
-  if (dateA && dateB && dateA.getTime() !== dateB.getTime()) {
-    return dateA.getTime() - dateB.getTime();
-  }
-
-  const dateTimeA = dateA && a.time ? parseTime(a.time, dateA) : null;
-  const dateTimeB = dateB && b.time ? parseTime(b.time, dateB) : null;
-
-  if (dateTimeA && dateTimeB) {
-    return dateTimeA.getTime() - dateTimeB.getTime();
-  }
-
-  if (dateTimeA) return -1;
-  if (dateTimeB) return 1;
-
-  return (a.numericToken || 0) - (b.numericToken || 0);
-}
-
-function parseAppointmentDate(dateStr?: string): Date | null {
-  if (!dateStr) return null;
-  try {
-    const parsedDate = parse(dateStr, 'd MMMM yyyy', new Date());
-    return isNaN(parsedDate.getTime()) ? null : parsedDate;
-  } catch {
-    return null;
-  }
-}
+// Local helpers removed in favor of shared-core utilities

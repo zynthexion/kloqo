@@ -155,12 +155,9 @@ export function buildOccupiedSlotSet(appointments: Appointment[]): Set<number> {
   return occupied;
 }
 
-function getSlotTime(slots: DailySlot[], slotIndex: number): Date {
-  const slot = slots[slotIndex];
-  if (!slot) {
-    throw new Error('Selected slot index is outside of the doctor availability.');
-  }
-  return slot.time;
+export function getSlotTime(slots: DailySlot[], slotIndex: number): Date | null {
+  const slot = slots.find(s => s.index === slotIndex);
+  return slot ? slot.time : null;
 }
 
 /**
@@ -252,7 +249,7 @@ export function buildCandidateSlots(
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
         console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - reserved for walk-ins in session ${preferredSessionIndex}`);
-      } else if (isAfter(slotTime, oneHourFromNow)) {
+      } else if (slotTime && isAfter(slotTime, oneHourFromNow)) {
         addCandidate(preferredSlotIndex);
       } else {
         console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - within 1 hour from now`);
@@ -899,7 +896,7 @@ export async function generateNextTokenAndReserveSlot(
 
           if (finalSlotIndex < slots.length) {
             // Slot is within availability - use the slot's time directly (matches nurse app)
-            const slotMeta = slots[finalSlotIndex];
+            const slotMeta = slots.find(s => s.index === finalSlotIndex);
             walkInTime = slotMeta ? slotMeta.time : newAssignment.slotTime;
           } else {
             // Slot is outside availability - calculate based on previous appointment
@@ -1544,7 +1541,7 @@ export async function prepareAdvanceShift({
   let hasReservationConflict = false; // Add this definition at function start
   const activeAdvanceAppointments = effectiveAppointments.filter((appointment: any) => {
     return (
-      appointment.bookedVia !== 'Walk-in' &&
+      (appointment.bookedVia !== 'Walk-in' || (appointment.bookedVia as string) === 'BreakBlock') &&
       typeof appointment.slotIndex === 'number' &&
       ACTIVE_STATUSES.has(appointment.status)
     );
@@ -1863,7 +1860,7 @@ export async function prepareAdvanceShift({
   const activeWalkInsWithTimes = activeWalkIns
     .filter(appt => typeof appt.slotIndex === 'number')
     .map(appt => {
-      const slotMeta = slots[appt.slotIndex!];
+      const slotMeta = slots.find(s => s.index === appt.slotIndex!);
       return {
         appointment: appt,
         slotIndex: appt.slotIndex!,
@@ -1877,7 +1874,7 @@ export async function prepareAdvanceShift({
       (appointment.status === 'Cancelled' || appointment.status === 'No-show') &&
       typeof appointment.slotIndex === 'number'
     ) {
-      const slotMeta = slots[appointment.slotIndex];
+      const slotMeta = slots.find(s => s.index === appointment.slotIndex);
       if (slotMeta) {
         // For bucket count: Include past slots (within 1 hour window)
         // Only check upper bound (1 hour ahead), don't filter out past slots
@@ -1970,19 +1967,12 @@ export async function prepareAdvanceShift({
         (appointment.status === 'Cancelled' || appointment.status === 'No-show') &&
         typeof appointment.slotIndex === 'number'
       ) {
-        const slotMeta = slots[appointment.slotIndex];
+        const slotMeta = slots.find(s => s.index === appointment.slotIndex);
         if (slotMeta) {
           // For bucket: Include past slots (within 1 hour window)
           // Only check upper bound (1 hour ahead), don't filter out past slots
           const isInBucketWindow = !isAfter(slotMeta.time, oneHourAhead);
           const hasActiveAppt = slotsWithActiveAppointments.has(appointment.slotIndex);
-
-          console.warn(`[Walk-in Scheduling] Checking cancelled slot ${appointment.slotIndex}:`, {
-            time: slotMeta.time.toISOString(),
-            isInBucketWindow,
-            hasActiveAppt,
-            status: appointment.status,
-          });
 
           if (
             isInBucketWindow &&
@@ -1992,11 +1982,6 @@ export async function prepareAdvanceShift({
             const hasWalkInsAfter = activeWalkInsWithTimes.some(
               walkIn => walkIn.slotTime && isAfter(walkIn.slotTime, slotMeta.time)
             );
-
-            console.warn(`[Walk-in Scheduling] Cancelled slot ${appointment.slotIndex}: hasWalkInsAfter=${hasWalkInsAfter}`, {
-              cancelledSlotTime: slotMeta.time.toISOString(),
-              walkInTimes: activeWalkInsWithTimes.map(w => w.slotTime?.toISOString()),
-            });
 
             if (hasWalkInsAfter) {
               // This is a cancelled slot with walk-ins after it - block it from walk-in scheduling
@@ -2278,31 +2263,51 @@ export async function prepareAdvanceShift({
     }
   };
 
-  // Check if all slots in availability (non-past, excluding cancelled slots in bucket) are filled
+  // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
   const allSlotsFilled = (() => {
-    const occupiedSlots = new Set<number>();
+    // ------------------------------------------------------------------------
+    // REVISED LOGIC: Account for "Overflow" appointments filling gaps in Scheduler
+    // ------------------------------------------------------------------------
+    let freeFutureSlotsCount = 0;
+    const occupiedIndices = new Set<number>();
+
+    // 1. Identify Occupied Indices from Appointments & Blocked
+    const registerOccupancy = (idx: number) => {
+      if (typeof idx === 'number') occupiedIndices.add(idx);
+    };
+
     effectiveAppointments.forEach(appt => {
-      if (
-        typeof appt.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appt.status)
-      ) {
-        occupiedSlots.add(appt.slotIndex);
+      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+        registerOccupancy(appt.slotIndex);
       }
     });
-    // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
-    for (let i = 0; i < slots.length; i++) {
-      if (isBefore(slots[i].time, now)) {
-        continue; // Skip past slots
-      }
-      // Skip cancelled slots in bucket - they're blocked, not available
-      if (hasExistingWalkIns && cancelledSlotsInBucket.has(i)) {
-        continue; // Skip cancelled slots in bucket
-      }
-      if (!occupiedSlots.has(i)) {
-        return false; // Found an empty slot
+
+    // 2. Count "Free" Slots in the future
+    for (const slot of slots) {
+      if (isBefore(slot.time, now)) continue;
+      if (hasExistingWalkIns && cancelledSlotsInBucket.has(slot.index)) continue; // Blocked by bucket
+
+      if (!occupiedIndices.has(slot.index)) {
+        freeFutureSlotsCount++;
       }
     }
-    return true; // All available future slots are occupied
+
+    // 3. Count "Overflow" Appointments (Indices >= lastSlotIndexInSession + 1)
+    let overflowCount = 0;
+    effectiveAppointments.forEach(appt => {
+      if (ACTIVE_STATUSES.has(appt.status)) {
+        const lastSlotIndexInSession = slots.length > 0
+          ? Math.max(...slots.map(s => s.index))
+          : -1;
+
+        if (typeof appt.slotIndex === 'number' && appt.slotIndex > lastSlotIndexInSession) {
+          overflowCount++;
+        }
+      }
+    });
+
+    // Final verdict: Session is full if free slots <= overflow count
+    return freeFutureSlotsCount <= overflowCount;
   })();
 
   let scheduleAttempt: ScheduleAttemptResult | null = null;
@@ -3106,8 +3111,7 @@ export async function calculateWalkInDetails(
   // Use smart scheduler to find the slot
   const activeAdvanceAppointments = sessionAppointments.filter((appointment: any) => {
     return (
-      appointment.bookedVia !== 'Walk-in' &&
-      (appointment.bookedVia as string) !== 'BreakBlock' &&
+      (appointment.bookedVia !== 'Walk-in' || (appointment.bookedVia as string) === 'BreakBlock') &&
       typeof appointment.slotIndex === 'number' &&
       ACTIVE_STATUSES.has(appointment.status)
     );
@@ -3170,7 +3174,7 @@ export async function calculateWalkInDetails(
     .filter(appt => typeof appt.slotIndex === 'number')
     .map(appt => ({
       slotIndex: appt.slotIndex!,
-      slotTime: slots[appt.slotIndex!]?.time,
+      slotTime: slots.find(s => s.index === appt.slotIndex!)?.time,
     }))
     .filter(item => item.slotTime !== undefined);
 
@@ -3205,7 +3209,7 @@ export async function calculateWalkInDetails(
       typeof appt.slotIndex === 'number' &&
       (appt.bookedVia as string) !== 'BreakBlock' // CRITICAL: Ignore administrative blocks
     ) {
-      const slotMeta = slots[appt.slotIndex];
+      const slotMeta = slots.find(s => s.index === appt.slotIndex);
       if (slotMeta) {
         // For bucket count: Include past slots (within 1 hour window)
         const isInBucketWindow = !isAfter(slotMeta.time, oneHourAhead);
@@ -3379,6 +3383,10 @@ export async function calculateWalkInDetails(
 
     // 3. Count "Overflow" Appointments (Indices >= lastSlotIndexInSession + 1)
     let overflowCount = 0;
+    const lastSlotIndexInSession = slots.length > 0
+      ? Math.max(...slots.map(s => s.index))
+      : -1;
+
     sessionAppointments.forEach(appt => {
       if (ACTIVE_STATUSES.has(appt.status)) {
         if (typeof appt.slotIndex === 'number' && appt.slotIndex > lastSlotIndexInSession) {
@@ -3387,11 +3395,8 @@ export async function calculateWalkInDetails(
       }
     });
 
-    if (overflowCount >= freeFutureSlotsCount) {
-      return true; // Overflow will fill all gaps, so session is full
-    }
-
-    return false; // Steps above confirm explicitly active slots
+    // Final verdict: Session is full if free slots <= overflow count
+    return freeFutureSlotsCount <= overflowCount;
   })();
 
 

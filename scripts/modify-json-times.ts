@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse, format, addHours } from 'date-fns';
+import { parse, format, subMinutes } from 'date-fns';
 
 async function updateJson() {
     try {
@@ -17,23 +17,32 @@ async function updateJson() {
             if (!appt.time || !appt.date) return appt;
 
             try {
-                // Parse the appointment time and date
-                const apptDateTime = parse(`${appt.date} ${appt.time}`, 'd MMMM yyyy hh:mm a', new Date());
-                const baseSeconds = Math.floor(apptDateTime.getTime() / 1000);
+                const baseDate = new Date();
+                const SUBTRACT_MINUTES = 45;
+                const SUBTRACT_SECONDS = SUBTRACT_MINUTES * 60;
 
-                // noShowTime = time + 15 minutes
-                if (appt.noShowTime) {
-                    appt.noShowTime.seconds = baseSeconds + (15 * 60);
-                    appt.noShowTime.nanoseconds = 0;
+                // 1. Subtract 45m from 'time'
+                const apptTime = parse(appt.time, 'hh:mm a', baseDate);
+                const newApptTime = subMinutes(apptTime, SUBTRACT_MINUTES);
+                appt.time = format(newApptTime, 'hh:mm a');
+
+                // 2. Subtract 45m from 'arriveByTime'
+                if (appt.arriveByTime) {
+                    const arriveTime = parse(appt.arriveByTime, 'hh:mm a', baseDate);
+                    const newArriveTime = subMinutes(arriveTime, SUBTRACT_MINUTES);
+                    appt.arriveByTime = format(newArriveTime, 'hh:mm a');
                 }
 
-                // cutOffTime = time - 15 minutes
-                if (appt.cutOffTime) {
-                    appt.cutOffTime.seconds = baseSeconds - (15 * 60);
-                    appt.cutOffTime.nanoseconds = 0;
+                // 3. Subtract 45m (2700s) from Firestore Timestamps
+                if (appt.noShowTime && typeof appt.noShowTime.seconds === 'number') {
+                    appt.noShowTime.seconds -= SUBTRACT_SECONDS;
                 }
 
-                console.log(`Updated ${appt.patientName} (${appt.time}): cutOff -15m, noShow +15m`);
+                if (appt.cutOffTime && typeof appt.cutOffTime.seconds === 'number') {
+                    appt.cutOffTime.seconds -= SUBTRACT_SECONDS;
+                }
+
+                console.log(`Updated ${appt.patientName}: ${appt.time} (Shifted -45m)`);
             } catch (e) {
                 console.warn(`Error processing appointment ${appt.id}:`, e);
             }
@@ -42,7 +51,7 @@ async function updateJson() {
         });
 
         fs.writeFileSync(filePath, JSON.stringify(updatedAppointments, null, 2));
-        console.log('Successfully updated appointments.json: Aligned noShowTime and cutOffTime');
+        console.log('Successfully updated appointments.json: Subtracted 45 minutes from all fields');
     } catch (error) {
         console.error('Error updating JSON:', error);
     }

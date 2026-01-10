@@ -807,7 +807,8 @@ export async function generateNextTokenAndReserveSlot(
               (appointment.bookedVia as string) !== 'BreakBlock' && // CRITICAL FIX: Breaks shouldn't count towards Advance Token Cap
               typeof appointment.slotIndex === 'number' &&
               isFutureAppointment &&
-              ACTIVE_STATUSES.has(appointment.status)
+              ACTIVE_STATUSES.has(appointment.status) &&
+              (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped')
             );
           }).length;
 
@@ -1543,7 +1544,8 @@ export async function prepareAdvanceShift({
     return (
       (appointment.bookedVia !== 'Walk-in' || (appointment.bookedVia as string) === 'BreakBlock') &&
       typeof appointment.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appointment.status)
+      ACTIVE_STATUSES.has(appointment.status) &&
+      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped')
     );
   });
 
@@ -1551,7 +1553,8 @@ export async function prepareAdvanceShift({
     return (
       appointment.bookedVia === 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appointment.status)
+      ACTIVE_STATUSES.has(appointment.status) &&
+      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped')
     );
   });
 
@@ -1717,7 +1720,8 @@ export async function prepareAdvanceShift({
     effectiveAppointments.forEach(appt => {
       if (
         typeof appt.slotIndex === 'number' &&
-        ACTIVE_STATUSES.has(appt.status)
+        ACTIVE_STATUSES.has(appt.status) &&
+        (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')
       ) {
         occupiedSlots.add(appt.slotIndex);
       }
@@ -2043,224 +2047,223 @@ export async function prepareAdvanceShift({
   };
 
   const attemptSchedule = (useCancelledSlot: number | null): ScheduleAttemptResult | null => {
-    try {
-      // If using a cancelled slot directly (first walk-in case), create assignment directly
-      if (useCancelledSlot !== null) {
-        const cancelledSlot = slots[useCancelledSlot];
-        if (cancelledSlot) {
-          return {
-            schedule: { assignments: [] },
-            newAssignment: {
-              id: '__new_walk_in__',
-              slotIndex: useCancelledSlot,
-              sessionIndex: cancelledSlot.sessionIndex,
-              slotTime: cancelledSlot.time,
-            },
-            placeholderIds: new Set(),
-          };
+    // If using a cancelled slot directly (first walk-in case), create assignment directly
+    if (useCancelledSlot !== null) {
+      const cancelledSlot = slots[useCancelledSlot];
+      if (cancelledSlot) {
+        return {
+          schedule: { assignments: [] },
+          newAssignment: {
+            id: '__new_walk_in__',
+            slotIndex: useCancelledSlot,
+            sessionIndex: cancelledSlot.sessionIndex,
+            slotTime: cancelledSlot.time,
+          },
+          placeholderIds: new Set(),
+        };
+      }
+      return null;
+    }
+
+    // Normal scheduling - run scheduler
+    // Include cancelled slots in bucket as "blocked" advance appointments
+    // so the scheduler treats them as occupied and doesn't assign walk-ins to them
+    const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
+      // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
+      // The scheduler treats IDs starting with '__blocked_' as immovable.
+      const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
+      const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+
+      return {
+        id,
+        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+      };
+    });
+
+    // CRITICAL: REMOVED the hack that added existing walk-ins as blocked advance appointments.
+    // This was causing a type mismatch ('type: A') in the scheduler's occupancy map,
+    // which led to collisions during shift operations.
+    // Existing walk-ins are correctly handled via walkInCandidates.
+
+    // Add cancelled slots in bucket as blocked slots (treat as occupied)
+    // These are cancelled slots that have walk-ins AFTER them, so walk-ins cannot use them
+    console.warn('[Walk-in Scheduling] Before blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
+    console.warn('[Walk-in Scheduling] Cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
+
+    if (cancelledSlotsInBucket.size > 0) {
+      console.warn('[Walk-in Scheduling] ✅ BLOCKING cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
+      cancelledSlotsInBucket.forEach(slotIndex => {
+        blockedAdvanceAppointments.push({
+          id: `__blocked_cancelled_${slotIndex}`,
+          slotIndex: slotIndex,
+        });
+        console.warn(`[Walk-in Scheduling] Added blocked cancelled slot ${slotIndex} to advance appointments`);
+      });
+    } else {
+      console.warn('[Walk-in Scheduling] ❌ No cancelled slots to block (bucket is empty)');
+    }
+
+    console.warn('[Walk-in Scheduling] After blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
+    console.warn('[Walk-in Scheduling] Blocked advance appointments:', blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })));
+
+
+    const allWalkInCandidates = [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate];
+    console.warn('[Walk-in Scheduling] Scheduler inputs:', {
+      totalSlots: slots.length,
+      blockedAdvanceCount: blockedAdvanceAppointments.length,
+      existingWalkInsCount: baseWalkInCandidates.length,
+      reservedCount: reservedWalkInCandidates.length,
+      existingWalkInSlots: baseWalkInCandidates.map(w => w.currentSlotIndex),
+      reservedSlots: reservedWalkInCandidates.map(w => w.currentSlotIndex),
+    });
+
+    // Declare variables at higher scope so they are available for return
+    let newAssignment: SchedulerAssignment | null = null;
+    let schedule: ReturnType<typeof computeWalkInSchedule> | null = null;
+
+
+    // FORCE BOOKING BYPASS: Skip scheduler and append to end
+    // Force bookings should not trigger rebalancing or shift existing appointments
+    if (forceBook) {
+      console.log('[Walk-in Scheduling] Force booking detected - skipping scheduler, appending to end');
+
+      // Find the maximum occupied slot index from all active appointments
+      const allOccupiedSlots = effectiveAppointments
+        .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number')
+        .map(apt => apt.slotIndex as number);
+
+      const maxOccupiedSlot = allOccupiedSlots.length > 0
+        ? Math.max(...allOccupiedSlots)
+        : -1;
+
+      const forceBookSlotIndex = maxOccupiedSlot + 1;
+
+      // Determine session index for the force-booked slot
+      const forceBookSessionIndex = (() => {
+        if (forceBookSlotIndex < slots.length) {
+          return slots[forceBookSlotIndex].sessionIndex;
         }
-        return null;
+        // If beyond available slots, use the last session index
+        const lastSlot = slots[slots.length - 1];
+        return lastSlot ? lastSlot.sessionIndex : 0;
+      })();
+
+      // Calculate time for force-booked slot
+      const slotDuration = doctor.averageConsultingTime || 15;
+      let forceBookTime: Date;
+
+      if (forceBookSlotIndex < slots.length) {
+        // Within availability - use slot's time
+        forceBookTime = slots[forceBookSlotIndex].time;
+      } else {
+        // Beyond availability - calculate from last slot
+        const lastSlot = slots[slots.length - 1];
+        if (lastSlot) {
+          const slotsAfterAvailability = forceBookSlotIndex - (slots.length - 1);
+          forceBookTime = addMinutes(lastSlot.time, slotsAfterAvailability * slotDuration);
+        } else {
+          forceBookTime = now;
+        }
       }
 
-      // Normal scheduling - run scheduler
-      // Include cancelled slots in bucket as "blocked" advance appointments
-      // so the scheduler treats them as occupied and doesn't assign walk-ins to them
-      const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
-        // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
-        // The scheduler treats IDs starting with '__blocked_' as immovable.
-        const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
-        const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
-
-        return {
-          id,
-          slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-        };
+      console.log('[Walk-in Scheduling] Force booking assigned to slot:', {
+        slotIndex: forceBookSlotIndex,
+        sessionIndex: forceBookSessionIndex,
+        time: forceBookTime.toISOString(),
+        maxOccupiedSlot,
       });
 
-      // CRITICAL: REMOVED the hack that added existing walk-ins as blocked advance appointments.
-      // This was causing a type mismatch ('type: A') in the scheduler's occupancy map,
-      // which led to collisions during shift operations.
-      // Existing walk-ins are correctly handled via walkInCandidates.
+      // Return assignment without calling scheduler
+      newAssignment = {
+        id: '__new_walk_in__',
+        slotIndex: forceBookSlotIndex,
+        sessionIndex: forceBookSessionIndex,
+        slotTime: forceBookTime,
+      };
+      // Stub schedule for force book
+      schedule = { assignments: [] };
+    } else {
+      // Normal walk-in booking - use scheduler
+      schedule = computeWalkInSchedule({
+        slots,
+        now,
+        walkInTokenAllotment: walkInSpacingValue,
+        advanceAppointments: blockedAdvanceAppointments,
+        walkInCandidates: allWalkInCandidates,
+      });
 
-      // Add cancelled slots in bucket as blocked slots (treat as occupied)
-      // These are cancelled slots that have walk-ins AFTER them, so walk-ins cannot use them
-      console.warn('[Walk-in Scheduling] Before blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
-      console.warn('[Walk-in Scheduling] Cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
-
-      if (cancelledSlotsInBucket.size > 0) {
-        console.warn('[Walk-in Scheduling] ✅ BLOCKING cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
-        cancelledSlotsInBucket.forEach(slotIndex => {
-          blockedAdvanceAppointments.push({
-            id: `__blocked_cancelled_${slotIndex}`,
-            slotIndex: slotIndex,
-          });
-          console.warn(`[Walk-in Scheduling] Added blocked cancelled slot ${slotIndex} to advance appointments`);
-        });
-      } else {
-        console.warn('[Walk-in Scheduling] ❌ No cancelled slots to block (bucket is empty)');
-      }
-
-      console.warn('[Walk-in Scheduling] After blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
-      console.warn('[Walk-in Scheduling] Blocked advance appointments:', blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })));
+      newAssignment = schedule.assignments.find(
+        assignment => assignment.id === '__new_walk_in__'
+      ) || null;
+    }
 
 
-      const allWalkInCandidates = [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate];
-      console.warn('[Walk-in Scheduling] Scheduler inputs:', {
+    if (!newAssignment || !schedule) {
+      console.warn('[Walk-in Scheduling] No assignment found for new walk-in - all slots may be full', {
         totalSlots: slots.length,
         blockedAdvanceCount: blockedAdvanceAppointments.length,
         existingWalkInsCount: baseWalkInCandidates.length,
-        reservedCount: reservedWalkInCandidates.length,
-        existingWalkInSlots: baseWalkInCandidates.map(w => w.currentSlotIndex),
-        reservedSlots: reservedWalkInCandidates.map(w => w.currentSlotIndex),
       });
-
-      // Declare newAssignment as let so it can be assigned in force booking bypass
-      let newAssignment: SchedulerAssignment | null = null;
-
-
-      // FORCE BOOKING BYPASS: Skip scheduler and append to end
-      // Force bookings should not trigger rebalancing or shift existing appointments
-      if (forceBook) {
-        console.log('[Walk-in Scheduling] Force booking detected - skipping scheduler, appending to end');
-
-        // Find the maximum occupied slot index from all active appointments
-        const allOccupiedSlots = effectiveAppointments
-          .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number')
-          .map(apt => apt.slotIndex as number);
-
-        const maxOccupiedSlot = allOccupiedSlots.length > 0
-          ? Math.max(...allOccupiedSlots)
-          : -1;
-
-        const forceBookSlotIndex = maxOccupiedSlot + 1;
-
-        // Determine session index for the force-booked slot
-        const forceBookSessionIndex = (() => {
-          if (forceBookSlotIndex < slots.length) {
-            return slots[forceBookSlotIndex].sessionIndex;
-          }
-          // If beyond available slots, use the last session index
-          const lastSlot = slots[slots.length - 1];
-          return lastSlot ? lastSlot.sessionIndex : 0;
-        })();
-
-        // Calculate time for force-booked slot
-        const slotDuration = doctor.averageConsultingTime || 15;
-        let forceBookTime: Date;
-
-        if (forceBookSlotIndex < slots.length) {
-          // Within availability - use slot's time
-          forceBookTime = slots[forceBookSlotIndex].time;
-        } else {
-          // Beyond availability - calculate from last slot
-          const lastSlot = slots[slots.length - 1];
-          if (lastSlot) {
-            const slotsAfterAvailability = forceBookSlotIndex - (slots.length - 1);
-            forceBookTime = addMinutes(lastSlot.time, slotsAfterAvailability * slotDuration);
-          } else {
-            forceBookTime = now;
-          }
-        }
-
-        console.log('[Walk-in Scheduling] Force booking assigned to slot:', {
-          slotIndex: forceBookSlotIndex,
-          sessionIndex: forceBookSessionIndex,
-          time: forceBookTime.toISOString(),
-          maxOccupiedSlot,
-        });
-
-        // Return assignment without calling scheduler
-        newAssignment = {
-          id: '__new_walk_in__',
-          slotIndex: forceBookSlotIndex,
-          sessionIndex: forceBookSessionIndex,
-          slotTime: forceBookTime,
-        };
-      } else {
-        // Normal walk-in booking - use scheduler
-        const schedule = computeWalkInSchedule({
-          slots,
-          now,
-          walkInTokenAllotment: walkInSpacingValue,
-          advanceAppointments: blockedAdvanceAppointments,
-          walkInCandidates: allWalkInCandidates,
-        });
-
-        newAssignment = schedule.assignments.find(
-          assignment => assignment.id === '__new_walk_in__'
-        ) || null;
-      }
-
-
-      if (!newAssignment) {
-        console.warn('[Walk-in Scheduling] No assignment found for new walk-in - all slots may be full', {
-          totalSlots: slots.length,
-          blockedAdvanceCount: blockedAdvanceAppointments.length,
-          existingWalkInsCount: baseWalkInCandidates.length,
-        });
-        return null;
-      }
-
-      console.log('[Walk-in Scheduling] Scheduler assigned new walk-in to slot:', newAssignment.slotIndex);
-      console.log('[Walk-in Scheduling] Blocked cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
-      console.log('[Walk-in Scheduling] Active walk-ins with times:', activeWalkInsWithTimes.map(w => ({ slotIndex: w.slotIndex, time: w.slotTime })));
-
-      // CRITICAL: Check if the assigned slot is already reserved by a concurrent request
-      // This must happen IMMEDIATELY after scheduler assignment to prevent race conditions
-      if (existingReservations.has(newAssignment.slotIndex)) {
-        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to slot that is already reserved by concurrent request:', newAssignment.slotIndex);
-        // Mark as conflict so caller knows to throw conflict error for retry
-        hasReservationConflict = true;
-        return null; // Reject this assignment, will retry with different slot
-      }
-
-      // Check if the assigned slot is a cancelled slot
-      const assignedAppointment = effectiveAppointments.find(
-        apt => apt.slotIndex === newAssignment.slotIndex &&
-          (apt.status === 'Cancelled' || apt.status === 'No-show')
-      );
-
-      if (assignedAppointment) {
-        const assignedSlotMeta = slots[newAssignment.slotIndex];
-        console.log(`[Walk-in Scheduling] Assigned slot ${newAssignment.slotIndex} is a cancelled/no-show slot at time:`, assignedSlotMeta?.time);
-
-        // Check if this cancelled slot should be blocked (has walk-ins after it)
-        if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
-          // This shouldn't happen since we blocked them, but reject if it does
-          console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot, rejecting:', newAssignment.slotIndex);
-          return null;
-        } else if (assignedAppointment) {
-          console.log(`[Walk-in Scheduling] Assigned cancelled slot ${newAssignment.slotIndex} is available (no walk-ins after it)`);
-        }
-      }
-
-      // Double-check: Cancelled slots in bucket are now blocked via advance appointments,
-      // so the scheduler shouldn't assign to them. But verify just in case.
-      if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
-        // This shouldn't happen since we blocked them, but reject if it does
-        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot (double-check), rejecting:', newAssignment.slotIndex);
-        return null;
-      }
-
-      // CRITICAL: Prevent slot 0 assignment when all slots are filled
-      // If all slots are filled and scheduler assigned slot 0, this is likely an error
-      if (newAssignment.slotIndex === 0 && allSlotsFilledEarly) {
-        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned slot 0 when all slots are filled - rejecting:', newAssignment.slotIndex);
-        return null; // Reject this assignment, will use bucket compensation instead
-      }
-
-      // CRITICAL FIX: Verify the assignment is valid. If it's an overflow slot (index >= totalSlots),
-      // we must have explicit permission (forceBook) or valid bucket compensation.
-      const isOverflowSlot = newAssignment.slotIndex >= slots.length;
-      if (isOverflowSlot && !forceBook && cancelledSlotsInBucket.size === 0) {
-        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned virtual overflow slot without forceBook or bucket credits - rejecting:', newAssignment.slotIndex);
-        return null;
-      }
-
-      return { schedule, newAssignment, placeholderIds: new Set() };
-    } catch {
       return null;
     }
+
+    console.log('[Walk-in Scheduling] Scheduler assigned new walk-in to slot:', newAssignment.slotIndex);
+    console.log('[Walk-in Scheduling] Blocked cancelled slots in bucket:', Array.from(cancelledSlotsInBucket));
+    console.log('[Walk-in Scheduling] Active walk-ins with times:', activeWalkInsWithTimes.map(w => ({ slotIndex: w.slotIndex, time: w.slotTime })));
+
+    // CRITICAL: Check if the assigned slot is already reserved by a concurrent request
+    // This must happen IMMEDIATELY after scheduler assignment to prevent race conditions
+    if (existingReservations.has(newAssignment.slotIndex)) {
+      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to slot that is already reserved by concurrent request:', newAssignment.slotIndex);
+      // Mark as conflict so caller knows to throw conflict error for retry
+      hasReservationConflict = true;
+      return null; // Reject this assignment, will retry with different slot
+    }
+
+    // Check if the assigned slot is a cancelled slot
+    const assignedAppointment = effectiveAppointments.find(
+      apt => apt.slotIndex === newAssignment.slotIndex &&
+        (apt.status === 'Cancelled' || apt.status === 'No-show')
+    );
+
+    if (assignedAppointment) {
+      const assignedSlotMeta = slots[newAssignment.slotIndex];
+      console.log(`[Walk-in Scheduling] Assigned slot ${newAssignment.slotIndex} is a cancelled/no-show slot at time:`, assignedSlotMeta?.time);
+
+      // Check if this cancelled slot should be blocked (has walk-ins after it)
+      if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
+        // This shouldn't happen since we blocked them, but reject if it does
+        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot, rejecting:', newAssignment.slotIndex);
+        return null;
+      } else if (assignedAppointment) {
+        console.log(`[Walk-in Scheduling] Assigned cancelled slot ${newAssignment.slotIndex} is available (no walk-ins after it)`);
+      }
+    }
+
+    // Double-check: Cancelled slots in bucket are now blocked via advance appointments,
+    // so the scheduler shouldn't assign to them. But verify just in case.
+    if (hasExistingWalkIns && cancelledSlotsInBucket.has(newAssignment.slotIndex)) {
+      // This shouldn't happen since we blocked them, but reject if it does
+      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to blocked cancelled slot (double-check), rejecting:', newAssignment.slotIndex);
+      return null;
+    }
+
+    // CRITICAL: Prevent slot 0 assignment when all slots are filled
+    // If all slots are filled and scheduler assigned slot 0, this is likely an error
+    if (newAssignment.slotIndex === 0 && allSlotsFilledEarly) {
+      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned slot 0 when all slots are filled - rejecting:', newAssignment.slotIndex);
+      return null; // Reject this assignment, will use bucket compensation instead
+    }
+
+    // CRITICAL FIX: Verify the assignment is valid. If it's an overflow slot (index >= totalSlots),
+    // we must have explicit permission (forceBook) or valid bucket compensation.
+    const isOverflowSlot = newAssignment.slotIndex >= slots.length;
+    if (isOverflowSlot && !forceBook && cancelledSlotsInBucket.size === 0) {
+      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned virtual overflow slot without forceBook or bucket credits - rejecting:', newAssignment.slotIndex);
+      return null;
+    }
+
+    return { schedule, newAssignment, placeholderIds: new Set() };
   };
 
   // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
@@ -2277,8 +2280,8 @@ export async function prepareAdvanceShift({
     };
 
     effectiveAppointments.forEach(appt => {
-      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
-        registerOccupancy(appt.slotIndex);
+      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
+        occupiedIndices.add(appt.slotIndex);
       }
     });
 
@@ -2295,7 +2298,7 @@ export async function prepareAdvanceShift({
     // 3. Count "Overflow" Appointments (Indices >= lastSlotIndexInSession + 1)
     let overflowCount = 0;
     effectiveAppointments.forEach(appt => {
-      if (ACTIVE_STATUSES.has(appt.status)) {
+      if (ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
         const lastSlotIndexInSession = slots.length > 0
           ? Math.max(...slots.map(s => s.index))
           : -1;
@@ -2307,7 +2310,18 @@ export async function prepareAdvanceShift({
     });
 
     // Final verdict: Session is full if free slots <= overflow count
-    return freeFutureSlotsCount <= overflowCount;
+    const isFull = freeFutureSlotsCount <= overflowCount;
+
+    console.log('[WALK-IN:SCHEDULER:CAPACITY] Check:', {
+      freeFutureSlotsCount,
+      overflowCount,
+      isFull,
+      totalSlots: slots.length,
+      occupiedIndices: Array.from(occupiedIndices),
+      now: now.toISOString()
+    });
+
+    return isFull;
   })();
 
   let scheduleAttempt: ScheduleAttemptResult | null = null;
@@ -2639,7 +2653,10 @@ export async function prepareAdvanceShift({
     };
   }
 
-  const { schedule, newAssignment, placeholderIds } = scheduleAttempt;
+  const scheduleResult = (scheduleAttempt as ScheduleAttemptResult);
+  const schedule = scheduleResult.schedule;
+  const newAssignment = scheduleResult.newAssignment;
+  const placeholderIds = scheduleResult.placeholderIds;
 
   // CRITICAL: Double-check reservation for the assigned slot using existingReservations map
   // This catches reservations that were in our initial read
@@ -2979,15 +2996,14 @@ export async function prepareAdvanceShift({
       });
     }
 
+    return {
+      newAssignment,
+      reservationDeletes: Array.from(reservationDeletes.values()),
+      appointmentUpdates,
+      usedBucketSlotIndex,
+      existingReservations,
+    };
   }
-
-  return {
-    newAssignment,
-    reservationDeletes: Array.from(reservationDeletes.values()),
-    appointmentUpdates,
-    usedBucketSlotIndex,
-    existingReservations,
-  };
 }
 
 export async function calculateWalkInDetails(
@@ -3113,7 +3129,8 @@ export async function calculateWalkInDetails(
     return (
       (appointment.bookedVia !== 'Walk-in' || (appointment.bookedVia as string) === 'BreakBlock') &&
       typeof appointment.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appointment.status)
+      ACTIVE_STATUSES.has(appointment.status) &&
+      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped')
     );
   });
 
@@ -3121,7 +3138,8 @@ export async function calculateWalkInDetails(
     return (
       appointment.bookedVia === 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appointment.status)
+      ACTIVE_STATUSES.has(appointment.status) &&
+      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped')
     );
   });
 
@@ -3165,7 +3183,7 @@ export async function calculateWalkInDetails(
   // Build set of slots with active appointments
   const slotsWithActiveAppointments = new Set<number>();
   sessionAppointments.forEach((appt: any) => {
-    if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
+    if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
       slotsWithActiveAppointments.add(appt.slotIndex);
     }
   });
@@ -3363,8 +3381,8 @@ export async function calculateWalkInDetails(
     };
 
     sessionAppointments.forEach(appt => {
-      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status)) {
-        registerOccupancy(appt.slotIndex);
+      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
+        occupiedIndices.add(appt.slotIndex);
       }
     });
     blockedAdvanceAppointments.forEach(blocked => {
@@ -3388,7 +3406,7 @@ export async function calculateWalkInDetails(
       : -1;
 
     sessionAppointments.forEach(appt => {
-      if (ACTIVE_STATUSES.has(appt.status)) {
+      if (ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
         if (typeof appt.slotIndex === 'number' && appt.slotIndex > lastSlotIndexInSession) {
           overflowCount++;
         }

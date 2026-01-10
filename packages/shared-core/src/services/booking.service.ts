@@ -395,7 +395,13 @@ export async function completePatientWalkInBooking(
         where('status', 'in', ACTIVE_STATUSES)
     );
     const duplicateSnapshot = await getDocs(duplicateCheckQuery);
-    if (!duplicateSnapshot.empty) {
+    // Filter out "ghost" appointments from the duplicate check
+    const activeDuplicates = duplicateSnapshot.docs.filter(docSnap => {
+        const data = docSnap.data();
+        return !data.cancelledByBreak || data.status === 'Completed' || data.status === 'Skipped';
+    });
+
+    if (activeDuplicates.length > 0) {
         throw new Error('You already have an appointment today with this doctor.');
     }
 

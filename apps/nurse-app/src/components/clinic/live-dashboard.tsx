@@ -148,30 +148,6 @@ export default function LiveDashboard() {
     return () => unsubscribe();
   }, [selectedDate, toast, isOnline, selectedDoctor, doctors, clinicId]);
 
-  const previousConsultationStatusRef = useRef<'In' | 'Out'>();
-
-  useEffect(() => {
-    if (previousConsultationStatusRef.current === 'Out' && consultationStatus === 'In') {
-      // Doctor just came back online or a new session started.
-      const batch = writeBatch(db);
-      const skippedToNoShow = appointments.filter(apt => apt.status === 'Skipped');
-
-      if (skippedToNoShow.length > 0) {
-        skippedToNoShow.forEach(apt => {
-          const appointmentRef = doc(db, 'appointments', apt.id);
-          batch.update(appointmentRef, { status: 'No-show' });
-        });
-
-        batch.commit().then(() => {
-          toast({
-            title: "Queue Cleaned",
-            description: `${skippedToNoShow.length} skipped appointment(s) from the previous session marked as 'No-show'.`
-          });
-        }).catch(e => console.error("Failed to update skipped to no-show", e));
-      }
-    }
-    previousConsultationStatusRef.current = consultationStatus;
-  }, [consultationStatus, appointments, toast]);
 
   const handleStatusChange = useCallback(async (newStatus: 'In' | 'Out') => {
     if (!selectedDoctor) return;

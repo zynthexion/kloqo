@@ -725,7 +725,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             for (const bp of breaks) {
                 const end = parseISO(bp.endTime);
                 const start = parseISO(bp.startTime);
-                if (isAfter(end, now) && isBefore(start, now)) {
+                // Check if current time is WITHIN the break period (after start AND before end)
+                if (isAfter(now, start) && isBefore(now, end)) {
                     // Skip if the appointment was scheduled before this break started
                     if (isBefore(appointmentDateTime, start)) {
                         continue;

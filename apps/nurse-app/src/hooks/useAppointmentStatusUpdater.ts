@@ -385,7 +385,12 @@ export function useAppointmentStatusUpdater() {
               where('status', '==', 'Completed')
             );
             const completedSnapshot = await getDocs(completedQuery);
-            const completedCount = completedSnapshot.size;
+
+            // Filter out appointments that didn't take actual time (cancelled by break or dummy slots)
+            const completedCount = completedSnapshot.docs.filter(doc => {
+              const data = doc.data();
+              return !data.cancelledByBreak && data.patientId !== 'dummy-break-patient';
+            }).length;
 
             // 2. Fetch current stored delay from one active appointment in this SPECIFIC session
             const activeApptQuery = query(

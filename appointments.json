@@ -1,187 +1,1183 @@
 [
   {
-    "id": "5LsrmosnVdEWsHf6cBOC",
-    "age": 30,
-    "noShowTime": {
+    "id": "1FXRzTa9TAxSryyA9O2H",
+    "patientName": "Anju",
+    "tokenNumber": "A008",
+    "status": "Completed",
+    "arriveByTime": "03:05 PM",
+    "completedAt": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768035000,
-      "nanoseconds": 0
+      "seconds": 1768124617,
+      "nanoseconds": 309000000
     },
-    "doctorId": "doc-1766066333627-yjug38zsr",
-    "tokenNumber": "A002",
-    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
-    "communicationPhone": "+919496097611",
-    "time": "02:05 PM",
+    "numericToken": 8,
+    "slotIndex": 7,
     "cutOffTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768033200,
+      "seconds": 1768123200,
       "nanoseconds": 0
     },
-    "date": "10 January 2026",
-    "sex": "Male",
-    "slotIndex": 1,
-    "status": "Pending",
+    "age": 30,
+    "sessionIndex": 0,
+    "communicationPhone": "+919074030814",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768122933,
+      "nanoseconds": 829000000
+    },
+    "doctor": "Jino Devasia",
     "createdAt": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768029640,
-      "nanoseconds": 397000000
+      "seconds": 1768118061,
+      "nanoseconds": 772000000
     },
-    "sessionIndex": 0,
-    "arriveByTime": "02:05 PM",
-    "doctor": "Jino Devasia",
-    "place": "Perinthalmanna",
-    "patientName": "Willy",
-    "numericToken": 2,
+    "time": "03:05 PM",
+    "sex": "Female",
+    "patientId": "MegIwe6eucfmafwERHge",
+    "doctorId": "doc-1766066333627-yjug38zsr",
     "bookedVia": "Online",
+    "place": "Poonthanam",
+    "date": "11 January 2026",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
     "department": "General Medicine",
-    "patientId": "35qHoVD1wkdXdDtrRcHd"
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125000,
+      "nanoseconds": 0
+    },
+    "previousAppointmentId": "BtE9CBqxng23VSTu4I04"
   },
   {
-    "id": "8GKxv7OEefN71JS0NAn8",
-    "communicationPhone": "+919496097611",
-    "slotIndex": 4,
-    "numericToken": 5,
-    "noShowTime": {
-      "type": "firestore/timestamp/1.0",
-      "seconds": 1768035900,
-      "nanoseconds": 0
-    },
-    "patientId": "bzQqSFLOoqXEJHTYiRXp",
-    "sessionIndex": 0,
-    "bookedVia": "Online",
-    "time": "02:20 PM",
-    "cutOffTime": {
-      "type": "firestore/timestamp/1.0",
-      "seconds": 1768034100,
-      "nanoseconds": 0
-    },
-    "department": "General Medicine",
+    "id": "5rO33NWs60Um2wpWXSl4",
     "age": 30,
-    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
-    "tokenNumber": "A005",
+    "arriveByTime": "02:40 PM",
+    "communicationPhone": "+919496097611",
+    "slotIndex": 2,
+    "time": "02:40 PM",
     "createdAt": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768029671,
-      "nanoseconds": 756000000
+      "seconds": 1768118084,
+      "nanoseconds": 98000000
     },
     "doctor": "Jino Devasia",
-    "status": "Pending",
-    "date": "10 January 2026",
+    "patientName": "Willy",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768121700,
+      "nanoseconds": 0
+    },
+    "date": "11 January 2026",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "patientId": "35qHoVD1wkdXdDtrRcHd",
     "place": "Perinthalmanna",
+    "sessionIndex": 0,
+    "department": "General Medicine",
+    "cancelledByBreak": true,
+    "numericToken": 3,
+    "status": "Completed",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123500,
+      "nanoseconds": 0
+    },
+    "tokenNumber": "A003",
     "sex": "Male",
-    "patientName": "Smokey",
-    "arriveByTime": "02:20 PM",
+    "bookedVia": "Online"
+  },
+  {
+    "id": "6NsrOkkZYk3NTx9w3e7P",
+    "slotIndex": 0,
+    "place": "Kannur",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "communicationPhone": "+919074297611",
+    "time": "02:30 PM",
+    "age": 23,
+    "patientName": "Jino",
+    "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+    "arriveByTime": "02:30 PM",
+    "date": "11 January 2026",
+    "numericToken": 1,
+    "tokenNumber": "A001",
+    "department": "General Medicine",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "sessionIndex": 0,
+    "doctor": "Jino Devasia",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118000,
+      "nanoseconds": 681000000
+    },
+    "status": "Completed",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768122900,
+      "nanoseconds": 0
+    },
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768121100,
+      "nanoseconds": 0
+    },
+    "bookedVia": "Online",
+    "cancelledByBreak": true,
+    "sex": "Male"
+  },
+  {
+    "id": "6jfTYnbRrTGcliMfis81",
+    "sessionIndex": 0,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124208,
+      "nanoseconds": 737000000
+    },
+    "bookedVia": "Online",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "age": 23,
+    "department": "General Medicine",
+    "sex": "Male",
+    "doctor": "Jino Devasia",
+    "place": "Kannur",
+    "communicationPhone": "+919074297611",
+    "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+    "skippedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768122920,
+      "nanoseconds": 187000000
+    },
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768122900,
+      "nanoseconds": 0
+    },
+    "patientName": "Jino",
+    "slotIndex": 6,
+    "time": "03:30 PM",
+    "tokenNumber": "A007",
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125926,
+      "nanoseconds": 828000000
+    },
+    "date": "11 January 2026",
+    "numericToken": 7,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124700,
+      "nanoseconds": 0
+    },
+    "arriveByTime": "03:00 PM",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118000,
+      "nanoseconds": 681000000
+    },
+    "status": "Completed",
+    "previousAppointmentId": "6NsrOkkZYk3NTx9w3e7P",
     "doctorId": "doc-1766066333627-yjug38zsr"
   },
   {
-    "id": "O8b74TMqk9IEg4NYnUZn",
-    "patientId": "MegIwe6eucfmafwERHge",
+    "id": "8XRkVUA3x1S3RYg6GJlM",
+    "patientName": "Manju",
     "cutOffTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768032900,
+      "seconds": 1768122000,
       "nanoseconds": 0
     },
-    "age": 30,
-    "doctorId": "doc-1766066333627-yjug38zsr",
-    "sex": "Female",
     "bookedVia": "Online",
+    "age": 25,
+    "patientId": "5bM7HhhbxMZKikipDIC9",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118087,
+      "nanoseconds": 782000000
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "time": "02:45 PM",
+    "slotIndex": 3,
+    "date": "11 January 2026",
+    "place": "Toronto",
     "sessionIndex": 0,
-    "status": "Pending",
-    "department": "General Medicine",
     "noShowTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768034700,
+      "seconds": 1768123800,
+      "nanoseconds": 0
+    },
+    "numericToken": 4,
+    "status": "Completed",
+    "arriveByTime": "02:45 PM",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "doctor": "Jino Devasia",
+    "communicationPhone": "+919074030814",
+    "cancelledByBreak": true,
+    "sex": "Female",
+    "department": "General Medicine",
+    "tokenNumber": "A004"
+  },
+  {
+    "id": "AFibzZGH99eHmHiyEZ6E",
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768051854,
+      "nanoseconds": 626000000
+    },
+    "numericToken": 114,
+    "bookedVia": "Walk-in",
+    "tokenNumber": "W114",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768049820,
+      "nanoseconds": 0
+    },
+    "status": "Completed",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768042032,
+      "nanoseconds": 49000000
+    },
+    "isForceBooked": true,
+    "age": 38,
+    "date": "10 January 2026",
+    "communicationPhone": "+919074297612",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "slotIndex": 12,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768051854,
+      "nanoseconds": 626000000
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "sessionIndex": 0,
+    "time": "05:00 PM",
+    "arriveByTime": "05:00 PM",
+    "patientId": "c4jlnn7eOHsyJhUy4IPY",
+    "doctor": "Jino Devasia",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768051620,
+      "nanoseconds": 0
+    },
+    "doctorDelayMinutes": 102,
+    "department": "General Medicine",
+    "sex": "Male",
+    "place": "Koratty",
+    "patientName": "Jose Paul"
+  },
+  {
+    "id": "AmTOrp0eELNhaPTybAoC",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124100,
+      "nanoseconds": 0
+    },
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125900,
       "nanoseconds": 0
     },
     "createdAt": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768029623,
-      "nanoseconds": 221000000
+      "seconds": 1768118106,
+      "nanoseconds": 732000000
     },
-    "tokenNumber": "A001",
+    "status": "Completed",
+    "arriveByTime": "03:20 PM",
+    "patientName": "Smokey",
+    "department": "General Medicine",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124053,
+      "nanoseconds": 489000000
+    },
+    "time": "03:20 PM",
+    "bookedVia": "Online",
     "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "previousAppointmentId": "VgnPrFW5nOFNmtXJlaCg",
+    "age": 30,
+    "numericToken": 11,
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125136,
+      "nanoseconds": 77000000
+    },
+    "patientId": "bzQqSFLOoqXEJHTYiRXp",
+    "place": "Perinthalmanna",
+    "communicationPhone": "+919496097611",
+    "tokenNumber": "A011",
+    "slotIndex": 10,
     "doctor": "Jino Devasia",
-    "time": "02:00 PM",
-    "arriveByTime": "02:00 PM",
-    "date": "10 January 2026",
-    "numericToken": 1,
-    "communicationPhone": "+919074030814",
-    "slotIndex": 0,
-    "place": "Poonthanam",
-    "patientName": "Anju"
+    "sessionIndex": 0,
+    "sex": "Male",
+    "date": "11 January 2026"
   },
   {
-    "id": "QuSWOJZYISl5hImXh2Bg",
-    "patientName": "Jino",
-    "status": "Pending",
-    "place": "Kannur",
-    "communicationPhone": "+919074297611",
-    "date": "10 January 2026",
-    "numericToken": 3,
+    "id": "BtE9CBqxng23VSTu4I04",
+    "status": "Completed",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "arriveByTime": "02:35 PM",
+    "tokenNumber": "A002",
+    "bookedVia": "Online",
+    "time": "02:35 PM",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118061,
+      "nanoseconds": 772000000
+    },
+    "doctor": "Jino Devasia",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "sex": "Female",
+    "communicationPhone": "+919074030814",
     "cutOffTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768033500,
+      "seconds": 1768121400,
+      "nanoseconds": 0
+    },
+    "numericToken": 2,
+    "place": "Poonthanam",
+    "slotIndex": 1,
+    "cancelledByBreak": true,
+    "patientName": "Anju",
+    "sessionIndex": 0,
+    "age": 30,
+    "department": "General Medicine",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123200,
+      "nanoseconds": 0
+    },
+    "patientId": "MegIwe6eucfmafwERHge",
+    "date": "11 January 2026"
+  },
+  {
+    "id": "CT9oD5Q92rvhYYyevQjU",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "doctor": "Jino Devasia",
+    "status": "Completed",
+    "sessionIndex": 0,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035742,
+      "nanoseconds": 5000000
+    },
+    "time": "04:20 PM",
+    "patientId": "bzQqSFLOoqXEJHTYiRXp",
+    "bookedVia": "Online",
+    "age": 30,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041300,
+      "nanoseconds": 0
+    },
+    "arriveByTime": "04:20 PM",
+    "patientName": "Smokey",
+    "sex": "Male",
+    "numericToken": 5,
+    "slotIndex": 4,
+    "place": "Perinthalmanna",
+    "department": "General Medicine",
+    "tokenNumber": "A005",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "cancelledByBreak": true,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768043100,
+      "nanoseconds": 0
+    },
+    "communicationPhone": "+919496097611",
+    "date": "10 January 2026"
+  },
+  {
+    "id": "DEUEQkYotOP1IqQiUAox",
+    "doctor": "Jino Devasia",
+    "previousAppointmentId": "CT9oD5Q92rvhYYyevQjU",
+    "bookedVia": "Online",
+    "arriveByTime": "04:50 PM",
+    "time": "04:50 PM",
+    "status": "No-show",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768044900,
+      "nanoseconds": 0
+    },
+    "communicationPhone": "+919496097611",
+    "date": "10 January 2026",
+    "tokenNumber": "A011",
+    "place": "Perinthalmanna",
+    "sessionIndex": 0,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768044977,
+      "nanoseconds": 386000000
+    },
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035742,
+      "nanoseconds": 5000000
+    },
+    "skippedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768043133,
+      "nanoseconds": 178000000
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "department": "General Medicine",
+    "sex": "Male",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "age": 30,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768043100,
+      "nanoseconds": 0
+    },
+    "patientId": "bzQqSFLOoqXEJHTYiRXp",
+    "slotIndex": 10,
+    "patientName": "Smokey",
+    "numericToken": 11
+  },
+  {
+    "id": "GDLG1d0TwKg8Na60BEep",
+    "doctor": "Jino Devasia",
+    "time": "03:57 PM",
+    "slotIndex": 8,
+    "communicationPhone": "+919496097611",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125456,
+      "nanoseconds": 457000000
+    },
+    "patientName": "Willy",
+    "arriveByTime": "03:10 PM",
+    "place": "Perinthalmanna",
+    "previousAppointmentId": "5rO33NWs60Um2wpWXSl4",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "department": "General Medicine",
+    "bookedVia": "Online",
+    "tokenNumber": "A009",
+    "sessionIndex": 0,
+    "sex": "Male",
+    "numericToken": 9,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118084,
+      "nanoseconds": 98000000
+    },
+    "age": 30,
+    "status": "Confirmed",
+    "skippedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123520,
+      "nanoseconds": 202000000
+    },
+    "patientId": "35qHoVD1wkdXdDtrRcHd",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123500,
+      "nanoseconds": 0
+    },
+    "date": "11 January 2026",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125300,
+      "nanoseconds": 0
+    }
+  },
+  {
+    "id": "I7mFTbWBULqHDepinx8k",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768122600,
+      "nanoseconds": 0
+    },
+    "cancelledByBreak": true,
+    "department": "General Medicine",
+    "doctor": "Jino Devasia",
+    "sex": "Other",
+    "tokenNumber": "Break",
+    "place": "Kloqo Clinic",
+    "numericToken": 0,
+    "age": 0,
+    "bookedVia": "BreakBlock",
+    "status": "Completed",
+    "communicationPhone": "0000000000",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118130,
+      "nanoseconds": 101000000
+    },
+    "patientId": "dummy-break-patient",
+    "previousAppointmentId": "",
+    "arriveByTime": "02:55 PM",
+    "slotIndex": 5,
+    "patientName": "kloqo dummy",
+    "sessionIndex": 0,
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "phone": "0000000000",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124400,
+      "nanoseconds": 0
+    },
+    "time": "02:55 PM",
+    "date": "11 January 2026"
+  },
+  {
+    "id": "LvDl07Vss6L18Y7WMYFX",
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768050954,
+      "nanoseconds": 735000000
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "numericToken": 10,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768050954,
+      "nanoseconds": 735000000
+    },
+    "doctor": "Jino Devasia",
+    "communicationPhone": "+919074030814",
+    "department": "General Medicine",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768048620,
+      "nanoseconds": 0
+    },
+    "time": "04:45 PM",
+    "age": 25,
+    "status": "Completed",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035733,
+      "nanoseconds": 211000000
+    },
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "patientName": "Manju",
+    "slotIndex": 9,
+    "patientId": "5bM7HhhbxMZKikipDIC9",
+    "tokenNumber": "A010",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768050420,
+      "nanoseconds": 0
+    },
+    "sessionIndex": 0,
+    "sex": "Female",
+    "arriveByTime": "04:45 PM",
+    "date": "10 January 2026",
+    "doctorDelayMinutes": 97,
+    "bookedVia": "Online",
+    "place": "Toronto",
+    "previousAppointmentId": "rlVt1U945s95crRLaJ7c"
+  },
+  {
+    "id": "MhVjH82taJ7ll0beIVN5",
+    "bookedVia": "Walk-in",
+    "sessionIndex": 0,
+    "age": 38,
+    "communicationPhone": "+919074297612",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "patientId": "c4jlnn7eOHsyJhUy4IPY",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124700,
+      "nanoseconds": 0
+    },
+    "slotIndex": 12,
+    "arriveByTime": "03:30 PM",
+    "patientName": "Jose Paul",
+    "isForceBooked": true,
+    "department": "General Medicine",
+    "numericToken": 114,
+    "date": "11 January 2026",
+    "place": "Koratty",
+    "doctor": "Jino Devasia",
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768126089,
+      "nanoseconds": 141000000
+    },
+    "status": "Completed",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768126500,
       "nanoseconds": 0
     },
     "sex": "Male",
+    "time": "03:30 PM",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123272,
+      "nanoseconds": 113000000
+    },
+    "tokenNumber": "W114",
+    "doctorId": "doc-1766066333627-yjug38zsr"
+  },
+  {
+    "id": "Tq7CWe8jllxIi9biP6ij",
+    "bookedVia": "Advanced Booking",
+    "place": "Kannur",
+    "doctor": "Jino Devasia",
+    "slotIndex": 1,
+    "status": "Completed",
+    "cancelledByBreak": true,
+    "tokenNumber": "A002",
+    "arriveByTime": "04:05 PM",
+    "sessionIndex": 0,
+    "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+    "communicationPhone": "+919074297611",
+    "reviewId": "i7biCGNQqwuvkarK2CcS",
+    "reviewed": true,
+    "patientName": "Jino",
+    "sex": "Male",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "date": "10 January 2026",
+    "numericToken": 2,
+    "time": "04:05 PM",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768040400,
+      "nanoseconds": 0
+    },
+    "age": 23,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035677,
+      "nanoseconds": 793000000
+    },
+    "department": "General Medicine",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
     "noShowTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768035300,
+      "seconds": 1768042200,
+      "nanoseconds": 0
+    }
+  },
+  {
+    "id": "UJ6OQxWvUuHJ6gbi5VOy",
+    "tokenNumber": "A008",
+    "department": "General Medicine",
+    "age": 23,
+    "time": "04:35 PM",
+    "slotIndex": 7,
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "previousAppointmentId": "Tq7CWe8jllxIi9biP6ij",
+    "doctor": "Jino Devasia",
+    "date": "10 January 2026",
+    "communicationPhone": "+919074297611",
+    "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768050354,
+      "nanoseconds": 656000000
+    },
+    "numericToken": 8,
+    "reviewed": true,
+    "place": "Kannur",
+    "patientName": "Jino",
+    "bookedVia": "Advanced Booking",
+    "status": "Completed",
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768050354,
+      "nanoseconds": 656000000
+    },
+    "arriveByTime": "04:35 PM",
+    "sex": "Male",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768047720,
+      "nanoseconds": 0
+    },
+    "sessionIndex": 0,
+    "reviewId": "pardEkfLQcQ2Ct6leQuq",
+    "doctorDelayMinutes": 92,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768049520,
       "nanoseconds": 0
     },
     "createdAt": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768029650,
-      "nanoseconds": 765000000
+      "seconds": 1768035677,
+      "nanoseconds": 793000000
     },
-    "doctorId": "doc-1766066333627-yjug38zsr",
-    "department": "General Medicine",
-    "tokenNumber": "A003",
-    "patientId": "Hc4KYtgjJ7RTu8qd5YhS",
-    "time": "02:10 PM",
-    "arriveByTime": "02:10 PM",
-    "sessionIndex": 0,
-    "bookedVia": "Online",
-    "slotIndex": 2,
-    "age": 23,
-    "doctor": "Jino Devasia",
     "clinicId": "LhfG8x4SZZg1BLmCkpYF"
   },
   {
-    "id": "awEBg0KqtmO5ZSDPBu4b",
-    "bookedVia": "Online",
-    "slotIndex": 3,
-    "tokenNumber": "A004",
-    "patientName": "Manju",
-    "patientId": "5bM7HhhbxMZKikipDIC9",
-    "department": "General Medicine",
+    "id": "VgnPrFW5nOFNmtXJlaCg",
     "doctorId": "doc-1766066333627-yjug38zsr",
-    "arriveByTime": "02:15 PM",
-    "date": "10 January 2026",
-    "communicationPhone": "+919074030814",
-    "doctor": "Jino Devasia",
     "clinicId": "LhfG8x4SZZg1BLmCkpYF",
-    "sex": "Female",
+    "communicationPhone": "+919496097611",
+    "doctor": "Jino Devasia",
+    "patientId": "bzQqSFLOoqXEJHTYiRXp",
+    "place": "Perinthalmanna",
     "cutOffTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768033800,
+      "seconds": 1768122300,
+      "nanoseconds": 0
+    },
+    "numericToken": 5,
+    "sessionIndex": 0,
+    "slotIndex": 4,
+    "status": "Completed",
+    "department": "General Medicine",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768118106,
+      "nanoseconds": 732000000
+    },
+    "cancelledByBreak": true,
+    "date": "11 January 2026",
+    "sex": "Male",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124100,
+      "nanoseconds": 0
+    },
+    "time": "02:50 PM",
+    "bookedVia": "Online",
+    "arriveByTime": "02:50 PM",
+    "tokenNumber": "A005",
+    "age": 30,
+    "patientName": "Smokey"
+  },
+  {
+    "id": "XHyg9xIIQKYnMRtZgZDt",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123800,
       "nanoseconds": 0
     },
     "createdAt": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768029660,
-      "nanoseconds": 894000000
+      "seconds": 1768118087,
+      "nanoseconds": 782000000
     },
+    "bookedVia": "Online",
+    "age": 25,
+    "date": "11 January 2026",
+    "sessionIndex": 0,
+    "slotIndex": 9,
+    "patientName": "Manju",
+    "arriveByTime": "03:15 PM",
     "noShowTime": {
       "type": "firestore/timestamp/1.0",
-      "seconds": 1768035600,
+      "seconds": 1768125600,
       "nanoseconds": 0
     },
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125005,
+      "nanoseconds": 403000000
+    },
+    "doctor": "Jino Devasia",
+    "tokenNumber": "A010",
     "place": "Toronto",
-    "status": "Pending",
-    "numericToken": 4,
+    "communicationPhone": "+919074030814",
+    "status": "Completed",
+    "department": "General Medicine",
+    "sex": "Female",
+    "time": "03:15 PM",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "numericToken": 10,
+    "patientId": "5bM7HhhbxMZKikipDIC9",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768123329,
+      "nanoseconds": 425000000
+    },
+    "previousAppointmentId": "8XRkVUA3x1S3RYg6GJlM",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF"
+  },
+  {
+    "id": "XNrf9FgpFvaMPO3bPWNq",
+    "cancelledByBreak": true,
+    "status": "Completed",
+    "place": "Perinthalmanna",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768042500,
+      "nanoseconds": 0
+    },
+    "department": "General Medicine",
+    "communicationPhone": "+919496097611",
+    "sessionIndex": 0,
+    "doctor": "Jino Devasia",
+    "age": 30,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768040700,
+      "nanoseconds": 0
+    },
+    "tokenNumber": "A003",
+    "date": "10 January 2026",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "time": "04:10 PM",
+    "sex": "Male",
+    "numericToken": 3,
+    "reviewed": true,
+    "bookedVia": "Online",
+    "patientId": "35qHoVD1wkdXdDtrRcHd",
+    "slotIndex": 2,
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "reviewId": "25jkI1mtHsm012DQcWhx",
+    "patientName": "Willy",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035705,
+      "nanoseconds": 405000000
+    },
+    "arriveByTime": "04:10 PM"
+  },
+  {
+    "id": "ck5FhcHONfxQWhZaM81S",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "status": "Completed",
+    "communicationPhone": "+919074297612",
+    "department": "General Medicine",
+    "tokenNumber": "W113",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "age": 30,
+    "numericToken": 113,
+    "time": "03:25 PM",
+    "patientProfile": null,
+    "slotIndex": 11,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124400,
+      "nanoseconds": 0
+    },
+    "doctor": "Jino Devasia",
+    "sex": "Male",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768126200,
+      "nanoseconds": 0
+    },
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125670,
+      "nanoseconds": 110000000
+    },
+    "sessionIndex": 0,
+    "patientId": "7KOimpjUcGqOrx3sxigE",
+    "arriveByTime": "03:25 PM",
+    "bookedVia": "Walk-in",
+    "patientName": "Walking Test",
+    "date": "11 January 2026",
+    "walkInPatientsAhead": 5,
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768122285,
+      "nanoseconds": 189000000
+    },
+    "place": "Kannur"
+  },
+  {
+    "id": "n3OZmSopLMhhA19lZbrn",
+    "bookedVia": "Online",
+    "reviewId": "5UWr2d6M12TYbCVEAPML",
+    "date": "10 January 2026",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041900,
+      "nanoseconds": 0
+    },
+    "status": "Completed",
+    "slotIndex": 0,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768040100,
+      "nanoseconds": 0
+    },
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035639,
+      "nanoseconds": 205000000
+    },
+    "doctor": "Jino Devasia",
+    "numericToken": 1,
+    "communicationPhone": "+919074030814",
+    "sessionIndex": 0,
+    "arriveByTime": "04:00 PM",
+    "tokenNumber": "A001",
+    "place": "Poonthanam",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "patientName": "Anju",
+    "sex": "Female",
+    "department": "General Medicine",
+    "reviewed": true,
+    "time": "04:00 PM",
+    "patientId": "MegIwe6eucfmafwERHge",
+    "age": 30,
+    "cancelledByBreak": true
+  },
+  {
+    "id": "oiTM8eJsDmyXYBeT8XiQ",
+    "arriveByTime": "04:25 PM",
+    "slotIndex": 5,
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041600,
+      "nanoseconds": 0
+    },
+    "tokenNumber": "Break",
+    "sex": "Other",
+    "place": "Kloqo Clinic",
+    "patientName": "kloqo dummy",
+    "numericToken": 0,
+    "department": "General Medicine",
+    "phone": "0000000000",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035766,
+      "nanoseconds": 387000000
+    },
+    "sessionIndex": 0,
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "time": "04:25 PM",
+    "bookedVia": "BreakBlock",
+    "previousAppointmentId": "",
+    "age": 0,
+    "patientId": "dummy-break-patient",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768043400,
+      "nanoseconds": 0
+    },
+    "cancelledByBreak": true,
+    "doctor": "Jino Devasia",
+    "communicationPhone": "0000000000",
+    "date": "10 January 2026",
+    "status": "Completed"
+  },
+  {
+    "id": "qya8FAhdf8YnLTSFticj",
+    "bookedVia": "Online",
+    "arriveByTime": "04:30 PM",
+    "numericToken": 7,
+    "place": "Poonthanam",
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035639,
+      "nanoseconds": 205000000
+    },
+    "time": "04:30 PM",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041900,
+      "nanoseconds": 0
+    },
+    "tokenNumber": "A007",
+    "patientName": "Anju",
+    "skippedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041908,
+      "nanoseconds": 301000000
+    },
+    "previousAppointmentId": "n3OZmSopLMhhA19lZbrn",
+    "date": "10 January 2026",
+    "patientId": "MegIwe6eucfmafwERHge",
+    "slotIndex": 6,
+    "status": "No-show",
+    "department": "General Medicine",
+    "doctor": "Jino Devasia",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768043700,
+      "nanoseconds": 0
+    },
+    "age": 30,
+    "sex": "Female",
+    "communicationPhone": "+919074030814",
+    "sessionIndex": 0,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041908,
+      "nanoseconds": 301000000
+    }
+  },
+  {
+    "id": "rAiphQcdIG8bPVg8ZdF0",
+    "patientId": "35qHoVD1wkdXdDtrRcHd",
+    "bookedVia": "Online",
+    "sex": "Male",
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768042524,
+      "nanoseconds": 189000000
+    },
+    "communicationPhone": "+919496097611",
+    "age": 30,
+    "date": "10 January 2026",
+    "arriveByTime": "04:40 PM",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035705,
+      "nanoseconds": 405000000
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "sessionIndex": 0,
+    "skippedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768042524,
+      "nanoseconds": 189000000
+    },
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768042500,
+      "nanoseconds": 0
+    },
+    "time": "04:40 PM",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "tokenNumber": "A009",
+    "numericToken": 9,
+    "doctor": "Jino Devasia",
+    "status": "No-show",
+    "place": "Perinthalmanna",
+    "slotIndex": 8,
+    "department": "General Medicine",
+    "patientName": "Willy",
+    "previousAppointmentId": "XNrf9FgpFvaMPO3bPWNq",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768044300,
+      "nanoseconds": 0
+    }
+  },
+  {
+    "id": "rlVt1U945s95crRLaJ7c",
+    "patientName": "Manju",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041000,
+      "nanoseconds": 0
+    },
+    "bookedVia": "Online",
     "age": 25,
-    "time": "02:15 PM",
-    "sessionIndex": 0
+    "patientId": "5bM7HhhbxMZKikipDIC9",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768035733,
+      "nanoseconds": 211000000
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "date": "10 January 2026",
+    "time": "04:15 PM",
+    "slotIndex": 3,
+    "place": "Toronto",
+    "sessionIndex": 0,
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768042800,
+      "nanoseconds": 0
+    },
+    "numericToken": 4,
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "arriveByTime": "04:15 PM",
+    "status": "Completed",
+    "doctor": "Jino Devasia",
+    "communicationPhone": "+919074030814",
+    "cancelledByBreak": true,
+    "sex": "Female",
+    "department": "General Medicine",
+    "tokenNumber": "A004"
+  },
+  {
+    "id": "svK6OESnfFUoGyej8n32",
+    "place": "Kochi",
+    "doctor": "Jino Devasia",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768126800,
+      "nanoseconds": 0
+    },
+    "numericToken": 115,
+    "department": "General Medicine",
+    "communicationPhone": "+919074297612",
+    "time": "03:35 PM",
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "arriveByTime": "03:35 PM",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768125000,
+      "nanoseconds": 0
+    },
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "age": 35,
+    "patientName": "Force Test",
+    "sex": "Male",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768124476,
+      "nanoseconds": 284000000
+    },
+    "bookedVia": "Walk-in",
+    "isForceBooked": true,
+    "patientId": "cXQAgUXEvWqFZfwvUb3d",
+    "sessionIndex": 0,
+    "tokenNumber": "W115",
+    "date": "11 January 2026",
+    "status": "Confirmed",
+    "slotIndex": 13
+  },
+  {
+    "id": "zHOqqDHVDktycwoewHt5",
+    "sessionIndex": 0,
+    "reviewed": true,
+    "arriveByTime": "04:55 PM",
+    "reviewId": "HD6BMYavZAAnPJNJ6wwS",
+    "numericToken": 113,
+    "patientName": "Walking Test",
+    "completedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768051554,
+      "nanoseconds": 643000000
+    },
+    "department": "General Medicine",
+    "sex": "Male",
+    "doctor": "Jino Devasia",
+    "time": "04:55 PM",
+    "communicationPhone": "+919074297612",
+    "age": 30,
+    "slotIndex": 11,
+    "tokenNumber": "W113",
+    "patientProfile": null,
+    "updatedAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768051554,
+      "nanoseconds": 643000000
+    },
+    "date": "10 January 2026",
+    "cutOffTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768049520,
+      "nanoseconds": 0
+    },
+    "doctorDelayMinutes": 102,
+    "clinicId": "LhfG8x4SZZg1BLmCkpYF",
+    "walkInPatientsAhead": 5,
+    "bookedVia": "Walk-in",
+    "patientId": "7KOimpjUcGqOrx3sxigE",
+    "noShowTime": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768051320,
+      "nanoseconds": 0
+    },
+    "status": "Completed",
+    "createdAt": {
+      "type": "firestore/timestamp/1.0",
+      "seconds": 1768041316,
+      "nanoseconds": 362000000
+    },
+    "doctorId": "doc-1766066333627-yjug38zsr",
+    "place": "Kannur"
   }
 ]

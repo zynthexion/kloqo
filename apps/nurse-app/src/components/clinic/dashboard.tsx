@@ -403,31 +403,40 @@ export default function ClinicDashboard() {
 
   const handleRejoinQueue = (appointment: Appointment) => {
     startTransition(async () => {
-      if (!clinicId || !appointment.time || !appointment.noShowTime) return;
+      if (!clinicId) return;
 
       const now = new Date();
 
       try {
-        const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
-        const scheduledTime = parseTime(appointment.time, appointmentDate);
+        const appointmentRef = doc(db, 'appointments', appointment.id);
+        let newTimeString: string;
 
-        // Handle noShowTime as Firestore Timestamp or string
-        const noShowDate = (appointment.noShowTime as any)?.toDate
-          ? (appointment.noShowTime as any).toDate()
-          : parseTime(appointment.noShowTime!, appointmentDate);
-
-        let newTimeDate: Date;
-        if (isAfter(now, scheduledTime)) {
-          // Current time past the original slot time -> penalty (noShowTime + 15 mins)
-          newTimeDate = addMinutes(noShowDate, 15);
+        // Different logic for No-show vs Skipped
+        if (appointment.status === 'No-show') {
+          // No-show: always set to current time + 30 minutes
+          newTimeString = format(addMinutes(now, 30), 'hh:mm a');
         } else {
-          // Current time before original slot time -> use noShowTime (no penalty)
-          newTimeDate = noShowDate;
+          // Skipped: use existing penalty logic
+          const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+          const scheduledTime = parseTime(appointment.time, appointmentDate);
+
+          // Handle noShowTime as Firestore Timestamp or string
+          const noShowDate = (appointment.noShowTime as any)?.toDate
+            ? (appointment.noShowTime as any).toDate()
+            : parseTime(appointment.noShowTime!, appointmentDate);
+
+          let newTimeDate: Date;
+          if (isAfter(now, scheduledTime)) {
+            // Current time past the original slot time -> penalty (noShowTime + 15 mins)
+            newTimeDate = addMinutes(noShowDate, 15);
+          } else {
+            // Current time before original slot time -> use noShowTime (no penalty)
+            newTimeDate = noShowDate;
+          }
+
+          newTimeString = format(newTimeDate, 'hh:mm a');
         }
 
-        const newTimeString = format(newTimeDate, 'hh:mm a');
-
-        const appointmentRef = doc(db, 'appointments', appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed',
           time: newTimeString,

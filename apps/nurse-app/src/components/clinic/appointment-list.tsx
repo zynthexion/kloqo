@@ -117,8 +117,8 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
     router.push(`/appointments/${id}/edit`);
   };
 
-  const isActionable = (appt: Appointment) => appt.status === 'Pending' || appt.status === 'Confirmed' || appt.status === 'Skipped';
-  const isInactive = (appt: Appointment) => ['Completed', 'Cancelled', 'No-show'].includes(appt.status);
+  const isActionable = (appt: Appointment) => appt.status === 'Pending' || appt.status === 'Confirmed' || appt.status === 'Skipped' || appt.status === 'No-show';
+  const isInactive = (appt: Appointment) => ['Completed', 'Cancelled'].includes(appt.status);
   const isClinicOut = clinicStatus === 'Out';
   const swipeEnabled = enableSwipeCompletion && !!onUpdateStatus && !isClinicOut;
 
@@ -296,7 +296,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                                       </TooltipContent>
                                     </Tooltip>
                                   )}
-                                  {appt.status === 'Skipped' && onRejoinQueue ? (
+                                  {(appt.status === 'Skipped' || appt.status === 'No-show') && onRejoinQueue ? (
                                     <Button
                                       variant="outline"
                                       size="sm"

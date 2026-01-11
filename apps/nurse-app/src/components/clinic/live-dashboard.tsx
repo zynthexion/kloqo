@@ -337,25 +337,32 @@ export default function LiveDashboard() {
 
       try {
         const now = new Date();
-        const scheduledTimeStr = appointment.time;
-        const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
-        const scheduledTime = parseTime(scheduledTimeStr, appointmentDate);
-
+        const appointmentRef = doc(db, 'appointments', appointment.id);
         let newTimeStr: string;
 
-        const noShowTime = (appointment.noShowTime as any)?.toDate
-          ? (appointment.noShowTime as any).toDate()
-          : parseTime(appointment.noShowTime!, appointmentDate);
-
-        if (isAfter(now, scheduledTime)) {
-          // If rejoined after scheduled time, give noShowTime + 15 mins
-          newTimeStr = format(addMinutes(noShowTime, 15), 'hh:mm a');
+        // Different logic for No-show vs Skipped
+        if (appointment.status === 'No-show') {
+          // No-show: always set to current time + 30 minutes
+          newTimeStr = format(addMinutes(now, 30), 'hh:mm a');
         } else {
-          // If rejoined before scheduled time, give noShowTime
-          newTimeStr = format(noShowTime, 'hh:mm a');
+          // Skipped: use existing penalty logic based on scheduled time
+          const scheduledTimeStr = appointment.time;
+          const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+          const scheduledTime = parseTime(scheduledTimeStr, appointmentDate);
+
+          const noShowTime = (appointment.noShowTime as any)?.toDate
+            ? (appointment.noShowTime as any).toDate()
+            : parseTime(appointment.noShowTime!, appointmentDate);
+
+          if (isAfter(now, scheduledTime)) {
+            // If rejoined after scheduled time, give noShowTime + 15 mins
+            newTimeStr = format(addMinutes(noShowTime, 15), 'hh:mm a');
+          } else {
+            // If rejoined before scheduled time, give noShowTime
+            newTimeStr = format(noShowTime, 'hh:mm a');
+          }
         }
 
-        const appointmentRef = doc(db, 'appointments', appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed',
           time: newTimeStr,
@@ -498,7 +505,7 @@ export default function LiveDashboard() {
   }, [filteredAppointments, nextSessionIndex, currentDoctor]);
 
   const skippedAppointments = useMemo(() => {
-    const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
+    const skipped = filteredAppointments.filter(a => a.status === 'Skipped' || a.status === 'No-show');
     return skipped.sort(compareAppointments);
   }, [filteredAppointments]);
 

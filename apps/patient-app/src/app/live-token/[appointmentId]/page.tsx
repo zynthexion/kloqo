@@ -815,11 +815,11 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const shouldShowConfirmArrival = useMemo(() => {
         if (!yourAppointment) return false;
-        if (yourAppointment.status !== 'Pending' && yourAppointment.status !== 'Skipped') return false;
+        if (yourAppointment.status !== 'Pending' && yourAppointment.status !== 'Skipped' && yourAppointment.status !== 'No-show') return false;
         if (!isAppointmentToday) return false;
 
-        // Skipped: always allow on the same day
-        if (yourAppointment.status === 'Skipped') return true;
+        // Skipped or No-show: always allow on the same day
+        if (yourAppointment.status === 'Skipped' || yourAppointment.status === 'No-show') return true;
 
         // Pending: always allow on the same day, regardless of doctor status or cutoff window
         if (yourAppointment.status === 'Pending') {
@@ -1031,6 +1031,16 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 // Get the appointment time
                 const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
                 newTimeString = arriveByString;
+            } else if (yourAppointment.status === 'No-show') {
+                // For No-show appointments, set to current time + 30 minutes
+                const now = new Date();
+                newTimeString = format(addMinutes(now, 30), 'hh:mm a');
+
+                await updateDoc(appointmentRef, {
+                    status: 'Confirmed',
+                    time: newTimeString,
+                    updatedAt: serverTimestamp()
+                });
             } else if (yourAppointment.status === 'Skipped') {
                 // For Skipped appointments, rejoin queue using deterministic logic
                 const now = new Date();
@@ -1488,12 +1498,9 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const hiddenStatuses = useMemo(() => {
         const statuses = new Set(['Cancelled', 'Completed']);
-        // Only hide No-show if it's been more than 2 hours since no-show time
-        if (yourAppointment?.status === 'No-show' && !isNoShowWithin2Hours) {
-            statuses.add('No-show');
-        }
+        // No longer hide No-show - treat it like Skipped
         return statuses;
-    }, [yourAppointment?.status, isNoShowWithin2Hours]);
+    }, []);
     const isHiddenStatus = !!yourAppointment && hiddenStatuses.has(yourAppointment.status || '');
 
     // Fetch clinic phone number for No-show status
@@ -1524,62 +1531,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         fetchClinicPhone();
     }, [yourAppointment, isNoShowWithin2Hours, firestore, clinicId]);
 
-    // Special rendering for No-show status within 2 hours
-    if (yourAppointment?.status === 'No-show' && isNoShowWithin2Hours) {
-
-        return (
-            <div className="w-full max-w-sm rounded-2xl bg-card text-card-foreground shadow-xl p-6 sm:p-8 space-y-6 text-center">
-                <div className="text-center">
-                    <p className="text-muted-foreground">Dr. {yourAppointment.doctor}</p>
-                    <p className="text-lg font-semibold">{getLocalizedDepartmentName(yourAppointment.department, language, departments)}</p>
-                </div>
-
-                {/* Date, Time, Token Number Card */}
-                <Card className="w-full">
-                    <CardContent className="p-4 flex flex-col items-center justify-center gap-3">
-                        <div className="flex flex-col items-center gap-1">
-                            <Calendar className="w-5 h-5 text-primary" />
-                            <span className="font-semibold text-lg text-center">{formattedDate}</span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1">
-                            <Clock className="w-5 h-5 text-primary" />
-                            <span className="font-semibold text-lg">{noShowDisplayTime || '--'}</span>
-                        </div>
-                        <div className="text-center">
-                            <p className="text-sm text-muted-foreground">{t.liveToken.yourToken} ({yourAppointment.patientName})</p>
-                            <p className="text-4xl font-bold" style={{ color: 'hsl(var(--token-your))' }}>{yourAppointment.tokenNumber}</p>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Red countdown message */}
-                <div className="w-full text-center py-4">
-                    <div className="bg-red-100 text-red-800 rounded-full px-4 py-3 flex flex-col items-center justify-center gap-2">
-                        <AlertCircle className="w-6 h-6" />
-                        <div className="flex flex-col items-center justify-center">
-                            <span className="font-bold text-lg">{t.liveToken.noShowLateMessage}</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Call Clinic Button */}
-                {clinicPhone && (
-                    <Button
-                        asChild
-                        className="w-full bg-green-600 hover:bg-green-700 text-white"
-                        size="lg"
-                    >
-                        <a href={`tel:${clinicPhone}`}>
-                            <Phone className="w-5 h-5 mr-2" />
-                            {t.liveToken.noShowCallClinic}
-                        </a>
-                    </Button>
-                )}
-
-                <BottomNav />
-            </div>
-        );
-    }
+    // No longer render special UI for No-show - treat it like Skipped
 
     if (isHiddenStatus) {
         return (

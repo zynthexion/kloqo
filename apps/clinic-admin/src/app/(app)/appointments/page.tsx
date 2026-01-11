@@ -2384,38 +2384,47 @@ export default function AppointmentsPage() {
 
   const handleRejoinQueue = (appointment: Appointment) => {
     startTransition(async () => {
-      if (!clinicId || !appointment.time || !appointment.noShowTime) return;
+      if (!clinicId) return;
 
       const now = new Date();
 
       try {
-        const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+        const appointmentRef = doc(db, 'appointments', appointment.id);
+        let newTimeString: string;
 
-        // Handle time as string or Firestore Timestamp
-        const scheduledTimeStr = typeof appointment.time === 'string'
-          ? appointment.time
-          : (appointment.time as any)?.toDate
-            ? format((appointment.time as any).toDate(), 'hh:mm a')
-            : '';
-        const scheduledTime = parseTimeUtil(scheduledTimeStr, appointmentDate);
-
-        // Handle noShowTime as Firestore Timestamp or string
-        const noShowDate = (appointment.noShowTime as any)?.toDate
-          ? (appointment.noShowTime as any).toDate()
-          : parseTimeUtil(appointment.noShowTime!, appointmentDate);
-
-        let newTimeDate: Date;
-        if (isAfter(now, scheduledTime)) {
-          // Current time past the original slot time -> penalty (noShowTime + 15 mins)
-          newTimeDate = addMinutes(noShowDate, 15);
+        // Different logic for No-show vs Skipped
+        if (appointment.status === 'No-show') {
+          // No-show: always set to current time + 30 minutes
+          newTimeString = format(addMinutes(now, 30), 'hh:mm a');
         } else {
-          // Current time before original slot time -> use noShowTime (no penalty)
-          newTimeDate = noShowDate;
+          // Skipped: use existing penalty logic
+          const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+
+          // Handle time as string or Firestore Timestamp
+          const scheduledTimeStr = typeof appointment.time === 'string'
+            ? appointment.time
+            : (appointment.time as any)?.toDate
+              ? format((appointment.time as any).toDate(), 'hh:mm a')
+              : '';
+          const scheduledTime = parseTimeUtil(scheduledTimeStr, appointmentDate);
+
+          // Handle noShowTime as Firestore Timestamp or string
+          const noShowDate = (appointment.noShowTime as any)?.toDate
+            ? (appointment.noShowTime as any).toDate()
+            : parseTimeUtil(appointment.noShowTime!, appointmentDate);
+
+          let newTimeDate: Date;
+          if (isAfter(now, scheduledTime)) {
+            // Current time past the original slot time -> penalty (noShowTime + 15 mins)
+            newTimeDate = addMinutes(noShowDate, 15);
+          } else {
+            // Current time before original slot time -> use noShowTime (no penalty)
+            newTimeDate = noShowDate;
+          }
+
+          newTimeString = format(newTimeDate, 'hh:mm a');
         }
 
-        const newTimeString = format(newTimeDate, 'hh:mm a');
-
-        const appointmentRef = doc(db, 'appointments', appointment.id);
         await updateDoc(appointmentRef, {
           status: 'Confirmed',
           time: newTimeString,
@@ -3090,7 +3099,7 @@ export default function AppointmentsPage() {
   }, [appointments, today, selectedDrawerDoctor]);
 
   const skippedCount = useMemo(() => {
-    let filtered = appointments.filter(apt => apt.date === today && apt.status === 'Skipped');
+    let filtered = appointments.filter(apt => apt.date === today && (apt.status === 'Skipped' || apt.status === 'No-show'));
 
     // Apply doctor filter if selected (but not activeTab filter)
     if (selectedDrawerDoctor && selectedDrawerDoctor !== 'all') {
@@ -4185,7 +4194,7 @@ export default function AppointmentsPage() {
                               </TableHeader>
                               <TableBody>
                                 {todaysAppointments
-                                  .filter(apt => apt.status === 'Skipped')
+                                  .filter(apt => apt.status === 'Skipped' || apt.status === 'No-show')
                                   .map((appointment, index) => (
                                     <TableRow
                                       key={`${appointment.id}-${index}`}

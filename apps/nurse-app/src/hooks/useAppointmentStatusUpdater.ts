@@ -222,10 +222,8 @@ async function updateAppointmentsWithDelay(
       const appointmentTime = parseTime(appointment.time, appointmentDate);
 
       // Apply break offsets first, then compute cutOff/noShow and add doctor delay
-      const breakIntervals = doctor ? buildBreakIntervals(doctor, appointmentDate) : [];
-      const adjustedAppointmentTime = breakIntervals.length > 0
-        ? applyBreakOffsets(appointmentTime, breakIntervals)
-        : appointmentTime;
+      // Removed manual break offset. Shared-core slot times already account for breaks.
+      const adjustedAppointmentTime = appointmentTime;
 
       const baseCutOffTime = subMinutes(adjustedAppointmentTime, 15);
       const baseNoShowTime = addMinutes(adjustedAppointmentTime, 15);

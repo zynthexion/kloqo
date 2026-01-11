@@ -35,9 +35,11 @@ function isWithinBreak(currentTime: Date, breakIntervals: any[]): boolean {
   });
 }
 
+// Calculate doctor delay: accounts for both initial lateness and consultation pace
 function calculateDoctorDelay(
   doctor: Doctor,
   now: Date,
+  sessionIndex: number,
   completedCount: number = 0
 ): { delayMinutes: number; availabilityStartTime: Date | null } {
   const currentDay = format(now, 'EEEE');
@@ -49,16 +51,19 @@ function calculateDoctorDelay(
     return { delayMinutes: 0, availabilityStartTime: null };
   }
 
-  const firstSession = todaysAvailability.timeSlots[0];
+  const currentSession = todaysAvailability.timeSlots[sessionIndex];
+  if (!currentSession) {
+    return { delayMinutes: 0, availabilityStartTime: null };
+  }
+
   let baseAvailabilityStartTime: Date;
   try {
-    baseAvailabilityStartTime = parseTime(firstSession.from, now);
+    baseAvailabilityStartTime = parseTime(currentSession.from, now);
   } catch (error) {
     return { delayMinutes: 0, availabilityStartTime: null };
   }
 
   // Calculate passed break duration using shared-core logic
-  const sessionIndex = 0; // Simplified for delay check
   const breakIntervals = getSessionBreakIntervals(doctor, now, sessionIndex);
 
   let effectiveStartTime = baseAvailabilityStartTime;
@@ -71,7 +76,10 @@ function calculateDoctorDelay(
       interval.end.getTime() > latest.getTime() ? interval.end : latest,
       initialBreaks[0].end
     );
-    effectiveStartTime = latestInitialBreakEnd;
+    // Ensure we don't move start time backwards if break ended before session start
+    effectiveStartTime = latestInitialBreakEnd.getTime() > baseAvailabilityStartTime.getTime()
+      ? latestInitialBreakEnd
+      : baseAvailabilityStartTime;
   }
 
   if (isBefore(now, effectiveStartTime)) {
@@ -107,6 +115,7 @@ function calculateDoctorDelay(
 async function updateAppointmentsWithDelay(
   clinicId: string,
   doctorId: string,
+  sessionIndex: number,
   totalDelayMinutes: number,
   doctor?: Doctor
 ): Promise<void> {
@@ -117,6 +126,7 @@ async function updateAppointmentsWithDelay(
     where('clinicId', '==', clinicId),
     where('doctorId', '==', doctorId),
     where('date', '==', today),
+    where('sessionIndex', '==', sessionIndex),
     where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
   );
 
@@ -238,76 +248,72 @@ export function useAppointmentStatusUpdater() {
         for (const doctorDoc of doctorsSnapshot.docs) {
           const doctor = { id: doctorDoc.id, ...doctorDoc.data() } as Doctor;
 
-          const completedQuery = query(
-            collection(db, 'appointments'),
-            where('clinicId', '==', clinicId),
-            where('doctor', '==', doctor.name),
-            where('date', '==', todayStr),
-            where('status', '==', 'Completed')
+          const currentDay = format(now, 'EEEE');
+          const todaysAvailability = doctor.availabilitySlots?.find(
+            slot => slot.day.toLowerCase() === currentDay.toLowerCase()
           );
-          const completedSnapshot = await getDocs(completedQuery);
-          const completedCount = completedSnapshot.size;
 
-          const activeApptQuery = query(
-            collection(db, 'appointments'),
-            where('clinicId', '==', clinicId),
-            where('doctorId', '==', doctor.id),
-            where('date', '==', todayStr),
-            where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
-          );
-          const activeApptSnapshot = await getDocs(activeApptQuery);
-          let currentStoredDelay = 0;
-          if (!activeApptSnapshot.empty) {
-            currentStoredDelay = activeApptSnapshot.docs[0].data().doctorDelayMinutes || 0;
-          }
+          if (!todaysAvailability || !todaysAvailability.timeSlots) continue;
 
-          const sessionIndex = 0; // Simplified for delay check
-          const breakIntervals = getSessionBreakIntervals(doctor, now, sessionIndex);
-          if (isWithinBreak(now, breakIntervals)) {
-            if (currentStoredDelay > 0) {
-              await updateAppointmentsWithDelay(clinicId, doctor.id, 0, doctor);
-            }
-            continue;
-          }
-
-          const { delayMinutes, availabilityStartTime } = calculateDoctorDelay(doctor, now, completedCount);
-          const delayDiff = Math.abs(delayMinutes - currentStoredDelay);
-          const shouldUpdate = (currentStoredDelay === 0 && delayMinutes >= 5) || (currentStoredDelay > 0 && delayMinutes === 0) || (delayDiff >= 5);
-
-          if (!shouldUpdate) continue;
-
-          if (availabilityStartTime) {
-            const currentDay = format(now, 'EEEE');
-            const todaysAvailability = doctor.availabilitySlots?.find(
-              slot => slot.day.toLowerCase() === currentDay.toLowerCase()
+          for (let i = 0; i < todaysAvailability.timeSlots.length; i++) {
+            const completedQuery = query(
+              collection(db, 'appointments'),
+              where('clinicId', '==', clinicId),
+              where('doctor', '==', doctor.name),
+              where('date', '==', todayStr),
+              where('sessionIndex', '==', i),
+              where('status', '==', 'Completed')
             );
+            const completedSnapshot = await getDocs(completedQuery);
+            const completedCount = completedSnapshot.size;
 
-            if (todaysAvailability && todaysAvailability.timeSlots?.length > 0) {
-              const lastSessionIndex = todaysAvailability.timeSlots.length - 1;
-              const lastSession = todaysAvailability.timeSlots[lastSessionIndex];
+            const activeApptQuery = query(
+              collection(db, 'appointments'),
+              where('clinicId', '==', clinicId),
+              where('doctorId', '==', doctor.id),
+              where('date', '==', todayStr),
+              where('sessionIndex', '==', i),
+              where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
+            );
+            const activeApptSnapshot = await getDocs(activeApptQuery);
+            let currentStoredDelay = 0;
+            if (!activeApptSnapshot.empty) {
+              currentStoredDelay = activeApptSnapshot.docs[0].data().doctorDelayMinutes || 0;
+            }
+
+            const breakIntervals = getSessionBreakIntervals(doctor, now, i);
+            if (isWithinBreak(now, breakIntervals)) {
+              if (currentStoredDelay > 0) {
+                await updateAppointmentsWithDelay(clinicId, doctor.id, i, 0, doctor);
+              }
+              continue;
+            }
+
+            const { delayMinutes, availabilityStartTime } = calculateDoctorDelay(doctor, now, i, completedCount);
+            const delayDiff = Math.abs(delayMinutes - currentStoredDelay);
+            const shouldUpdate = (currentStoredDelay === 0 && delayMinutes >= 5) || (currentStoredDelay > 0 && delayMinutes === 0) || (delayDiff >= 5);
+
+            if (!shouldUpdate) continue;
+
+            if (availabilityStartTime) {
+              const sessionSource = todaysAvailability.timeSlots[i];
               let availabilityEndTime: Date;
-              const todayExtension = (doctor as any)?.availabilityExtensions?.[todayStr];
-              const matchingSessionExtension = todayExtension?.sessions?.find?.((s: any) => s?.sessionIndex === lastSessionIndex);
               try {
-                if (matchingSessionExtension?.newEndTime) {
-                  availabilityEndTime = parse(matchingSessionExtension.newEndTime, 'hh:mm a', now);
-                } else if (todayExtension?.newEndTime) {
-                  availabilityEndTime = parse(todayExtension.newEndTime, 'hh:mm a', now);
-                } else {
-                  availabilityEndTime = parseTime(lastSession.to, now);
-                }
+                availabilityEndTime = parseTime(sessionSource.to, now);
               } catch {
                 continue;
               }
 
-              if (isBefore(now, availabilityEndTime) || now.getTime() === availabilityEndTime.getTime()) {
-                await updateAppointmentsWithDelay(clinicId, doctor.id, delayMinutes, doctor);
-              } else if (currentStoredDelay > 0) {
-                await updateAppointmentsWithDelay(clinicId, doctor.id, 0, doctor);
+              if (isAfter(now, addMinutes(availabilityEndTime, 240))) {
+                continue;
               }
             }
+
+            await updateAppointmentsWithDelay(clinicId, doctor.id, i, delayMinutes, doctor);
           }
         }
+
+
       } catch (error) {
         console.error('Error updating appointment delays:', error);
       }

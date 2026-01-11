@@ -510,6 +510,31 @@ export default function LiveDashboard() {
   }, [filteredAppointments]);
 
 
+  const isBreakActive = useMemo(() => {
+    if (!currentDoctor) return false;
+    const todayStr = format(currentTime, 'd MMMM yyyy');
+    const todayBreaks = currentDoctor.breakPeriods?.[todayStr] || [];
+
+    // Check if we are strictly within a break or recently finished one (e.g. late return)
+    return todayBreaks.some(bp => {
+      try {
+        const start = new Date(bp.startTime);
+        const end = new Date(bp.endTime);
+        // Consider break "Active" for UI if we are in it, or if it ended less than 30 mins ago and we are still Out
+        // This prevents "End Break" showing hours later
+        const isWithin = currentTime >= start && currentTime <= end;
+        // If break just ended but doctor is still Out, maybe show End Break? 
+        // But User specifically complained about "Session 0 break is finished".
+        // So let's stick to STRICT break times for "End Break" button?
+        // Or maybe a small buffer like 15 mins?
+        const extendedEnd = addMinutes(end, 15);
+        return currentTime >= start && currentTime <= extendedEnd;
+      } catch (e) {
+        return false;
+      }
+    });
+  }, [currentDoctor, currentTime]);
+
   return (
     <div className="flex flex-col h-full bg-muted/20">
       <ClinicHeader
@@ -522,7 +547,7 @@ export default function LiveDashboard() {
         consultationStatus={consultationStatus}
         onStatusChange={handleStatusChange}
         currentTime={currentTime}
-        isBreakMode={true}
+        isBreakMode={isBreakActive}
       />
       {isOnline ? (
         <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">

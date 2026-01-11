@@ -267,6 +267,7 @@ export default function DoctorsPage() {
     originalEnd: string;
     breakDuration: number;
     estimatedFinishTime: string;
+    sessionEffectiveEnd?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -1076,9 +1077,19 @@ export default function DoctorsPage() {
     if (appointmentsOnDate.length > 0) {
       // Build a map of occupied slots
       const occupiedSlots = new Set<number>();
+
+      // Calculate occupied slots using time-based relative referencing
+      // This safeguards against mismatches between global slot indices and session-relative break indices.
       appointmentsOnDate.forEach(apt => {
-        if (typeof apt.slotIndex === 'number' && apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
-          occupiedSlots.add(apt.slotIndex);
+        if (apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
+          const aptTime = parseTimeUtil(apt.time, leaveCalDate);
+          // Just to be safe, ensure it belongs to the session (though filter above handles it)
+          const diffMins = differenceInMinutes(aptTime, breakSessionStart);
+          const relativeIndex = Math.floor(diffMins / slotDuration);
+
+          if (relativeIndex >= 0) {
+            occupiedSlots.add(relativeIndex);
+          }
         }
       });
 
@@ -1142,7 +1153,8 @@ export default function DoctorsPage() {
       lastTokenAfter,
       originalEnd,
       breakDuration: breakDurationForDisplay,
-      estimatedFinishTime
+      estimatedFinishTime,
+      sessionEffectiveEnd: format(breakSessionEffectiveEnd, 'hh:mm a')
     });
 
 
@@ -2960,9 +2972,7 @@ export default function DoctorsPage() {
                     </div>
                   ) : (
                     // Safe scenario: all tokens within availability
-                    <div className="space-y-2">
-                      <p>A {extensionOptions.breakDuration}-minute break only needs {extensionOptions.actualExtensionNeeded || 0}-minute extension (gaps absorbed{extensionOptions.actualExtensionNeeded === 0 ? ' - no extension needed' : ''}). Do you still want to extend availability?</p>
-                    </div>
+                    <p>Do you want to extend the availability time to compensate for the break duration?</p>
                   )
                 ) : (
                   <p>Do you want to extend the availability time to compensate for the break duration?</p>

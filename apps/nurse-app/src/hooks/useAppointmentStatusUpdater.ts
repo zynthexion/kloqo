@@ -136,7 +136,10 @@ function calculateDoctorDelay(
       interval.end.getTime() > latest.getTime() ? interval.end : latest,
       initialBreaks[0].end
     );
-    effectiveStartTime = latestInitialBreakEnd;
+    // Ensure we don't move start time backwards if break ended before session start
+    effectiveStartTime = latestInitialBreakEnd.getTime() > baseAvailabilityStartTime.getTime()
+      ? latestInitialBreakEnd
+      : baseAvailabilityStartTime;
   }
 
   // If current time is before session start, no delay

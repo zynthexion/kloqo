@@ -34,12 +34,22 @@ export default function DaySnapshotView() {
     const [activeSession, setActiveSession] = useState<string>('all');
     const [clinicId, setClinicId] = useState<string | null>(null);
     const [currentMonth, setCurrentMonth] = useState(format(selectedDate, 'MMMM yyyy'));
+    const [api, setApi] = useState<any>();
 
     // Generate a range of dates (7 days before and 14 days after today)
     const dates = useMemo(() => {
         const today = new Date();
         return Array.from({ length: 22 }, (_, i) => addDays(subDays(today, 7), i));
     }, []);
+
+    // Scroll to today on mount
+    useEffect(() => {
+        if (!api) return;
+        const todayIndex = dates.findIndex(d => isSameDay(d, new Date()));
+        if (todayIndex !== -1) {
+            api.scrollTo(todayIndex, true);
+        }
+    }, [api, dates]);
 
     useEffect(() => {
         const id = localStorage.getItem('clinicId');
@@ -82,7 +92,9 @@ export default function DaySnapshotView() {
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Appointment[];
+            const fetched = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() } as Appointment))
+                .filter(a => !a.cancelledByBreak);
             setAppointments(fetched);
         });
         return () => unsubscribe();
@@ -183,7 +195,11 @@ export default function DaySnapshotView() {
                         <span className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{currentMonth}</span>
                     </div>
 
-                    <Carousel opts={{ align: "start", dragFree: true }} className="w-full">
+                    <Carousel
+                        setApi={setApi}
+                        opts={{ align: "center", dragFree: true }}
+                        className="w-full"
+                    >
                         <CarouselContent className="-ml-2">
                             {dates.map((d, index) => {
                                 const isSelected = isSameDay(d, selectedDate);

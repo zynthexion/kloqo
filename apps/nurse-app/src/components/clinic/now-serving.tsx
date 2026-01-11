@@ -89,6 +89,7 @@ export default function NowServing() {
       const fetchedAppointments: Appointment[] = [];
       querySnapshot.forEach((docSnap: any) => {
         const data = docSnap.data() as Appointment;
+        if (data.cancelledByBreak) return;
         fetchedAppointments.push({
           ...(data as Appointment),
           id: docSnap.id,

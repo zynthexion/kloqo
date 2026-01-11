@@ -128,10 +128,12 @@ export default function LiveDashboard() {
     const unsubscribe = onSnapshot(q, async (querySnapshot) => {
       const fetchedAppointments: Appointment[] = [];
       querySnapshot.forEach((docSnap: any) => {
+        const data = docSnap.data() as Appointment;
+        if (data.cancelledByBreak) return;
         fetchedAppointments.push({
+          ...data,
           id: docSnap.id,
-          ...docSnap.data(),
-        } as Appointment);
+        });
       });
 
       const sorted = fetchedAppointments.sort(compareAppointments);

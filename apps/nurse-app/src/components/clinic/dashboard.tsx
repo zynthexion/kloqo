@@ -143,7 +143,7 @@ export default function ClinicDashboard() {
       const data = docSnap.data();
 
       // Filter out appointments cancelled by break
-      if (data.status === 'Cancelled' && data.cancelledByBreak) {
+      if (data.cancelledByBreak) {
         return;
       }
 

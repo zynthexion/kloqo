@@ -767,14 +767,34 @@ export async function generateNextTokenAndReserveSlot(
         // CRITICAL: For walk-in bookings, filter appointments to only include those in the active session
         // This prevents the scheduler from considering appointments in other sessions
         if (type === 'W' && activeSessionIndex !== null) {
+          const currentSessionStart = slots[0]?.time;
+
           effectiveAppointments = effectiveAppointments.filter(appointment => {
-            // Include appointment if it has the same sessionIndex
-            if (appointment.sessionIndex === activeSessionIndex) {
-              return true;
-            }
-            // Also include if slotIndex maps to the active session (fallback for older appointments)
+            // Priority 1: Map via slotIndex if valid (Standard Slots)
+            // This is the most reliable check for standard appointments
             if (typeof appointment.slotIndex === 'number' && appointment.slotIndex < allSlots.length) {
               return allSlots[appointment.slotIndex]?.sessionIndex === activeSessionIndex;
+            }
+
+            // Priority 2: Use sessionIndex BUT verify with Time if available
+            // "Force Booked" appointments often have high slot indices and might have incorrect sessionIndex
+            if (appointment.sessionIndex === activeSessionIndex) {
+              // Verify time to catch "ghost" appointments from previous sessions (e.g. 3:35 PM in 4:00 PM session)
+              if (appointment.time && currentSessionStart) {
+                try {
+                  const aptTime = parseTimeString(appointment.time, date);
+                  // If appointment is more than 30 mins before session start, it definitely belongs to previous session
+                  // (Allowing 30 mins buffer for potential early starts/overlaps, but 3:35 vs 4:00 is tight. 
+                  // Standard break is usually > 30 mins. Re-using 20 mins as safe buffer)
+                  if (isBefore(aptTime, subMinutes(currentSessionStart, 20))) {
+                    console.warn(`[BOOKING DEBUG] Filtering out appointment ${appointment.id} (Time: ${appointment.time}) from Session ${activeSessionIndex} (Start: ${getClinicTimeString(currentSessionStart)}) - likely erroneous sessionIndex`);
+                    return false;
+                  }
+                } catch (e) {
+                  // If time parsing fails, fallback to trusting sessionIndex
+                }
+              }
+              return true;
             }
             return false;
           });
@@ -2255,11 +2275,17 @@ export async function prepareAdvanceShift({
       return null; // Reject this assignment, will use bucket compensation instead
     }
 
-    // CRITICAL FIX: Verify the assignment is valid. If it's an overflow slot (index >= totalSlots),
+    // CRITICAL FIX: Verify the assignment is valid. If it's an overflow slot (index > last available slot index),
     // we must have explicit permission (forceBook) or valid bucket compensation.
-    const isOverflowSlot = newAssignment.slotIndex >= slots.length;
+    const lastAvailableSlotIndex = slots.length > 0 ? slots[slots.length - 1].index : -1;
+    const isOverflowSlot = newAssignment.slotIndex > lastAvailableSlotIndex;
+
     if (isOverflowSlot && !forceBook && cancelledSlotsInBucket.size === 0) {
-      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned virtual overflow slot without forceBook or bucket credits - rejecting:', newAssignment.slotIndex);
+      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned virtual overflow slot without forceBook or bucket credits - rejecting:', {
+        assignedSlot: newAssignment.slotIndex,
+        lastAvailableSlot: lastAvailableSlotIndex,
+        totalSlots: slots.length
+      });
       return null;
     }
 
@@ -2743,6 +2769,16 @@ export async function prepareAdvanceShift({
   if (usedCancelledSlot !== null || usedBucket) {
     // Using cancelled slot directly or bucket - no shift needed
     // Skip appointment shifting
+
+    // CRITICAL FIX: Return the result for this path
+    // This was missing, causing "Function lacks ending return statement" error
+    return {
+      newAssignment: scheduleAttempt.newAssignment,
+      reservationDeletes: Array.from(reservationDeletes.values()),
+      appointmentUpdates: [], // No updates needed for direct assignment
+      usedBucketSlotIndex,
+      existingReservations,
+    };
   } else {
     // Normal scheduling - may need to shift advance appointments
     // Get the walk-in's slot index
@@ -2824,9 +2860,18 @@ export async function prepareAdvanceShift({
       // CRITICAL: Increment slotIndex by 1 for each appointment being shifted
       const newSlotIndex = currentSlotIndex + 1;
 
-      // Validate that newSlotIndex is within bounds
-      if (newSlotIndex >= totalSlots) {
-        console.warn(`[BOOKING DEBUG] Cannot shift appointment ${appointment.id} from slot ${currentSlotIndex} to ${newSlotIndex} - exceeds total slots ${totalSlots}`);
+      // Validate that newSlotIndex is within bounds OR is an allowed overflow
+      // NOTE: We cannot compare against slots.length because slots might be filtered (e.g. Session 1 only)
+      // while indices are global.
+      // We check if it's "beyond the last available slot index" 
+      const lastAvailableSlotIndex = slots.length > 0 ? slots[slots.length - 1].index : -1;
+
+      // If newSlotIndex is beyond the last slot in the session, it's an overflow.
+      // But we generally allow shifting into overflow slots (they will be synthesized below).
+      // The only hard limit is some reasonable upper bound if needed, but for now we rely on synthesis logic.
+      if (lastAvailableSlotIndex !== -1 && newSlotIndex > lastAvailableSlotIndex + 10) {
+        // Sanity check: Don't shift way too far (e.g. >10 slots beyond session end)
+        console.warn(`[BOOKING DEBUG] Cannot shift appointment ${appointment.id} from slot ${currentSlotIndex} to ${newSlotIndex} - exceeds session range significantly`);
         continue;
       }
 
@@ -2884,7 +2929,8 @@ export async function prepareAdvanceShift({
       }
 
       // Find the sessionIndex for the new slotIndex
-      let newSlotMeta = slots[newSlotIndex];
+      // CRITICAL FIX: Use .find() because slotIndex (global) doesn't equal array index (0-based) for Session 1
+      let newSlotMeta = slots.find(s => s.index === newSlotIndex);
       if (!newSlotMeta && slots.length > 0) {
         // CRITICAL SURGICAL FIX: Synthesize slot metadata for overflow indices
         // to support shifting beyond the regular availability session.

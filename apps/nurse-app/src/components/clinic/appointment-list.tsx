@@ -41,6 +41,7 @@ type AppointmentListProps = {
   enableSwipeCompletion?: boolean;
   showStatusBadge?: boolean;
   isPhoneMode?: boolean;
+  showPositionNumber?: boolean;
 };
 
 // Helper function to parse time
@@ -56,7 +57,7 @@ function parseTime(timeStr: string, referenceDate: Date): Date {
   }
 }
 
-function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true, showStatusBadge = true, isPhoneMode = false }: AppointmentListProps) {
+function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true, showStatusBadge = true, isPhoneMode = false, showPositionNumber = false }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
@@ -311,6 +312,11 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                             </div>
                             <div className="flex justify-between items-start mt-1">
                               <div className="flex items-center gap-2">
+                                {showPositionNumber && (
+                                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                                    {index + 1}
+                                  </div>
+                                )}
                                 <div className="flex items-center gap-2">
                                   <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
                                     {['Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.patientName : `#${appt.tokenNumber} - ${appt.patientName}`}

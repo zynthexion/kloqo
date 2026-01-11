@@ -563,6 +563,7 @@ export default function LiveDashboard() {
                     currentTime={currentTime}
                     isInBufferQueue={isInBufferQueue}
                     showStatusBadge={false}
+                    showPositionNumber={true}
                   />
                 </div>
 

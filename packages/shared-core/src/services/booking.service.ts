@@ -224,6 +224,24 @@ export async function completeStaffWalkInBooking(
             throw new Error('No walk-in slots are available.');
         }
 
+        // --- SURGICAL FIX: Remap slot indices that overflow into future sessions ---
+        // Prevents blocking the physical slots of the next session caused by dense slot numbering
+        const remapOverflowSlotIndex = (originalIndex: number): number => {
+            const conflictingSlot = allSlots.find(s => s.index === originalIndex);
+            // If slot exists physically but belongs to a different session, we have a collision
+            if (activeSessionIndex !== null && conflictingSlot && conflictingSlot.sessionIndex !== activeSessionIndex) {
+                // Remap to high range (10000+) to avoid collision while preserving relative sort order
+                return 10000 + originalIndex;
+            }
+            return originalIndex;
+        };
+
+        const finalNewSlotIndex = remapOverflowSlotIndex(shiftPlan.newAssignment.slotIndex);
+        const finalAppointmentUpdates = shiftPlan.appointmentUpdates.map(u => ({
+            ...u,
+            slotIndex: remapOverflowSlotIndex(u.slotIndex)
+        }));
+
         const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;
         const newDocRef = doc(collection(firestore, 'appointments'));
 
@@ -233,11 +251,15 @@ export async function completeStaffWalkInBooking(
         commitNextTokenNumber(transaction, counterRef, counterState);
 
         // C2. Reservation Update
-        transaction.set(reservationRef, {
+        // Use remapped slot index for reservation
+        const finalReservationId = buildReservationDocId(clinicId, doctor.name, dateStr, finalNewSlotIndex);
+        const finalReservationRef = doc(firestore, 'slot-reservations', finalReservationId);
+
+        transaction.set(finalReservationRef, {
             clinicId,
             doctorName: doctor.name,
             date: dateStr,
-            slotIndex: shiftPlan.newAssignment.slotIndex,
+            slotIndex: finalNewSlotIndex,
             status: 'booked',
             appointmentId: newDocRef.id,
             bookedAt: serverTimestamp(),
@@ -264,7 +286,7 @@ export async function completeStaffWalkInBooking(
             tokenNumber,
             numericToken: nextWalkInNumericToken,
             clinicId,
-            slotIndex: shiftPlan.newAssignment.slotIndex,
+            slotIndex: finalNewSlotIndex,
             sessionIndex: shiftPlan.newAssignment.sessionIndex,
             createdAt: serverTimestamp(),
             cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
@@ -274,7 +296,7 @@ export async function completeStaffWalkInBooking(
         transaction.set(newDocRef, appointmentData);
 
         // C4. Update Shifted Appointments
-        for (const update of shiftPlan.appointmentUpdates) {
+        for (const update of finalAppointmentUpdates) {
             transaction.update(update.docRef, {
                 slotIndex: update.slotIndex,
                 sessionIndex: update.sessionIndex,

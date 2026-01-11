@@ -108,7 +108,8 @@ export async function computeQueues(
     doctorId: string,
     clinicId: string,
     date: string,
-    sessionIndex: number
+    sessionIndex: number,
+    doctorConsultationStatus?: 'In' | 'Out'
 ): Promise<QueueState> {
     // Get consultation count
     const consultationCount = await getConsultationCount(clinicId, doctorId, date, sessionIndex);
@@ -147,15 +148,36 @@ export async function computeQueues(
     const currentConsultation = bufferQueue.length > 0 ? bufferQueue[0] : null;
 
     // Next Break Duration: Calculate duration of the first block of dummy break appointments 
-    // that appear in this session
+    // that appear in this session AND are currently active (current time is within break period)
+    // IMPORTANT: If doctor status is 'In', break is considered over regardless of scheduled time
     const breakAppointments = relevantAppointments
         .filter(apt => apt.status === 'Completed' && apt.patientId === 'dummy-break-patient')
         .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
 
     let nextBreakDuration: number | null = null;
-    if (breakAppointments.length > 0) {
-        // Simple logic: sum all dummy slots in this session to get visibility
-        nextBreakDuration = breakAppointments.length * 15;
+
+    // If doctor is 'In', they're actively consulting, so no break should be shown
+    if (doctorConsultationStatus !== 'In' && breakAppointments.length > 0) {
+        // Check if we're currently within the break period
+        const now = new Date();
+        const firstBreak = breakAppointments[0];
+        const lastBreak = breakAppointments[breakAppointments.length - 1];
+
+        try {
+            const breakStartTime = parseAppointmentTime(firstBreak);
+            const breakEndTime = parseAppointmentTime(lastBreak);
+            // Add slot duration (5 mins) to get actual end time
+            breakEndTime.setMinutes(breakEndTime.getMinutes() + 5);
+
+            // Only show break duration if current time is within the break period
+            if (now >= breakStartTime && now < breakEndTime) {
+                // Calculate remaining minutes until break ends
+                const remainingMinutes = Math.ceil((breakEndTime.getTime() - now.getTime()) / (1000 * 60));
+                nextBreakDuration = Math.max(0, remainingMinutes);
+            }
+        } catch (error) {
+            console.error('Error calculating break duration:', error);
+        }
     }
 
     return {

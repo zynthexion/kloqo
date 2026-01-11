@@ -173,7 +173,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     doctorId,
                     clinicId,
                     yourAppointment.date,
-                    sessionIndex
+                    sessionIndex,
+                    currentDoctor.consultationStatus
                 );
                 setQueueState(state);
             } catch (error) {
@@ -191,7 +192,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         };
 
         computeQueueState();
-    }, [allTodaysAppointments, yourAppointment, doctorId, clinicId, sessionIndex, firestore]);
+    }, [allTodaysAppointments, yourAppointment, doctorId, clinicId, sessionIndex, firestore, currentDoctor]);
 
     // Helper function to parse appointment time
     const parseAppointmentTime = useCallback((apt: Appointment): Date => {

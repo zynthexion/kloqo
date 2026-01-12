@@ -29,7 +29,7 @@ import { computeWalkInSchedule } from '@kloqo/shared-core';
 import { Clock, Info, Users, UserCheck, ShieldAlert, AlertCircle, CheckCircle2, MoreHorizontal, History } from "lucide-react";
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const ACTIVE_STATUSES = new Set(["Pending", "Confirmed"]);
+const ACTIVE_STATUSES = new Set(["Pending", "Confirmed", "Completed"]);
 
 function coerceDate(value: unknown): Date | null {
   if (!value) return null;
@@ -267,14 +267,16 @@ export default function SlotVisualizerPage() {
         }
       }
 
+      let relativeIndex = 0;
       while (isBefore(currentTime, sessionEnd)) {
+        const segmentedIndex = (sessionIndex * 1000) + relativeIndex;
         slots.push({
-          slotIndex,
+          slotIndex: segmentedIndex,
           time: new Date(currentTime),
           sessionIndex,
         });
         currentTime = addMinutes(currentTime, slotDuration);
-        slotIndex += 1;
+        relativeIndex += 1;
       }
     });
 
@@ -818,10 +820,12 @@ export default function SlotVisualizerPage() {
 
     const total = futureSessionSlots.length;
     const booked = walkIn + advanced;
-    const available = Math.max(total - booked, 0);
+    // Effective available slots must subtract both active appointments AND bucket slots
+    // (since bucket slots are effectively reserved for existing walk-ins in the bucket logic)
+    const available = Math.max(total - booked - bucketCount, 0);
 
     return { total, booked, available, walkIn, advanced };
-  }, [futureSessionSlots]);
+  }, [futureSessionSlots, bucketCount]);
 
   const capacityInfo = useMemo(() => {
     const total = sessionSummary.total;
@@ -1278,7 +1282,14 @@ export default function SlotVisualizerPage() {
                   <div>
                     <p className="text-xs uppercase text-muted-foreground">Available</p>
                     <p className="text-xl font-semibold">{sessionSummary.available}</p>
-                    <span className="text-xs text-muted-foreground">{sessionSummary.booked} booked so far</span>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {sessionSummary.available > 0 ? (
+                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[9px] h-4 px-1">Walk-in OK</Badge>
+                      ) : (
+                        <Badge variant="destructive" className="text-[9px] h-4 px-1">Full</Badge>
+                      )}
+                      <span className="text-xs text-muted-foreground">{sessionSummary.booked} booked</span>
+                    </div>
                   </div>
                   <div>
                     <p className="text-xs uppercase text-muted-foreground">Bucket Count</p>
@@ -1295,11 +1306,18 @@ export default function SlotVisualizerPage() {
                         <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
                         Advanced (max 85%)
                       </span>
-                      <span>
-                        {sessionSummary.advanced}
-                        {capacityInfo.maxAdvance > 0 ? ` / ${capacityInfo.maxAdvance}` : ""}
-                        {capacityInfo.total > 0 ? ` · ${Math.round(capacityInfo.advancePercent)}%` : ""}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {capacityInfo.limitReached ? (
+                          <Badge variant="destructive" className="text-[10px] h-5 px-1.5 font-black">LIMIT REACHED</Badge>
+                        ) : capacityInfo.maxAdvance > 0 ? (
+                          <Badge className="bg-sky-100 text-sky-700 hover:bg-sky-100 border-sky-200 text-[10px] h-5 px-1.5">OPEN</Badge>
+                        ) : null}
+                        <span>
+                          {sessionSummary.advanced}
+                          {capacityInfo.maxAdvance > 0 ? ` / ${capacityInfo.maxAdvance}` : ""}
+                          {capacityInfo.total > 0 ? ` · ${Math.round(capacityInfo.advancePercent)}%` : ""}
+                        </span>
+                      </div>
                     </div>
                     <Progress value={Math.min(capacityInfo.advancePercent, 100)} className="h-2" />
                     {capacityInfo.maxAdvance === 0 ? (
@@ -1320,17 +1338,28 @@ export default function SlotVisualizerPage() {
                     <div className="flex items-center justify-between text-xs font-medium text-foreground">
                       <span className="flex items-center gap-2">
                         <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                        Walk-ins
+                        Walk-ins (Minimum 15% Reserve)
                       </span>
-                      <span>
-                        {sessionSummary.walkIn}
-                        {capacityInfo.total > 0 ? ` · ${Math.round(capacityInfo.walkInPercent)}%` : ""}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {sessionSummary.available > 0 ? (
+                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 text-[10px] h-5 px-1.5">OPEN FOR BOOKING</Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-[10px] h-5 px-1.5 font-black uppercase">CAPACITY REACHED</Badge>
+                        )}
+                        <span>
+                          {sessionSummary.walkIn} booked
+                          {capacityInfo.total > 0 ? ` · ${Math.round(capacityInfo.walkInPercent)}%` : ""}
+                        </span>
+                      </div>
                     </div>
                     <Progress value={Math.min(capacityInfo.walkInPercent, 100)} className="h-2" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Walk-ins have a minimum reserve of {capacityInfo.reservedMinimum} slot
-                      {capacityInfo.reservedMinimum === 1 ? "" : "s"} but can use any additional capacity.
+                    <p className="text-[11px] text-muted-foreground flex items-center justify-between">
+                      <span>Reserve: {capacityInfo.reservedMinimum} slots (last 15% of session)</span>
+                      {sessionSummary.available > 0 ? (
+                        <span className="text-emerald-600 font-bold">{sessionSummary.available} slots remaining</span>
+                      ) : (
+                        <span className="text-destructive font-black uppercase tracking-tighter">No slots left</span>
+                      )}
                     </p>
                   </div>
                 </div>

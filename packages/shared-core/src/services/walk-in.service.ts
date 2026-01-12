@@ -12,7 +12,7 @@ import {
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
-const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped']);
+const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const RESERVATION_CONFLICT_CODE = 'slot-reservation-conflict';
 
@@ -3642,19 +3642,32 @@ export async function calculateWalkInDetails(
   const consultationTime = doctor.averageConsultingTime || 15;
   const apptEnd = addMinutes(chosenTime, consultationTime);
 
-  // Identify if this assignment spills over the formal session end
+  // Identify if any assignment (including shifted ones) spills over the formal session end
   let isSpillover = false;
+
+  // Find the maximum slot index among ALL assignments returned by the scheduler
+  const maxAssignedSlotIndex = Math.max(...(schedule?.assignments.map(a => a.slotIndex) || []), -1);
+
+  // Find the maximum physical slot index available in this session (nominal slots)
   const sessionSlots = allSlots.filter((s: any) => s.sessionIndex === chosenSessionIndex);
-  if (sessionSlots.length > 0) {
-    const lastSlotTime = Math.max(...sessionSlots.map((s: any) => s.time.getTime()));
-    const formalSessionEnd = addMinutes(new Date(lastSlotTime), consultationTime);
+  const maxPhysicalSlotIndexInSession = sessionSlots.length > 0
+    ? Math.max(...sessionSlots.map((s: any) => s.index))
+    : -1;
+
+  if (maxAssignedSlotIndex > maxPhysicalSlotIndexInSession) {
+    isSpillover = true;
+  }
+
+  // Also check the specific walk-in's end time (as a safety measure)
+  if (!isSpillover && sessionSlots.length > 0) {
+    const lastPhysicalSlot = sessionSlots.sort((a, b) => b.index - a.index)[0];
+    const formalSessionEnd = addMinutes(lastPhysicalSlot.time, consultationTime);
     if (apptEnd.getTime() > formalSessionEnd.getTime()) {
       isSpillover = true;
     }
   }
 
-  // CRITICAL FIX: If we have a spillover (virtual slot), we MUST enforce forceBook or bucket compensation.
-  // The scheduler is permissive (to support force booking), but we must be strict here to prevent accidental overbooking.
+  // CRITICAL FIX: If we have a spillover (into virtual slots), we MUST enforce forceBook or bucket compensation.
   if (isSpillover && !forceBook && !canUseBucketCompensation) {
     throw new Error('No walk-in slots are available. (Session Full)');
   }

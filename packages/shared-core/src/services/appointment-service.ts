@@ -30,7 +30,7 @@ import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-sched
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
-const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped']);
+const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const RESERVATION_CONFLICT_CODE = 'slot-reservation-conflict';
 

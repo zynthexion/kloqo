@@ -26,6 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn, parseTime } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { computeWalkInSchedule } from '@kloqo/shared-core';
+import { Clock, Info, Users, UserCheck, ShieldAlert, AlertCircle, CheckCircle2, MoreHorizontal, History } from "lucide-react";
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ACTIVE_STATUSES = new Set(["Pending", "Confirmed"]);
@@ -1159,6 +1160,87 @@ export default function SlotVisualizerPage() {
             </div>
           </div>
 
+          {/* Session Timeline View */}
+          {selectedDoctor && availableSessions.length > 0 && (
+            <div className="space-y-4 rounded-xl border bg-card p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Clock className="h-4 w-4 text-primary" />
+                  Day Timeline & Sessions
+                </h3>
+                <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-primary" />
+                    <span>Active Session</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-muted" />
+                    <span>Gap / Not Working</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative pt-6 pb-2">
+                <div className="relative h-10 w-full rounded-lg bg-muted/30 overflow-hidden ring-1 ring-inset ring-muted-foreground/10">
+                  {/* Timeline Background Hours Marker */}
+                  <div className="absolute inset-0 flex justify-between px-2 text-[9px] text-muted-foreground/40 pointer-events-none">
+                    {Array.from({ length: 15 }).map((_, i) => (
+                      <div key={i} className="flex flex-col items-center">
+                        <div className="h-full w-[1px] bg-muted-foreground/10" />
+                        <span className="mt-1">{i + 8}:00</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Sessions Blocks */}
+                  {availableSessions.map((session, i) => {
+                    const fromTime = parseTime(session.from, selectedDate);
+                    const toTime = parseTime(session.to, selectedDate);
+                    const dayStart = startOfDay(selectedDate).getTime() + (8 * 60 * 60 * 1000); // 8 AM
+                    const dayEnd = startOfDay(selectedDate).getTime() + (22 * 60 * 60 * 1000); // 10 PM
+                    const totalMs = dayEnd - dayStart;
+
+                    const left = ((fromTime.getTime() - dayStart) / totalMs) * 100;
+                    const width = ((toTime.getTime() - fromTime.getTime()) / totalMs) * 100;
+
+                    return (
+                      <div
+                        key={i}
+                        className={cn(
+                          "absolute top-0 h-full flex items-center justify-center text-[10px] font-bold text-white transition-all hover:brightness-110",
+                          selectedSessionIndex === i ? "bg-primary shadow-[inset_0_0_12px_rgba(0,0,0,0.15)] ring-2 ring-primary ring-offset-1 z-10" : "bg-primary/40 text-primary-foreground/60"
+                        )}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        onClick={() => setSelectedSessionIndex(i)}
+                        role="button"
+                      >
+                        S{i + 1}
+                      </div>
+                    );
+                  })}
+
+                  {/* Current Time Needle */}
+                  {isSameDay(selectedDate, new Date()) && (
+                    <div
+                      className="absolute top-0 h-full w-[2px] bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.5)] z-20 pointer-events-none"
+                      style={{
+                        left: (() => {
+                          const now = new Date();
+                          const dayStart = startOfDay(selectedDate).getTime() + (8 * 60 * 60 * 1000);
+                          const dayEnd = startOfDay(selectedDate).getTime() + (22 * 60 * 60 * 1000);
+                          const pos = ((now.getTime() - dayStart) / (dayEnd - dayStart)) * 100;
+                          return `${Math.min(Math.max(pos, 0), 100)}%`;
+                        })()
+                      }}
+                    >
+                      <div className="absolute -left-[5px] -top-1 h-3 w-3 rounded-full bg-destructive border-2 border-background shadow-sm" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
             {!selectedDoctor && (
               <p className="text-sm text-muted-foreground">Add a doctor to view slots for this clinic.</p>
@@ -1253,27 +1335,45 @@ export default function SlotVisualizerPage() {
                   </div>
                 </div>
                 {nextWalkInPreview ? (
-                  <div className="border-b bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
-                    Next walk-in token will target{" "}
-                    <span className="font-semibold">
-                      slot #{nextWalkInPreview.slotIndex + 1} · {format(nextWalkInPreview.time, "hh:mm a")}
-                    </span>
+                  <div className="border-b bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900 flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                      <Users className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-600/80">Next Walk-in Target</p>
+                      <p className="font-semibold">
+                        Slot #{nextWalkInPreview.slotIndex + 1} · {format(nextWalkInPreview.time, "hh:mm a")}
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-200/50 text-[10px] font-bold uppercase ring-1 ring-emerald-300">
+                          {walkInSpacing && walkInSpacing > 0 ? `Spacing Applied (v=${walkInSpacing})` : 'Next Available'}
+                        </span>
+                      </p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="border-b bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
-                    Unable to determine the next walk-in slot based on the current data.
+                  <div className="border-b bg-muted/15 px-4 py-3 text-sm text-muted-foreground flex items-center gap-3">
+                    <AlertCircle className="h-5 w-5 opacity-50" />
+                    <span>Unable to determine the next walk-in slot based on the current data.</span>
                   </div>
                 )}
                 {nextAdvancePreview ? (
-                  <div className="border-b bg-sky-50/60 px-4 py-3 text-sm text-sky-900">
-                    Next advance booking will target{" "}
-                    <span className="font-semibold">
-                      slot #{nextAdvancePreview.slotIndex + 1} · {format(nextAdvancePreview.time, "hh:mm a")}
-                    </span>
+                  <div className="border-b bg-sky-50/60 px-4 py-3 text-sm text-sky-900 flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sky-600">
+                      <UserCheck className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-sky-600/80">Next Advance Target</p>
+                      <p className="font-semibold">
+                        Slot #{nextAdvancePreview.slotIndex + 1} · {format(nextAdvancePreview.time, "hh:mm a")}
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-sky-200/50 text-[10px] font-bold uppercase ring-1 ring-sky-300">
+                          Primary Availability
+                        </span>
+                      </p>
+                    </div>
                   </div>
                 ) : (
-                  <div className="border-b bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
-                    Unable to determine the next advance slot based on the current data.
+                  <div className="border-b bg-muted/15 px-4 py-3 text-sm text-muted-foreground flex items-center gap-3">
+                    <AlertCircle className="h-5 w-5 opacity-50" />
+                    <span>Unable to determine the next advance slot based on the current data.</span>
                   </div>
                 )}
                 {sessionSlots.length === 0 ? (
@@ -1320,10 +1420,22 @@ export default function SlotVisualizerPage() {
                         <div key={slot.slotIndex} className={cardStyles}>
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex flex-col">
-                              <span className="text-xs uppercase text-muted-foreground">Slot</span>
-                              <span className="text-lg font-semibold">#{slot.slotIndex + 1}</span>
+                              <span className="text-[10px] font-bold uppercase text-muted-foreground/60 leading-none mb-1">Slot Index</span>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-xl font-black tracking-tight">#{slot.slotIndex + 1}</span>
+                                <Badge variant="secondary" className="px-1 py-0 text-[9px] font-mono h-4 bg-muted/50 text-muted-foreground">
+                                  ID:{slot.slotIndex}
+                                </Badge>
+                              </div>
                             </div>
-                            <Badge variant="outline">{format(slot.time, "hh:mm a")}</Badge>
+                            <div className="flex flex-col items-end gap-1">
+                              <Badge variant="outline" className="font-mono bg-background/50 shadow-sm border-muted-foreground/10">{format(slot.time, "hh:mm a")}</Badge>
+                              {slot.slotIndex >= 1000 && (
+                                <div className="flex items-center gap-1 text-[9px] font-bold text-primary bg-primary/10 px-1 rounded ring-1 ring-primary/20">
+                                  S{Math.floor(slot.slotIndex / 1000) + 1} Namespace
+                                </div>
+                              )}
+                            </div>
                           </div>
                           {isPastSlot && (
                             <div className="flex items-center gap-2 rounded-full bg-muted/50 px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -1387,39 +1499,48 @@ export default function SlotVisualizerPage() {
                           <div className="min-h-[2.5rem] text-sm">
                             {appointment ? (
                               <div className="flex flex-col gap-2">
-                                <p className="font-medium leading-tight">
-                                  {appointment.patientName ?? "Unknown patient"}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {appointment.communicationPhone ?? "—"}
-                                </p>
-                                <div className="space-y-1 text-[11px] text-muted-foreground">
-                                  <p>
-                                    <span className="font-semibold text-foreground/80">Status:</span>{" "}
-                                    <span className="font-medium">{appointment.status ?? "—"}</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
+                                    {appointment.patientName ? appointment.patientName.charAt(0) : '?'}
+                                  </div>
+                                  <p className="font-bold leading-tight">
+                                    {appointment.patientName ?? "Unknown patient"}
                                   </p>
-                                  <p>
-                                    <span className="font-semibold text-foreground/80">Appointment:</span>{" "}
-                                    {formatTimeDisplay(appointment.time)}
-                                  </p>
-                                  <p>
-                                    <span className="font-semibold text-foreground/80">Cut-off:</span>{" "}
-                                    {formatTimeDisplay(appointment.cutOffTime)}
-                                  </p>
-                                  <p>
-                                    <span className="font-semibold text-foreground/80">No-show:</span>{" "}
-                                    {formatTimeDisplay(appointment.noShowTime)}
-                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                  <History className="h-3 w-3" />
+                                  <span>{appointment.communicationPhone ?? "—"}</span>
+                                </div>
+                                <div className="space-y-1 rounded-md bg-background/40 p-1.5 text-[10px] text-muted-foreground ring-1 ring-inset ring-muted-foreground/5">
+                                  <div className="flex justify-between border-b border-muted-foreground/5 pb-1 mb-1">
+                                    <span className="font-semibold text-foreground/80 lowercase italic">Time Plan</span>
+                                    <span className="font-mono">{formatTimeDisplay(appointment.time)}</span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                                    <div className="flex items-center gap-1">
+                                      <div className="h-1 w-1 rounded-full bg-sky-400" />
+                                      <span>Cut-off:</span>
+                                      <span className="ml-auto font-mono">{formatTimeDisplay(appointment.cutOffTime)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <div className="h-1 w-1 rounded-full bg-destructive" />
+                                      <span>No-show:</span>
+                                      <span className="ml-auto font-mono">{formatTimeDisplay(appointment.noShowTime)}</span>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground">No patient assigned</p>
+                              <div className="flex flex-col items-center justify-center gap-1 py-2 opacity-30 select-none">
+                                <MoreHorizontal className="h-5 w-5" />
+                                <p className="text-[10px] uppercase font-bold tracking-widest">Available</p>
+                              </div>
                             )}
                           </div>
 
 
                           <div>
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               {appointment?.status && (
                                 <Badge
                                   variant={
@@ -1431,37 +1552,27 @@ export default function SlotVisualizerPage() {
                                               appointment.status === "Cancelled" ? "destructive" :
                                                 "outline"
                                   }
-                                  className={
-                                    appointment.status === "Completed" ? "bg-green-500 text-white" :
-                                      appointment.status === "Skipped" ? "border-orange-400 text-orange-700" :
+                                  className={cn(
+                                    "flex items-center gap-1 px-1.5 py-0 text-[10px] font-bold h-5",
+                                    appointment.status === "Completed" ? "bg-emerald-500 text-white border-none shadow-sm" :
+                                      appointment.status === "Skipped" ? "border-orange-400 text-orange-700 bg-orange-50" :
                                         ""
-                                  }
+                                  )}
                                 >
+                                  {appointment.status === "Completed" && <CheckCircle2 className="h-3 w-3" />}
+                                  {appointment.status === "Pending" && <Clock className="h-3 w-3" />}
+                                  {appointment.status === "No-show" && <ShieldAlert className="h-3 w-3" />}
                                   {appointment.status}
                                 </Badge>
                               )}
-                              {isBlocked ? (
-                                <Badge variant="outline" className="border-gray-400 text-gray-700 bg-gray-100">
-                                  Blocked (Cancelled & No-Show Bucket)
-                                </Badge>
-                              ) : appointment ? (
-                                isCancelled ? (
-                                  <Badge variant="destructive">Cancelled</Badge>
-                                ) : (
-                                  <Badge variant={isWalkIn ? "default" : "secondary"}>
-                                    {isWalkIn ? "Walk-in booking" : "Advanced booking"}
-                                  </Badge>
-                                )
-                              ) : (
-                                <Badge variant="outline">Available</Badge>
-                              )}
-                              {isNextAdvanceTarget && !isCancelled && !isBlocked && (
-                                <Badge variant="secondary">Next advance target</Badge>
-                              )}
-                              {isCancelled && isNextAdvanceTarget && !isBlocked && (
-                                <Badge variant="outline" className="border-destructive text-destructive">
-                                  Next advance target
-                                </Badge>
+
+                              {appointment && (
+                                <div className={cn(
+                                  "flex items-center justify-center rounded-md p-1",
+                                  isWalkIn ? "bg-emerald-100/50 text-emerald-600 ring-1 ring-inset ring-emerald-600/20" : "bg-sky-100/50 text-sky-600 ring-1 ring-inset ring-sky-600/20"
+                                )}>
+                                  {isWalkIn ? <Users className="h-3 w-3" /> : <UserCheck className="h-3 w-3" />}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1578,40 +1689,103 @@ export default function SlotVisualizerPage() {
             )}
 
             {sessionProgress && (
-              <div className="mt-6 space-y-3 rounded-md border border-muted px-4 py-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">Session Progress</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Completed {sessionProgress.completedCount} patient
-                      {sessionProgress.completedCount === 1 ? "" : "s"} · Remaining {sessionProgress.remainingCount}
-                    </p>
+              <div className="mt-8 rounded-2xl border bg-gradient-to-br from-card to-muted/20 overflow-hidden shadow-lg border-primary/10">
+                <div className="bg-primary/5 px-6 py-4 border-b border-primary/10 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                      <ShieldAlert className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black tracking-tight text-foreground">Clinic System Insights</h3>
+                      <p className="text-xs text-muted-foreground font-medium">Real-time schedule health & performance metrics</p>
+                    </div>
                   </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <p>Total availability: {sessionProgress.totalMinutes} min</p>
-                    <p>
-                      Expected time used: {sessionProgress.expectedMinutes} min
-                    </p>
+                  <div className="flex items-center gap-2 py-1 px-3 rounded-full bg-background/80 ring-1 ring-inset ring-muted-foreground/10 text-xs font-bold text-muted-foreground">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Overview
                   </div>
                 </div>
-                <div className="relative">
-                  <Progress value={sessionProgress.progressValue} className="h-3" />
-                  <div
-                    className="absolute inset-y-0 w-[2px] rounded-full bg-foreground/70"
-                    style={{ left: `${sessionProgress.actualProgressValue}%` }}
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x border-b border-primary/5">
+                  <div className="p-6">
+                    <p className="text-[10px] font-black uppercase text-muted-foreground mb-1 tracking-wider">Completion Rate</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-3xl font-black">{Math.round((sessionProgress.completedCount / sessionSlots.length) * 100)}%</p>
+                      <p className="text-xs font-medium text-muted-foreground">{sessionProgress.completedCount} seen</p>
+                    </div>
+                    <Progress value={(sessionProgress.completedCount / sessionSlots.length) * 100} className="h-1.5 mt-3" />
+                  </div>
+                  <div className="p-6">
+                    <p className="text-[10px] font-black uppercase text-muted-foreground mb-1 tracking-wider">Wait Time Analysis</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className={cn("text-3xl font-black", sessionProgress.delayMinutes > 0 ? "text-destructive" : "text-emerald-500")}>
+                        {sessionProgress.delayMinutes > 0 ? `+${sessionProgress.delayMinutes}` : sessionProgress.delayMinutes}m
+                      </p>
+                      <p className="text-xs font-medium text-muted-foreground">vs. expectation</p>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-3 font-medium flex items-center gap-1">
+                      <Info className="h-3 w-3" />
+                      Based on {selectedDoctor?.averageConsultingTime || 15}m avg
+                    </p>
+                  </div>
+                  <div className="p-6">
+                    <p className="text-[10px] font-black uppercase text-muted-foreground mb-1 tracking-wider">Load Distribution</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex-1 space-y-1">
+                        <div className="flex justify-between text-[9px] font-bold">
+                          <span>Advance</span>
+                          <span>{Math.round(capacityInfo.advancePercent)}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-sky-100 overflow-hidden">
+                          <div className="h-full bg-sky-500" style={{ width: `${Math.min(capacityInfo.advancePercent, 100)}%` }} />
+                        </div>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex justify-between text-[9px] font-bold">
+                          <span>Walk-in</span>
+                          <span>{Math.round(capacityInfo.walkInPercent)}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-emerald-100 overflow-hidden">
+                          <div className="h-full bg-emerald-500" style={{ width: `${Math.min(capacityInfo.walkInPercent, 100)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-6 bg-muted/5">
+                    <p className="text-[10px] font-black uppercase text-muted-foreground mb-1 tracking-wider">Queue Health</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant={sessionProgress.delayMinutes <= 15 ? "default" : "destructive"} className="px-2 py-1 font-black text-[10px]">
+                        {sessionProgress.delayMinutes <= 0 ? "EXCELLENT" : sessionProgress.delayMinutes <= 15 ? "GOOD" : "CONGESTED"}
+                      </Badge>
+                      <p className="text-[10px] font-medium text-muted-foreground leading-tight">
+                        {sessionProgress.delayMinutes <= 0 ? "Everything is running ahead or on time." : "Slight delays detected in patient movement."}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    Actual elapsed: {sessionProgress.actualElapsed} min
-                  </span>
-                  <span className={sessionProgress.delayMinutes > 0 ? "text-destructive" : "text-emerald-600"}>
-                    {sessionProgress.delayMinutes === 0
-                      ? "On schedule"
-                      : sessionProgress.delayMinutes > 0
-                        ? `Delayed by ${sessionProgress.delayMinutes} min`
-                        : `Ahead by ${Math.abs(sessionProgress.delayMinutes)} min`}
-                  </span>
+
+                <div className="p-6 bg-muted/10 space-y-4">
+                  <div className="flex items-center justify-between text-xs font-bold text-foreground/80">
+                    <span className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" />
+                      Session Elapsed Time
+                    </span>
+                    <span>{sessionProgress.actualElapsed} min / {sessionProgress.totalMinutes} min total</span>
+                  </div>
+                  <div className="relative h-4 w-full rounded-full bg-background overflow-hidden ring-1 ring-inset ring-muted-foreground/10 p-[2px]">
+                    <div
+                      className="h-full rounded-full bg-primary/20 transition-all duration-1000"
+                      style={{ width: `${sessionProgress.progressValue}%` }}
+                    />
+                    <div
+                      className="absolute inset-y-0 w-1 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)] z-10"
+                      style={{ left: `${sessionProgress.actualProgressValue}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground font-black italic uppercase">
+                    <span>Session Start</span>
+                    <span>Target Finish</span>
+                  </div>
                 </div>
               </div>
             )}

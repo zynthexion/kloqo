@@ -1347,7 +1347,7 @@ function BookAppointmentContent() {
                                                         </span>
                                                         {isPartiallyBooked && isActiveSubsession && (
                                                             <span className="text-xs text-gray-700 mt-1">
-                                                                {Math.min(subsession.slots.filter(s => s.status === 'available').length, remainingCapacity)} slots available
+                                                                {subsession.slots.filter(s => s.status === 'available').length} slots available
                                                             </span>
                                                         )}
                                                         {isFullyBooked && (

@@ -3,6 +3,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { parseTime } from '@/lib/utils';
 import type { Doctor } from '@/lib/types';
 import {
     DropdownMenu,
@@ -53,7 +54,29 @@ export default function ClinicHeader({
 }: ClinicHeaderProps) {
     const currentDoctor = doctors.find(d => d.id === selectedDoctor);
 
+
+
     const todayStr = format(currentTime, 'd MMMM yyyy');
+    const dayName = format(currentTime, 'EEEE');
+
+    // Check if we are within any active session (including extensions)
+    const availabilitySlot = currentDoctor?.availabilitySlots?.find(s => s.day === dayName);
+    const todayExtensions = currentDoctor?.availabilityExtensions?.[todayStr]?.sessions || [];
+
+    const isSessionActive = availabilitySlot?.timeSlots.some((slot, index) => {
+        try {
+            const start = parseTime(slot.from, currentTime);
+            // Check for extension
+            const extension = todayExtensions.find(e => e.sessionIndex === index);
+            const endTimeStr = extension?.newEndTime || slot.to;
+            const end = parseTime(endTimeStr, currentTime);
+
+            return currentTime >= start && currentTime <= end;
+        } catch (e) {
+            return false;
+        }
+    }) ?? false;
+
     const todayBreaks = currentDoctor?.breakPeriods?.[todayStr] || [];
     const activeBreak = todayBreaks.find(bp => {
         try {
@@ -73,8 +96,12 @@ export default function ClinicHeader({
         }
     });
 
+    // Only show toggle if:
+    // 1. We are currently IN a scheduled break time (activeBreak)
+    // 2. OR Status is OUT, a break had started, AND we are still within a session (prevents showing late at night)
+    // 3. OR Status is IN (can start break if in session)
     const showBreakToggle = isBreakMode
-        ? (!!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted))
+        ? (!!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted && isSessionActive) || (consultationStatus === 'In' && isSessionActive))
         : true;
 
     const utilityMenuItems = [

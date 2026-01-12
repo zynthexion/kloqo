@@ -264,10 +264,13 @@ function buildCandidateSlots(
   // We need blockedIndices to exclude them from reserve calculation
   const reservedWSlots = calculatePerSessionReservedSlots(slots, now, blockedIndices);
 
+  // Build a set of valid indices for faster lookup
+  const validIndices = new Set(slots.map(s => s.index));
+
   const addCandidate = (slotIndex: number) => {
     if (
       slotIndex >= 0 &&
-      slotIndex < slots.length &&
+      validIndices.has(slotIndex) && // CRITICAL FIX: Use presence in set, not length check
       !occupied.has(slotIndex) &&
       !candidates.includes(slotIndex)
     ) {
@@ -868,7 +871,18 @@ export async function generateNextTokenAndReserveSlot(
           const occupiedSlots = buildOccupiedSlotSet(effectiveAppointments);
           // Combine all blocked indices for accurate reservation calculation (Leave + Break)
           const allBlockedIndices = new Set([...blockedIndices, ...breakBlockedIndices]);
-          const candidates = buildCandidateSlots(type, slots, now, occupiedSlots, appointmentData.slotIndex, {
+
+          // CRITICAL: Resolve preferred slotIndex from time if it's missing or to ensure session consistency
+          let preferredSlotIndex = appointmentData.slotIndex;
+          if (appointmentData.time) {
+            const matchingSlot = slots.find(s => getClinicTimeString(s.time) === appointmentData.time);
+            if (matchingSlot) {
+              console.log(`[BOOKING DEBUG] Resolved slotIndex ${matchingSlot.index} from time ${appointmentData.time}`);
+              preferredSlotIndex = matchingSlot.index;
+            }
+          }
+
+          const candidates = buildCandidateSlots(type, slots, now, occupiedSlots, preferredSlotIndex, {
             appointments: effectiveAppointments,
           }, allBlockedIndices);
 

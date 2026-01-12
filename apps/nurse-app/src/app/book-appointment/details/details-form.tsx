@@ -167,30 +167,7 @@ function AppointmentDetailsFormContent() {
             const dayOfWeek = getClinicDayOfWeek(selectedSlot);
             const doctorAvailabilityForDay = doctor.availabilitySlots?.find(slot => slot.day === dayOfWeek);
 
-            let slotIndex = 0;
-            let sessionIndex = 0;
-            let absoluteSlotIndex = 0;
-            let found = false;
-
-            if (doctorAvailabilityForDay) {
-                for (let i = 0; i < doctorAvailabilityForDay.timeSlots.length; i++) {
-                    const session = doctorAvailabilityForDay.timeSlots[i];
-                    const sessionStart = parseTime(session.from, selectedSlot);
-                    const sessionEnd = parseTime(session.to, selectedSlot);
-
-                    if (selectedSlot >= sessionStart && selectedSlot < sessionEnd) {
-                        const diffMinutes = (selectedSlot.getTime() - sessionStart.getTime()) / 60000;
-                        slotIndex = Math.floor(diffMinutes / (doctor.averageConsultingTime || 15));
-                        sessionIndex = i;
-                        found = true;
-                        break;
-                    }
-                    const sessionDuration = (sessionEnd.getTime() - sessionStart.getTime()) / 60000;
-                    absoluteSlotIndex += Math.floor(sessionDuration / (doctor.averageConsultingTime || 15));
-                }
-            }
-
-            const finalSlotIndex = absoluteSlotIndex + slotIndex;
+            // Segmented indexing is now handled by the backend based on selectedSlot time.
             const appointmentTimeStr = getClinicTimeString(selectedSlot);
 
             const releaseReservation = async (reservationId?: string | null, delayMs: number = 0) => {
@@ -217,7 +194,7 @@ function AppointmentDetailsFormContent() {
                     'A',
                     {
                         time: appointmentTimeStr,
-                        slotIndex: finalSlotIndex,
+                        // slotIndex removed - let shared logic find correct segmented index from time
                         doctorId: doctor.id,
                     }
                 );

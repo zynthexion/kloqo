@@ -125,8 +125,11 @@ function BookingSummaryPage() {
                 let currentTime = parseTime(session.from, appointmentDate);
                 const sessionEnd = parseTime(session.to, appointmentDate);
 
+                // Segmented indexing: each session starts at its own namespace
+                let currentSlotIndex = sessionIdx * 1000;
+
                 while (isBefore(currentTime, sessionEnd)) {
-                    if (globalSlotIndex === targetSlotIndex) {
+                    if (currentSlotIndex === targetSlotIndex) {
                         return {
                             sessionIndex: sessionIdx,
                             slotDate: currentTime,
@@ -134,7 +137,7 @@ function BookingSummaryPage() {
                     }
 
                     currentTime = addMinutes(currentTime, slotDuration);
-                    globalSlotIndex++;
+                    currentSlotIndex++;
                 }
             }
 
@@ -669,7 +672,7 @@ function BookingSummaryPage() {
             const bookingRequestId = `booking-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const tokenRequestPayload = {
                 time: getClinicTimeString(finalSlotTime),
-                slotIndex,
+                // slotIndex removed - let backend resolve it from time for segmented indexing compatibility
                 doctorId: finalDoctor.id,
             } as const;
 

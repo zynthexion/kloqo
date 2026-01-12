@@ -8,8 +8,9 @@ import { format, isWithinInterval, addMinutes, parse, isAfter, isBefore } from '
 import { collection, getDocs, query, onSnapshot, doc, updateDoc, where, writeBatch, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, WifiOff, Repeat } from 'lucide-react';
+import { Search, WifiOff, Repeat, Coffee } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -414,8 +415,26 @@ export default function LiveDashboard() {
         return;
       }
 
-      // For queue computation, we'll use sessionIndex 0 for now (or compute per session)
-      const sessionIndex = 0; // Default to first session
+      // Get current session index based on time
+      const dayOfWeek = format(new Date(), 'EEEE');
+      const availabilityForDay = currentDoctor.availabilitySlots?.find(s => s.day === dayOfWeek);
+      let sessionIndex = 0;
+
+      if (availabilityForDay?.timeSlots) {
+        const now = new Date();
+        for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
+          const slot = availabilityForDay.timeSlots[i];
+          const start = parseTime(slot.from, now);
+          const end = parseTime(slot.to, now);
+          // If we are within the session or it's upcoming, use it
+          if (now <= end) {
+            sessionIndex = i;
+            break;
+          }
+          // If it's the last session, use it anyway if we are past it
+          sessionIndex = i;
+        }
+      }
 
       try {
         const queueState = await computeQueues(
@@ -527,14 +546,25 @@ export default function LiveDashboard() {
       {isOnline ? (
         <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">
           <div className="p-4 border-b space-y-4">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search patient..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 h-10 w-full focus-visible:ring-red-500"
-              />
+            <div className="flex items-center justify-between gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search patient..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 h-10 w-full focus-visible:ring-red-500"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => router.push(`/schedule-break?doctor=${selectedDoctor}`)}
+                className="h-10 w-10 shrink-0 border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
+                title="Schedule Break"
+              >
+                <Coffee className="h-5 w-5" />
+              </Button>
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>

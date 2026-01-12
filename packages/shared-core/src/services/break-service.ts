@@ -122,6 +122,7 @@ export async function shiftAppointmentsForNewBreak(
         let startSlotIndex = 0;
         let endSlotIndex = 0;
         let sessionStart: Date | null = null;
+        let slotIndexOffset = 0;
         let doctorData: any = null;
 
         if (!doctorSnap.empty) {
@@ -131,10 +132,43 @@ export async function shiftAppointmentsForNewBreak(
             if (availabilitySlot?.timeSlots?.[sessionIndex]) {
                 const sessionTime = availabilitySlot.timeSlots[sessionIndex];
                 sessionStart = parseTime(sessionTime.from, date);
+
+                // Calculate slotIndexOffset by summing slots in previous sessions
+                // This is crucial because slotIndex is absolute for the day, but our 
+                // break calculation is session-relative.
+                const extensions = doctorData.availabilityExtensions?.[getClinicDateString(date)]?.sessions || [];
+
+                for (let i = 0; i < sessionIndex; i++) {
+                    const prevSession = availabilitySlot.timeSlots[i];
+                    if (prevSession) {
+                        const psStart = parseTime(prevSession.from, date);
+                        let psEnd = parseTime(prevSession.to, date);
+
+                        // CRITICAL: Include extensions from previous sessions in the absolute offset
+                        // This matches how the Patient and Nurse apps calculate slotIndex
+                        const prevExt = extensions.find((s: any) => s.sessionIndex === i);
+                        if (prevExt && prevExt.totalExtendedBy > 0) {
+                            psEnd = addMinutes(psEnd, prevExt.totalExtendedBy);
+                        }
+
+                        const durationInMin = differenceInMinutes(psEnd, psStart);
+                        slotIndexOffset += Math.ceil(durationInMin / averageConsultingTime);
+                    }
+                }
+
                 const breakStartDiff = differenceInMinutes(breakStart, sessionStart);
-                startSlotIndex = Math.floor(breakStartDiff / averageConsultingTime);
                 const breakEndDiff = differenceInMinutes(breakEnd, sessionStart);
-                endSlotIndex = Math.ceil(breakEndDiff / averageConsultingTime) - 1;
+
+                startSlotIndex = Math.floor(breakStartDiff / averageConsultingTime) + slotIndexOffset;
+                endSlotIndex = Math.ceil(breakEndDiff / averageConsultingTime) - 1 + slotIndexOffset;
+
+                console.log('[BREAK SERVICE] Calculated indices for session', sessionIndex, {
+                    slotIndexOffset,
+                    startSlotIndex,
+                    endSlotIndex,
+                    breakStart: getClinicTimeString(breakStart),
+                    breakEnd: getClinicTimeString(breakEnd)
+                });
             }
         }
 
@@ -425,15 +459,11 @@ export async function shiftAppointmentsForNewBreak(
                 // The previous code block (Phase 1) declared `let sessionStart: Date | null = null;` at top level.
                 // So it should be available here if Phase 1 set it.
 
-                if (!sessionStart) {
-                    // Fallback if Analysis didn't find it (unlikely)
-                    // Estimate from breakStart? 
-                    // breakStart = sessionStart + startSlotIndex*15.
-                    // sessionStart = breakStart - startSlotIndex*15
-                    sessionStart = addMinutes(breakStart, -1 * startSlotIndex * averageConsultingTime);
-                }
-
-                const slotTime = addMinutes(sessionStart, i * averageConsultingTime);
+                // Correct slot time: sessionStart + (relative index * duration)
+                // Relative index = (absolute index i) - (stable offset of session start)
+                if (!sessionStart) continue;
+                const relativeIndex = i - slotIndexOffset;
+                const slotTime = addMinutes(sessionStart, relativeIndex * averageConsultingTime);
                 const dummyId = doc(collection(db, 'appointments')).id;
                 const dummyRef = doc(db, 'appointments', dummyId);
 

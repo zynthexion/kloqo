@@ -31,6 +31,9 @@ import type { Doctor, Appointment, Department, TimeSlot, BreakPeriod } from "@kl
 import {
   getCurrentActiveSession,
   getAvailableBreakSlots,
+  getClinicDateString,
+  getClinicTimeString,
+  parseTime,
   validateBreakSlots,
   mergeAdjacentBreaks,
   createBreakPeriod,
@@ -61,7 +64,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { cn, parseTime as parseTimeUtil, getDisplayTime } from "@/lib/utils";
+import { cn, getDisplayTime } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import PatientsVsAppointmentsChart from "@/components/dashboard/patients-vs-appointments-chart";
 import { DateRange } from "react-day-picker";
@@ -370,7 +373,7 @@ export default function DoctorsPage() {
     if (selectedDoctor && leaveCalDate) {
       const dateStr = format(leaveCalDate, "d MMMM yyyy");
       const appointmentsOnDate = appointments.filter(apt => apt.doctor === selectedDoctor.name && apt.date === dateStr);
-      const fetchedBookedSlots = appointmentsOnDate.map(d => parseTimeUtil(d.time, leaveCalDate).getTime());
+      const fetchedBookedSlots = appointmentsOnDate.map(d => parseTime(d.time, leaveCalDate).getTime());
       setAllBookedSlots(fetchedBookedSlots);
     }
   }, [selectedDoctor, leaveCalDate, appointments]);
@@ -830,9 +833,9 @@ export default function DoctorsPage() {
           // Use this session if it hasn't ended yet, or if it's the last session
           if (isAfter(sessionEnd, now) || i === availabilityForDay.timeSlots.length - 1) {
             const breaks = getSessionBreaks(selectedDoctor, leaveCalDate, i);
-            const dateKey = format(leaveCalDate, 'd MMMM yyyy');
+            const dateKey = getClinicDateString(leaveCalDate);
             const storedExtension = selectedDoctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-              s => s.sessionIndex === i
+              s => Number(s.sessionIndex) === i
             );
 
             let effectiveEnd: Date;
@@ -902,8 +905,8 @@ export default function DoctorsPage() {
     const consultationTime = selectedDoctor.averageConsultingTime || 15;
 
     doctorAvailabilityForDay.timeSlots.forEach(timeSlot => {
-      let currentTime = parseTimeUtil(timeSlot.from, leaveCalDate);
-      const endTime = parseTimeUtil(timeSlot.to, leaveCalDate);
+      let currentTime = parseTime(timeSlot.from, leaveCalDate);
+      const endTime = parseTime(timeSlot.to, leaveCalDate);
       while (currentTime < endTime) {
         slots.push(new Date(currentTime));
         currentTime = addMinutes(currentTime, consultationTime);
@@ -982,16 +985,16 @@ export default function DoctorsPage() {
     }
 
     const breakSession = availabilityForDay.timeSlots[breakSessionIndex];
-    const breakSessionStart = parseTimeUtil(breakSession.from, leaveCalDate);
-    const breakSessionEnd = parseTimeUtil(breakSession.to, leaveCalDate);
+    const breakSessionStart = parseTime(breakSession.from, leaveCalDate);
+    const breakSessionEnd = parseTime(breakSession.to, leaveCalDate);
 
     // Get breaks for this session
     const breaksForSession = getSessionBreaks(selectedDoctor, leaveCalDate, breakSessionIndex);
 
     // Get session extension info
-    const dateKey = format(leaveCalDate, 'd MMMM yyyy');
+    const dateKey = getClinicDateString(leaveCalDate);
     const storedExtension = selectedDoctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-      s => s.sessionIndex === breakSessionIndex
+      s => Number(s.sessionIndex) === breakSessionIndex
     );
 
 
@@ -1063,7 +1066,7 @@ export default function DoctorsPage() {
     let originalEnd = format(breakSessionEnd, 'hh:mm a');
 
     // Get appointments for this specific session
-    const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+    const dateStr = getClinicDateString(leaveCalDate);
     const appointmentsOnDate = appointments.filter(
       (apt) => apt.doctor === selectedDoctor.name &&
         apt.date === dateStr &&
@@ -1082,28 +1085,24 @@ export default function DoctorsPage() {
         }
       });
 
-      // Calculate which break slots have appointments
-      const startDate = parseISO(breakStartSlot.isoString);
-      const endDate = parseISO(breakEndSlot.isoString);
-      const breakDuration = differenceInMinutes(endDate, startDate) + slotDuration;
-
-      const breakStartSlotIndex = Math.floor(
-        differenceInMinutes(startDate, breakSessionStart) / slotDuration
-      );
-      const slotsInBreak = breakDuration / slotDuration;
+      // Calculate which break slots have appointments using TIME for session-independence
+      const breakStartTime = startDate.getTime();
+      const breakEndTime = addMinutes(startDate, breakDuration).getTime();
 
       // Count how many break slots have appointments (these need to be shifted)
-      for (let i = 0; i < slotsInBreak; i++) {
-        const slotIndex = breakStartSlotIndex + i;
-        if (occupiedSlots.has(slotIndex)) {
-          actualShiftAmount++;
+      for (const apt of appointmentsOnDate) {
+        if (apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
+          const apptTime = parseTime(apt.arriveByTime || apt.time, leaveCalDate).getTime();
+          if (apptTime >= breakStartTime && apptTime < breakEndTime) {
+            actualShiftAmount++;
+          }
         }
       }
 
       // Sort by arriveByTime (which already includes break offsets) to get the actual last appointment
       const sortedByArriveByTime = [...appointmentsOnDate].sort((a, b) => {
-        const timeA = parseTimeUtil(a.arriveByTime || a.time, leaveCalDate).getTime();
-        const timeB = parseTimeUtil(b.arriveByTime || b.time, leaveCalDate).getTime();
+        const timeA = parseTime(a.arriveByTime || a.time, leaveCalDate).getTime();
+        const timeB = parseTime(b.arriveByTime || b.time, leaveCalDate).getTime();
         return timeA - timeB;
       });
 
@@ -1112,8 +1111,8 @@ export default function DoctorsPage() {
 
       // Use arriveByTime (already includes existing break offsets) as the base
       const lastArriveByTime = lastAppointment.arriveByTime
-        ? parseTimeUtil(lastAppointment.arriveByTime, leaveCalDate)
-        : parseTimeUtil(lastAppointment.time, leaveCalDate);
+        ? parseTime(lastAppointment.arriveByTime, leaveCalDate)
+        : parseTime(lastAppointment.time, leaveCalDate);
 
       lastTokenBefore = format(lastArriveByTime, 'hh:mm a');
 
@@ -1124,12 +1123,22 @@ export default function DoctorsPage() {
       const lastAppointmentEnd = addMinutes(lastTimeAfterBreak, consultationTime);
       lastTokenAfter = format(lastTimeAfterBreak, 'hh:mm a');
 
-      const overrunMinutes = Math.max(0, differenceInMinutes(lastAppointmentEnd, breakSessionEffectiveEnd));
-      hasOverrun = overrunMinutes > 0;
-      minimalExtension = overrunMinutes;
+      // TOTAL extension needed relative to ORIGINAL end
+      const totalNeeded = Math.max(0, differenceInMinutes(lastAppointmentEnd, breakSessionEnd));
+      minimalExtension = totalNeeded;
+
+      // Overrun happens if it exceeds the CURRENT effective end
+      hasOverrun = lastAppointmentEnd.getTime() > breakSessionEffectiveEnd.getTime();
+
+      console.log('[BREAK DEBUG] Final decision:', {
+        hasOverrun,
+        minimalExtension,
+        breakSessionEffectiveEnd: format(breakSessionEffectiveEnd, 'hh:mm a'),
+        lastAppointmentEnd: format(lastAppointmentEnd, 'hh:mm a')
+      });
     }
 
-    const estimatedFinishTime = hasOverrun || lastTokenAfter ? format(addMinutes(parseTimeUtil(lastTokenAfter, leaveCalDate), selectedDoctor.averageConsultingTime || 15), 'hh:mm a') : '';
+    const estimatedFinishTime = hasOverrun || lastTokenAfter ? format(addMinutes(parseTime(lastTokenAfter, leaveCalDate), selectedDoctor.averageConsultingTime || 15), 'hh:mm a') : '';
     const breakDurationForDisplay = differenceInMinutes(parseISO(breakEndSlot.isoString), parseISO(breakStartSlot.isoString)) + slotDuration;
     const actualExtensionNeeded = actualShiftAmount * slotDuration; // Gap-aware extension
 
@@ -1166,7 +1175,7 @@ export default function DoctorsPage() {
       return;
     }
 
-    const { startSlot, endSlot, sessionIndex, sessionStart, sessionEnd, sessionEffectiveEnd } = pendingBreakData;
+    const { startSlot, endSlot, sessionIndex, sessionStart, sessionEnd } = pendingBreakData;
 
     if (sessionIndex === undefined || !sessionStart || !sessionEnd) {
       toast({
@@ -1197,8 +1206,6 @@ export default function DoctorsPage() {
           description: overlapValidation.error
         });
         setShowExtensionDialog(false);
-        // Do NOT clear pending data immediately if we want them to correct it? 
-        // But the current UI flow is modal-based. Fail safe:
         setPendingBreakData(null);
         setExtensionOptions(null);
         return;
@@ -1211,7 +1218,6 @@ export default function DoctorsPage() {
     setExtensionOptions(null);
 
     try {
-      // Convert range to array of slot ISO strings
       const startDate = parseISO(startSlot.isoString);
       const endDate = parseISO(endSlot.isoString);
       const slotDuration = selectedDoctor.averageConsultingTime || 15;
@@ -1223,104 +1229,66 @@ export default function DoctorsPage() {
         currentTime = addMinutes(currentTime, slotDuration);
       }
 
-      // Get existing breaks for this session
       const breaksForThisSession = getSessionBreaks(selectedDoctor, leaveCalDate, sessionIndex);
-
-      // Create new break period
-      const newBreak = createBreakPeriod(
-        selectedBreakSlots,
-        sessionIndex,
-        slotDuration
-      );
-
-      // Merge with existing breaks if adjacent
+      const newBreak = createBreakPeriod(selectedBreakSlots, sessionIndex, slotDuration);
       const allBreaks = [...breaksForThisSession, newBreak];
       const mergedBreaks = mergeAdjacentBreaks(allBreaks);
 
-      // Handle availability extension if user chose to extend
       const doctorRef = doc(db, 'doctors', selectedDoctor.id);
-      const dateKey = format(leaveCalDate, 'd MMMM yyyy');
+      const dateKey = getClinicDateString(leaveCalDate);
 
-      // Update breakPeriods - merge with breaks from other sessions
       const breakPeriods = { ...(selectedDoctor.breakPeriods || {}) };
       const allBreaksForDate = (breakPeriods[dateKey] || []).filter(
         (bp: BreakPeriod) => bp.sessionIndex !== sessionIndex
       );
-      breakPeriods[dateKey] = [...allBreaksForDate, ...mergedBreaks];
+      breakPeriods[dateKey] = [
+        ...allBreaksForDate,
+        ...mergedBreaks
+      ];
 
-      // Update availabilityExtensions (session-based)
       const availabilityExtensions = selectedDoctor.availabilityExtensions || {};
       if (!availabilityExtensions[dateKey]) {
         availabilityExtensions[dateKey] = { sessions: [] };
       }
 
       const sessionExtIndex = availabilityExtensions[dateKey].sessions.findIndex(
-        s => s.sessionIndex === sessionIndex
+        s => Number(s.sessionIndex) === sessionIndex
       );
 
-      if (extensionMinutes !== null && extensionMinutes > 0) {
-        // BUG FIX: Stack with existing extension
-        const existingTotalExtendedBy = (sessionExtIndex >= 0)
-          ? availabilityExtensions[dateKey].sessions[sessionExtIndex].totalExtendedBy
-          : 0;
+      const existingSessionExt = (sessionExtIndex >= 0)
+        ? availabilityExtensions[dateKey].sessions[sessionExtIndex]
+        : null;
 
-        const newTotalExtendedBy = existingTotalExtendedBy + extensionMinutes;
-        const newEndTimeDate = addMinutes(sessionEnd, newTotalExtendedBy);
-        const newEndTime = format(newEndTimeDate, 'hh:mm a');
+      const currentTotalExtendedBy = existingSessionExt ? (existingSessionExt.totalExtendedBy || 0) : 0;
 
-        const sessionExtension = {
-          sessionIndex: sessionIndex,
-          breaks: mergedBreaks,
-          totalExtendedBy: newTotalExtendedBy,
-          originalEndTime: format(sessionEnd, 'hh:mm a'),
-          newEndTime
-        };
-
-        if (sessionExtIndex >= 0) {
-          availabilityExtensions[dateKey].sessions[sessionExtIndex] = sessionExtension;
-        } else {
-          availabilityExtensions[dateKey].sessions.push(sessionExtension);
-        }
-      } else {
-        // If NO new extension requested, preserve existing extension values
-        const existingSessionExt = (sessionExtIndex >= 0)
-          ? availabilityExtensions[dateKey].sessions[sessionExtIndex]
-          : null;
-
-        const currentTotalExtendedBy = existingSessionExt ? existingSessionExt.totalExtendedBy : 0;
-        const currentNewEndTime = existingSessionExt ? existingSessionExt.newEndTime : format(sessionEnd, 'hh:mm a');
-
-        const sessionExtension = {
-          sessionIndex: sessionIndex,
-          breaks: mergedBreaks,
-          totalExtendedBy: currentTotalExtendedBy, // Preserve existing
-          originalEndTime: format(sessionEnd, 'hh:mm a'),
-          newEndTime: currentNewEndTime // Preserve existing
-        };
-
-        if (sessionExtIndex >= 0) {
-          availabilityExtensions[dateKey].sessions[sessionExtIndex] = sessionExtension;
-        } else {
-          availabilityExtensions[dateKey].sessions.push(sessionExtension);
-        }
+      let newTotalExtendedBy = currentTotalExtendedBy;
+      if (extensionMinutes !== null) {
+        newTotalExtendedBy = extensionMinutes;
       }
 
-      const allBreakSlots = mergedBreaks.flatMap(b => b.slots);
+      const newEndTimeDate = addMinutes(sessionEnd, newTotalExtendedBy);
+      const newEndTime = format(newEndTimeDate, 'hh:mm a');
+
+      const sessionExtension = {
+        sessionIndex: sessionIndex,
+        breaks: mergedBreaks,
+        totalExtendedBy: newTotalExtendedBy,
+        originalEndTime: format(sessionEnd, 'hh:mm a'),
+        newEndTime
+      };
+
+      if (sessionExtIndex >= 0) {
+        availabilityExtensions[dateKey].sessions[sessionExtIndex] = sessionExtension;
+      } else {
+        availabilityExtensions[dateKey].sessions.push(sessionExtension);
+      }
 
       await updateDoc(doctorRef, {
         breakPeriods,
         availabilityExtensions
       });
 
-      // Update affected appointments: add break duration to arriveByTime, cutOffTime, noShowTime
       try {
-        console.log(`[BREAK CONFIRM] About to call shiftAppointmentsForNewBreak`, {
-          newBreak,
-          sessionIndex,
-          leaveCalDate: format(leaveCalDate, 'd MMMM yyyy'),
-          doctorName: selectedDoctor.name,
-          clinicId: selectedDoctor.clinicId
-        });
         await shiftAppointmentsForNewBreak(
           db,
           newBreak,
@@ -1330,14 +1298,12 @@ export default function DoctorsPage() {
           selectedDoctor.clinicId,
           selectedDoctor.averageConsultingTime
         );
-        console.log(`[BREAK CONFIRM] shiftAppointmentsForNewBreak completed successfully`);
       } catch (error) {
         console.error(`[BREAK CONFIRM] Error in shiftAppointmentsForNewBreak:`, error);
-        // Don't throw - break was already saved, just log the error
         toast({
           variant: 'destructive',
           title: 'Break Added',
-          description: 'Break was added, but there was an error adjusting appointment times. Please check the console for details.'
+          description: 'Break was added, but there was an error adjusting appointment times.'
         });
       }
 
@@ -1350,22 +1316,17 @@ export default function DoctorsPage() {
         description: extensionMessage
       });
 
-      // Update local state
       const updatedDoctor = {
         ...selectedDoctor,
         breakPeriods,
         availabilityExtensions,
-
       };
       setSelectedDoctor(updatedDoctor);
       setDoctors(prev => prev.map(d => d.id === updatedDoctor.id ? updatedDoctor : d));
 
-      // Manually recalculate session to reflect stored extension
-      // Try to get the session we just updated, or fall back to active session
       const now = new Date();
       let recalculatedSession = getCurrentActiveSession(updatedDoctor, now, leaveCalDate);
       if (!recalculatedSession || recalculatedSession.sessionIndex !== sessionIndex) {
-        // If active session is different, manually construct session info for the one we updated
         const dayOfWeek = format(leaveCalDate, 'EEEE');
         const availabilityForDay = updatedDoctor.availabilitySlots?.find(s => s.day === dayOfWeek);
         if (availabilityForDay?.timeSlots[sessionIndex]) {
@@ -1373,9 +1334,9 @@ export default function DoctorsPage() {
           const sessionStart = parse(timeSlot.from, 'hh:mm a', leaveCalDate);
           const sessionEnd = parse(timeSlot.to, 'hh:mm a', leaveCalDate);
           const breaks = getSessionBreaks(updatedDoctor, leaveCalDate, sessionIndex);
-          const dateKey = format(leaveCalDate, 'd MMMM yyyy');
+          const dateKey = getClinicDateString(leaveCalDate);
           const storedExtension = updatedDoctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-            s => s.sessionIndex === sessionIndex
+            s => Number(s.sessionIndex) === sessionIndex
           );
           let effectiveEnd: Date;
           let totalBreakMinutes: number;
@@ -1454,7 +1415,7 @@ export default function DoctorsPage() {
 
     const originalEnd = currentSession.originalEnd;
     const currentExtensionDuration = differenceInMinutes(currentSession.effectiveEnd, originalEnd);
-    const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+    const dateStr = getClinicDateString(leaveCalDate);
 
     let maxExtensionNeeded = 0;
     let needed = false;
@@ -1469,7 +1430,7 @@ export default function DoctorsPage() {
 
       // Check if appointment ends after the ORIGINAL session end
       const apptTimeStr = appt.arriveByTime || appt.time;
-      const apptStart = parseTimeUtil(apptTimeStr, leaveCalDate);
+      const apptStart = parseTime(apptTimeStr, leaveCalDate);
       const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
 
       if (isAfter(apptEnd, originalEnd)) {
@@ -1515,7 +1476,7 @@ export default function DoctorsPage() {
       // --- FRESH DATA FETCH FOR EXTENSION CALCULATION ---
       let freshMaxExtensionNeeded = 0;
       try {
-        const dateStrQuery = format(leaveCalDate, 'd MMMM yyyy');
+        const dateStrQuery = getClinicDateString(leaveCalDate);
         console.log('[BREAK DEBUG CLINIC] Fetching fresh appts with params:', {
           doctor: selectedDoctor.name,
           clinicId: selectedDoctor.clinicId,
@@ -1558,7 +1519,7 @@ export default function DoctorsPage() {
             const apptTimeStr = apt.time || apt.arriveByTime;
             if (!apptTimeStr) return;
 
-            const apptStart = parseTimeUtil(apptTimeStr, leaveCalDate);
+            const apptStart = parseTime(apptTimeStr, leaveCalDate);
             const apptEnd = addMinutes(apptStart, selectedDoctor.averageConsultingTime || 15);
 
             console.log('[BREAK DEBUG CLINIC] Comparison:', {
@@ -1589,7 +1550,7 @@ export default function DoctorsPage() {
 
       if (shouldOpenSlots) {
         // Also delete slot-reservations for the cancelled appointments.
-        const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+        const dateStr = getClinicDateString(leaveCalDate);
         const breakStart = parseISO(breakToRemove.startTime);
         const breakEnd = parseISO(breakToRemove.endTime);
 
@@ -1609,7 +1570,7 @@ export default function DoctorsPage() {
 
         snap.docs.forEach((d: any) => {
           const data = d.data();
-          const apptTime = parseTimeUtil(data.arriveByTime || data.time, leaveCalDate);
+          const apptTime = parseTime(data.arriveByTime || data.time, leaveCalDate);
 
           if (apptTime >= breakStart && apptTime < breakEnd) {
             // Change status from 'Completed' to 'Cancelled' to make bookable
@@ -1642,7 +1603,7 @@ export default function DoctorsPage() {
 
       // Update Firestore
       const doctorRef = doc(db, 'doctors', selectedDoctor.id);
-      const dateKey = format(leaveCalDate, 'd MMMM yyyy');
+      const dateKey = getClinicDateString(leaveCalDate);
 
       // Update breakPeriods
       const breakPeriods = { ...(selectedDoctor.breakPeriods || {}) };
@@ -1656,7 +1617,7 @@ export default function DoctorsPage() {
       }
 
       // Recalculate availabilityExtensions for this session
-      const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+      const dateStr = getClinicDateString(leaveCalDate);
       const availabilityExtensions = { ...(selectedDoctor.availabilityExtensions || {}) };
 
       if (!availabilityExtensions[dateStr]) {
@@ -1667,7 +1628,7 @@ export default function DoctorsPage() {
       const totalBreakMinutes = remainingBreaks.reduce((sum, bp) => sum + bp.duration, 0);
 
       // Update the session extension entry
-      const existingSessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => s.sessionIndex === currentSession.sessionIndex);
+      const existingSessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => Number(s.sessionIndex) === currentSession.sessionIndex);
       const currentExt = existingSessionExtIndex >= 0 ? availabilityExtensions[dateStr].sessions[existingSessionExtIndex] : null;
       const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
 
@@ -1746,7 +1707,7 @@ export default function DoctorsPage() {
     setIsOpeningSlots(true);
     try {
       const batch = writeBatch(db);
-      const dateStr = format(leaveCalDate, 'd MMMM yyyy');
+      const dateStr = getClinicDateString(leaveCalDate);
 
       selectedBlockedSlots.forEach(apptId => {
         const appt = appointments.find(a => a.id === apptId);
@@ -1772,7 +1733,7 @@ export default function DoctorsPage() {
       });
 
       // Refresh data
-      const dateQueryStr = format(leaveCalDate, 'd MMMM yyyy');
+      const dateQueryStr = getClinicDateString(leaveCalDate);
       const appointmentsQuery = query(collection(db, "appointments"),
         where("doctor", "==", selectedDoctor.name),
         where("clinicId", "==", selectedDoctor.clinicId),
@@ -1805,8 +1766,8 @@ export default function DoctorsPage() {
     const now = new Date();
     for (let i = 0; i < todaysAvailability.timeSlots.length; i++) {
       const session = todaysAvailability.timeSlots[i];
-      const sessionStart = parseTimeUtil(session.from, now);
-      const sessionEnd = parseTimeUtil(session.to, now);
+      const sessionStart = parseTime(session.from, now);
+      const sessionEnd = parseTime(session.to, now);
       const windowStart = subMinutes(sessionStart, 30);
       if (now >= windowStart && now <= sessionEnd) {
         return i;
@@ -2599,7 +2560,7 @@ export default function DoctorsPage() {
                                         const filteredAppointments = appointments
                                           .filter(a => a.status === 'Completed' && a.doctor === selectedDoctor?.name)
                                           .filter(a => {
-                                            const apptTime = parseTimeUtil(a.time, leaveCalDate);
+                                            const apptTime = parseTime(a.time, leaveCalDate);
                                             // Filter out past slots if today
                                             if (isToday(leaveCalDate) && apptTime < new Date()) {
                                               return false;
@@ -2612,8 +2573,8 @@ export default function DoctorsPage() {
                                             return !coveredByBreak;
                                           })
                                           .sort((a, b) => {
-                                            const timeA = parseTimeUtil(a.time, leaveCalDate).getTime();
-                                            const timeB = parseTimeUtil(b.time, leaveCalDate).getTime();
+                                            const timeA = parseTime(a.time, leaveCalDate).getTime();
+                                            const timeB = parseTime(b.time, leaveCalDate).getTime();
                                             return timeA - timeB;
                                           });
 
@@ -2665,7 +2626,7 @@ export default function DoctorsPage() {
                                               <span className="font-semibold text-xs">{appt.time}</span>
                                               <span className="text-[10px] opacity-70">to</span>
                                               <span className="font-semibold text-xs">
-                                                {format(addMinutes(parseTimeUtil(appt.time, leaveCalDate), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}
+                                                {format(addMinutes(parseTime(appt.time, leaveCalDate), selectedDoctor?.averageConsultingTime || 15), 'hh:mm a')}
                                               </span>
                                               {appt.cancelledByBreak && (
                                                 <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded mt-1">Break Block</span>
@@ -2954,7 +2915,7 @@ export default function DoctorsPage() {
                       <ul className="list-disc list-inside space-y-1 text-sm">
                         <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
                         <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
-                        <li><strong>Actual extension needed:</strong> {extensionOptions.actualExtensionNeeded || extensionOptions.minimalExtension} minutes (gaps absorbed)</li>
+                        <li><strong>Actual extension needed:</strong> {extensionOptions.actualExtensionNeeded} minutes (gaps absorbed)</li>
                       </ul>
                       <p className="text-sm font-medium">Choose how to extend availability:</p>
                     </div>
@@ -2977,7 +2938,7 @@ export default function DoctorsPage() {
                 <AlertDialogCancel className="w-full justify-start h-auto py-3 whitespace-normal">Cancel</AlertDialogCancel>
                 <AlertDialogAction className="w-full justify-start h-auto py-3 whitespace-normal" onClick={() => {
                   if (!leaveCalDate || !extensionOptions) return;
-                  const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
+                  const originalEndDate = parseTime(extensionOptions.originalEnd, leaveCalDate);
                   const minimalEndDate = addMinutes(originalEndDate, extensionOptions.minimalExtension);
                   confirmBreakWithExtension(extensionOptions.minimalExtension);
                 }}>
@@ -2985,7 +2946,7 @@ export default function DoctorsPage() {
                     <span className="font-semibold">
                       Finish booked patients → Till {(() => {
                         if (!leaveCalDate || !extensionOptions) return '';
-                        const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
+                        const originalEndDate = parseTime(extensionOptions.originalEnd, leaveCalDate);
                         const minimalEndDate = addMinutes(originalEndDate, extensionOptions.minimalExtension);
                         return format(minimalEndDate, 'hh:mm a');
                       })()}
@@ -3001,7 +2962,7 @@ export default function DoctorsPage() {
                     <span className="font-semibold">
                       Fully compensate break → Till {(() => {
                         if (!leaveCalDate || !extensionOptions) return '';
-                        const originalEndDate = parseTimeUtil(extensionOptions.originalEnd, leaveCalDate);
+                        const originalEndDate = parseTime(extensionOptions.originalEnd, leaveCalDate);
                         const fullEndDate = addMinutes(originalEndDate, extensionOptions.fullExtension);
                         return format(fullEndDate, 'hh:mm a');
                       })()}

@@ -316,9 +316,13 @@ export function getCurrentActiveSession(
   const dayOfWeek = getClinicDayOfWeek(referenceDate);
   const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
-  if (!availabilityForDay || !availabilityForDay.timeSlots?.length) return null;
+  if (!availabilityForDay || !availabilityForDay.timeSlots?.length) {
+    console.log('[BreakHelpers] getCurrentActiveSession: No availability for day', dayOfWeek);
+    return null;
+  }
 
   const sessions = availabilityForDay.timeSlots;
+  console.log('[BreakHelpers] getCurrentActiveSession: Checking sessions', sessions.length);
 
   // Check each session to find active or next upcoming
   for (let i = 0; i < sessions.length; i++) {
@@ -381,7 +385,7 @@ export function getCurrentActiveSession(
       // Check for stored extension (respects user's choice to extend or not)
       const dateKey = getClinicDateString(referenceDate);
       const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-        (s: any) => s.sessionIndex === i
+        (s: any) => Number(s.sessionIndex) === i
       );
 
       let effectiveEnd: Date;
@@ -441,6 +445,10 @@ export function getAvailableBreakSlots(
   if (!doctor?.availabilitySlots?.length) return result;
 
   const currentSession = currentSessionOverride ?? getCurrentActiveSession(doctor, now, referenceDate);
+  console.log('[BreakHelpers] getAvailableBreakSlots: currentSession detection', {
+    index: currentSession?.sessionIndex,
+    isOverride: !!currentSessionOverride
+  });
   if (!currentSession) return result;
 
   const dayOfWeek = getClinicDayOfWeek(referenceDate);
@@ -567,7 +575,7 @@ export function getSessionEnd(
   const extensions = doctor.availabilityExtensions?.[dateKey];
 
   if (extensions?.sessions) {
-    const sessionExtension = extensions.sessions.find((s: any) => s.sessionIndex === sessionIndex);
+    const sessionExtension = extensions.sessions.find((s: any) => Number(s.sessionIndex) === sessionIndex);
     // Only extend if totalExtendedBy > 0 (user explicitly chose to extend)
     if (sessionExtension && sessionExtension.totalExtendedBy > 0 && sessionExtension.newEndTime) {
       try {

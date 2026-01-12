@@ -20,6 +20,7 @@ import { Calendar } from '@/components/ui/calendar';
 import {
     getCurrentActiveSession,
     getAvailableBreakSlots,
+    getClinicDateString,
     getSessionBreaks,
     calculateSessionExtension,
     createBreakPeriod,
@@ -130,9 +131,9 @@ function ScheduleBreakContent() {
 
                     if (isAfter(sessionEnd, now) || i === availabilityForDay.timeSlots.length - 1) {
                         const breaks = getSessionBreaks(doctor, selectedDate, i);
-                        const dateKey = format(selectedDate, 'd MMMM yyyy');
+                        const dateKey = getClinicDateString(selectedDate);
                         const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-                            s => s.sessionIndex === i
+                            s => Number(s.sessionIndex) === i
                         );
 
                         let effectiveEnd: Date;
@@ -166,13 +167,24 @@ function ScheduleBreakContent() {
         }
 
         if (session) {
+            console.log('[ScheduleBreak] Detected session:', {
+                sessionIndex: session.sessionIndex,
+                start: format(session.sessionStart, 'HH:mm'),
+                end: format(session.sessionEnd, 'HH:mm'),
+                effectiveEnd: format(session.effectiveEnd, 'HH:mm')
+            });
             setCurrentSession(session);
-            const breaks = getSessionBreaks(doctor, selectedDate, session.sessionIndex);
-            setExistingBreaks(breaks);
-            // Pass appointments to check for blocked slots (Completed/Pending/Confirmed)
+
+            // Fetch ALL breaks for the selected date to show in UI
+            const dateKey = format(selectedDate, 'd MMMM yyyy');
+            const allBreaks = doctor.breakPeriods?.[dateKey] || [];
+            console.log('[ScheduleBreak] All breaks for day:', allBreaks);
+            setExistingBreaks(allBreaks);
+
             const slots = getAvailableBreakSlots(doctor, now, selectedDate, session, appointments);
             setAvailableSlots(slots);
         } else {
+            console.log('[ScheduleBreak] No session detected');
             setCurrentSession(null);
             setExistingBreaks([]);
             setAvailableSlots(null);
@@ -599,6 +611,11 @@ function ScheduleBreakContent() {
 
 
     const handleSlotClick = (slotInfo: SlotInfo) => {
+        console.log('[ScheduleBreak] Slot clicked:', {
+            time: slotInfo.timeFormatted,
+            sessionIndex: slotInfo.sessionIndex,
+            isTaken: slotInfo.isTaken
+        });
         if (slotInfo.isTaken) return;
 
         const slotDate = parseISO(slotInfo.isoString);
@@ -623,6 +640,12 @@ function ScheduleBreakContent() {
     };
 
     const handleProceed = async () => {
+        console.log('[ScheduleBreak] handleProceed called', {
+            breakStart: breakStartSlot?.timeFormatted,
+            breakEnd: breakEndSlot?.timeFormatted,
+            startSessionIndex: breakStartSlot?.sessionIndex,
+            endSessionIndex: breakEndSlot?.sessionIndex
+        });
         if (!doctor || !clinicId || !breakStartSlot || !breakEndSlot) {
             toast({ variant: 'destructive', title: 'Invalid Selection', description: 'Please select a valid start and end time for the break.' });
             return;
@@ -642,9 +665,9 @@ function ScheduleBreakContent() {
         const breakSessionEnd = parseTime(breakSession.to, selectedDate);
 
         const breaksForSession = getSessionBreaks(doctor, selectedDate, breakSessionIndex);
-        const dateKey = format(selectedDate, 'd MMMM yyyy');
+        const dateKey = getClinicDateString(selectedDate);
         const storedExtension = doctor.availabilityExtensions?.[dateKey]?.sessions?.find(
-            s => s.sessionIndex === breakSessionIndex
+            s => Number(s.sessionIndex) === breakSessionIndex
         );
 
         const slotDuration = doctor.averageConsultingTime || 15;
@@ -692,8 +715,10 @@ function ScheduleBreakContent() {
             return;
         }
 
+        const existingTotalExtendedBy = (storedExtension && isExtensionValid) ? (storedExtension.totalExtendedBy || 0) : 0;
+
         let hasOverrun = false;
-        let minimalExtension = 0;
+        let minimalTotalExtension = existingTotalExtendedBy;
         let lastTokenBefore = '';
         let lastTokenAfter = '';
         const originalEnd = format(breakSessionEnd, 'hh:mm a');
@@ -703,35 +728,37 @@ function ScheduleBreakContent() {
             (apt) => apt.doctor === doctor.name &&
                 apt.date === dateStr &&
                 apt.sessionIndex === breakSessionIndex &&
-                !(apt.cancelledByBreak === true && apt.status === 'Cancelled') // Exclude cancelled break blocks
+                !(apt.cancelledByBreak === true && apt.status === 'Cancelled')
         );
 
-
-        // Calculate the ACTUAL shift amount using gap absorption logic
-        let actualShiftAmount = 0;
+        let actualExtensionAddedByThisBreak = 0;
 
         if (appointmentsOnDate.length > 0) {
-            // Build a map of occupied slots
-            const occupiedSlots = new Set<number>();
+            console.log('[ScheduleBreak] appointmentsOnDate:', appointmentsOnDate.map(a => ({ id: a.id, slot: a.slotIndex, time: a.arriveByTime || a.time })));
+
+            // Calculate which break slots have appointments using TIME for session-independence
+            const breakStartTime = startDate.getTime();
+            const breakEndTime = addMinutes(startDate, breakDuration).getTime();
+
+            // Count how many break slots have appointments (these need to be shifted)
+            let shiftedCount = 0;
             appointmentsOnDate.forEach(apt => {
-                if (typeof apt.slotIndex === 'number' && apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
-                    occupiedSlots.add(apt.slotIndex);
+                if (apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
+                    const apptTime = parseTime(apt.arriveByTime || apt.time, selectedDate).getTime();
+                    if (apptTime >= breakStartTime && apptTime < breakEndTime) {
+                        shiftedCount++;
+                    }
                 }
             });
 
-            // Calculate which break slots have appointments
-            const breakStartSlotIndex = Math.floor(
-                differenceInMinutes(startDate, breakSessionStart) / slotDuration
-            );
-            const slotsInBreak = breakDuration / slotDuration;
+            console.log('[ScheduleBreak] Shift calc:', {
+                breakStartTime: format(breakStartTime, 'hh:mm a'),
+                breakEndTime: format(breakEndTime, 'hh:mm a'),
+                shiftedCount
+            });
 
-            // Count how many break slots have appointments (these need to be shifted)
-            for (let i = 0; i < slotsInBreak; i++) {
-                const slotIndex = breakStartSlotIndex + i;
-                if (occupiedSlots.has(slotIndex)) {
-                    actualShiftAmount++;
-                }
-            }
+            actualExtensionAddedByThisBreak = shiftedCount * slotDuration;
+            console.log('[ScheduleBreak] actualExtensionAddedByThisBreak:', actualExtensionAddedByThisBreak);
 
             const sortedByArriveByTime = [...appointmentsOnDate].sort((a, b) => {
                 const timeA = parseTime(a.arriveByTime || a.time || '', selectedDate).getTime();
@@ -741,28 +768,37 @@ function ScheduleBreakContent() {
 
             const lastAppointment = sortedByArriveByTime[sortedByArriveByTime.length - 1];
             const consultationTime = doctor.averageConsultingTime || 15;
-
             const lastArriveByTime = parseTime(lastAppointment.arriveByTime || lastAppointment.time, selectedDate);
             lastTokenBefore = format(lastArriveByTime, 'hh:mm a');
 
-            // After applying the NEW break, the last appointment shifts by ACTUAL shift amount (not full break duration)
-            const actualShiftMinutes = actualShiftAmount * slotDuration;
-            const lastTimeAfterBreak = addMinutes(lastArriveByTime, actualShiftMinutes);
+            // Predicated shift
+            const lastTimeAfterBreak = addMinutes(lastArriveByTime, actualExtensionAddedByThisBreak);
             const lastAppointmentEnd = addMinutes(lastTimeAfterBreak, consultationTime);
             lastTokenAfter = format(lastTimeAfterBreak, 'hh:mm a');
 
-            const overrunMinutes = Math.max(0, differenceInMinutes(lastAppointmentEnd, breakSessionEffectiveEnd));
-            hasOverrun = overrunMinutes > 0;
-            minimalExtension = overrunMinutes;
-        }
+            console.log('[ScheduleBreak] Last appt shift:', {
+                lastTokenBefore,
+                lastTokenAfter,
+                lastAppointmentEnd: format(lastAppointmentEnd, 'hh:mm a'),
+                breakSessionEnd: format(breakSessionEnd, 'hh:mm a'),
+                breakSessionEffectiveEnd: format(breakSessionEffectiveEnd, 'hh:mm a')
+            });
 
-        const actualExtensionNeeded = actualShiftAmount * slotDuration;
+            // TOTAL extension needed relative to ORIGINAL end
+            const totalNeeded = Math.max(0, differenceInMinutes(lastAppointmentEnd, breakSessionEnd));
+            minimalTotalExtension = totalNeeded;
+
+            // Overrun happens if it exceeds the CURRENT effective end
+            hasOverrun = lastAppointmentEnd.getTime() > breakSessionEffectiveEnd.getTime();
+
+            console.log('[ScheduleBreak] Final decision:', { hasOverrun, minimalTotalExtension, existingTotalExtendedBy });
+        }
 
         setExtensionOptions({
             hasOverrun,
-            minimalExtension,
-            fullExtension: breakDuration,
-            actualExtensionNeeded,
+            minimalExtension: minimalTotalExtension, // This is now TOTAL
+            fullExtension: existingTotalExtendedBy + breakDuration, // This is now TOTAL
+            actualExtensionNeeded: actualExtensionAddedByThisBreak, // This is the delta for THIS break
             lastTokenBefore,
             lastTokenAfter,
             originalEnd,
@@ -847,7 +883,7 @@ function ScheduleBreakContent() {
             const allBreaks = [...breaksForThisSession, newBreak];
             const mergedBreaks = mergeAdjacentBreaks(allBreaks);
 
-            const dateStr = format(selectedDate, 'd MMMM yyyy');
+            const dateStr = getClinicDateString(selectedDate);
             const breakDuration = differenceInMinutes(endDate, startDate) + slotDuration;
 
             const doctorRef = doc(db, 'doctors', doctor.id);
@@ -860,15 +896,11 @@ function ScheduleBreakContent() {
                 availabilityExtensions[dateStr] = { sessions: [] as any };
             }
 
-            const sessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => s.sessionIndex === sessionIndex);
+            const sessionExtIndex = availabilityExtensions[dateStr].sessions.findIndex((s: any) => Number(s.sessionIndex) === sessionIndex);
 
-            if (extensionMinutes !== null && extensionMinutes > 0) {
-                // BUG FIX: Stack with existing extension
-                const existingTotalExtendedBy = (sessionExtIndex >= 0)
-                    ? availabilityExtensions[dateStr].sessions[sessionExtIndex].totalExtendedBy
-                    : 0;
-
-                const newTotalExtendedBy = existingTotalExtendedBy + extensionMinutes;
+            if (extensionMinutes !== null) {
+                // extensionMinutes is now the TOTAL new totalExtendedBy
+                const newTotalExtendedBy = extensionMinutes;
                 const newEndTimeDate = addMinutes(sessionEnd, newTotalExtendedBy);
                 const newEndTime = format(newEndTimeDate, 'hh:mm a');
 
@@ -886,14 +918,7 @@ function ScheduleBreakContent() {
                     availabilityExtensions[dateStr].sessions.push(sessionExtension);
                 }
             } else {
-                // If NO new extension requested, we still need to preserve existing extension if present?
-                // The user might be adding a break provided it fits without extension.
-                // But wait, if they say "Don't Extend" (extensionMinutes=0 or null), 
-                // do we keep the OLD extension?
-                // Logic: If extensionMinutes is 0, we are just adding a break.
-                // We should PRESERVE the existing extension info (breaks, totalExtendedBy, endTimes).
-                // BUT we need to update the 'breaks' list to 'mergedBreaks'.
-
+                // Preserve current
                 const existingSessionExt = (sessionExtIndex >= 0)
                     ? availabilityExtensions[dateStr].sessions[sessionExtIndex]
                     : null;
@@ -1183,85 +1208,60 @@ function ScheduleBreakContent() {
                             <section>
                                 <h2 className="text-lg font-semibold mb-4">Select Break Range for {format(selectedDate, 'MMMM d')}</h2>
 
-                                {/* Display existing breaks for current session */}
-                                {currentSession && existingBreaks.length > 0 && (
-                                    <div className="mb-4 p-4 border rounded-md bg-muted/50">
-                                        <h4 className="font-semibold mb-2 flex items-center gap-2">
-                                            <Clock className="w-4 h-4" />
-                                            Current Breaks in Session {currentSession.sessionIndex + 1}
-                                            ({format(currentSession.sessionStart, 'hh:mm a')} - {format(currentSession.originalEnd, 'hh:mm a')})
-                                        </h4>
+                                {existingBreaks.length > 0 && (
+                                    <div className="mb-6 space-y-4">
+                                        <h3 className="font-semibold text-lg flex items-center gap-2">
+                                            <Clock className="w-5 h-5 text-destructive" />
+                                            Scheduled Breaks for {format(selectedDate, 'MMMM d')}
+                                        </h3>
 
-                                        <div className="space-y-2">
-                                            {existingBreaks
-                                                .filter(bp => {
-                                                    if (!isToday(selectedDate)) return true;
-                                                    const breakEndTimes = bp.slots.map(s => parseISO(s).getTime());
-                                                    const lastSlotEnd = addMinutes(new Date(Math.max(...breakEndTimes)), doctor.averageConsultingTime || 15);
-                                                    return isAfter(lastSlotEnd, new Date());
-                                                })
-                                                .map((breakPeriod, index) => (
-                                                    <div
-                                                        key={breakPeriod.id}
-                                                        className="flex items-center justify-between p-2 bg-background border rounded"
-                                                    >
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-medium">Break {index + 1}:</span>
-                                                            <span className="text-sm">
-                                                                {breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}
-                                                            </span>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                ({breakPeriod.duration} min)
-                                                            </span>
-                                                        </div>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => handleCancelBreak(breakPeriod.id)}
-                                                            disabled={isSubmitting}
-                                                        >
-                                                            <X className="w-4 h-4 mr-1" />
-                                                            Cancel
-                                                        </Button>
+                                        {Array.from(new Set(existingBreaks.map(b => b.sessionIndex))).sort((a, b) => a - b).map(sIdx => {
+                                            const breaksInSession = existingBreaks.filter(b => b.sessionIndex === sIdx);
+                                            const totalMinutes = breaksInSession.reduce((sum, b) => sum + b.duration, 0);
+
+                                            // Get session times if available
+                                            const dayOfWeek = format(selectedDate, 'EEEE');
+                                            const sessionInfo = doctor.availabilitySlots?.find(s => s.day === dayOfWeek)?.timeSlots?.[sIdx];
+
+                                            return (
+                                                <div key={sIdx} className="p-4 border rounded-xl bg-muted/30 border-slate-200">
+                                                    <h4 className="font-medium mb-3 flex items-center justify-between">
+                                                        <span>Session {sIdx + 1} {sessionInfo && <span className="text-sm font-normal text-slate-500">({sessionInfo.from} - {sessionInfo.to})</span>}</span>
+                                                        <span className="text-sm font-normal text-muted-foreground">{totalMinutes} min total</span>
+                                                    </h4>
+                                                    <div className="space-y-2">
+                                                        {breaksInSession.map((breakPeriod, index) => (
+                                                            <div key={breakPeriod.id} className="flex items-center justify-between p-2 bg-background border rounded">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-medium">Break {index + 1}:</span>
+                                                                    <span className="text-sm">{breakPeriod.startTimeFormatted} - {breakPeriod.endTimeFormatted}</span>
+                                                                    <span className="text-xs text-muted-foreground">({breakPeriod.duration} min)</span>
+                                                                </div>
+                                                                <Button variant="ghost" size="sm" onClick={() => handleCancelBreak(breakPeriod.id)} disabled={isSubmitting}>
+                                                                    <X className="w-4 h-4 mr-1" />
+                                                                    Cancel
+                                                                </Button>
+                                                            </div>
+                                                        ))}
                                                     </div>
-                                                ))}
-                                        </div>
-
-                                        <div className="mt-3 pt-3 border-t text-sm">
-                                            <div className="flex justify-between">
-                                                <span className="text-muted-foreground">Total break time:</span>
-                                                <span className="font-medium">{currentSession.totalBreakMinutes} minutes</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-muted-foreground">
-                                                    {currentSession.effectiveEnd.getTime() === currentSession.originalEnd.getTime()
-                                                        ? 'Session ends at:'
-                                                        : 'Session extended to:'}
-                                                </span>
-                                                <span className="font-medium">{format(currentSession.effectiveEnd, 'hh:mm a')}</span>
-                                            </div>
-                                        </div>
-
-                                        {existingBreaks.length >= 3 && (
-                                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                                                Maximum 3 breaks per session reached. Cancel a break to add a new one.
-                                            </div>
-                                        )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
 
-                                {availableSlots ? (
+                                {availableSlots && (
                                     Array.from([
                                         { label: 'Current Session', slots: availableSlots.currentSessionSlots },
                                         ...Array.from(availableSlots.upcomingSessionSlots.entries()).map(([idx, slots]) => ({
                                             label: `Session ${idx + 1}`,
                                             slots,
                                         })),
-                                    ]).map((group, groupIdx) => (
+                                    ]).map((group: { label: string; slots: SlotInfo[] }, groupIdx: number) => (
                                         <div key={`${group.label}-${groupIdx}`} className="mb-4">
                                             <p className="text-sm font-semibold mb-2">{group.label}</p>
-                                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                                                {group.slots.map((slot) => {
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                                                {group.slots.map((slot: SlotInfo) => {
                                                     const isSelected =
                                                         (breakStartSlot && breakEndSlot &&
                                                             parseISO(slot.isoString) >= parseISO(breakStartSlot.isoString) &&
@@ -1291,35 +1291,33 @@ function ScheduleBreakContent() {
                                             </div>
                                         </div>
                                     ))
-                                ) : (
+                                )}
+                                {!availableSlots && (
                                     <p className="text-center text-muted-foreground mt-4">No available sessions for this date.</p>
                                 )}
                             </section>
 
-                            <div className="text-center mb-2 text-sm text-muted-foreground">
-                                {dailyLeaveSlots.length > 0 && breakStart && breakEnd ? (
-                                    `Break from ${format(breakStart, 'hh:mm a')} to ${format(addMinutes(breakEnd, (doctor.averageConsultingTime || 15) - 1), 'hh:mm a')}`
-                                ) : breakStartSlot && !(breakEndSlot) ? (
+                            <div className="text-center mb-4 mt-6 text-sm text-muted-foreground">
+                                {breakStartSlot && !(breakEndSlot) ? (
                                     "Select an end time for the break."
                                 ) : (breakStartSlot && breakEndSlot) ? (
-                                    `New break: ${format(breakStartSlot.time, 'hh:mm a')} to ${format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}`
+                                    <div className="p-3 bg-amber-50 rounded-lg border border-amber-100 text-amber-900 inline-block px-6">
+                                        <span className="font-medium">New break: </span>
+                                        {format(breakStartSlot.time, 'hh:mm a')} to {format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}
+                                    </div>
                                 ) : (
                                     "Select a start and end time for the break."
                                 )}
                             </div>
 
-                            {existingBreaks.length >= 3 ? (
-                                <Button className="w-full" variant="outline" disabled>
-                                    Maximum 3 breaks per session
-                                </Button>
-                            ) : (
+                            {breakStartSlot && breakEndSlot && (
                                 <Button
-                                    className="w-full"
+                                    className="w-full h-12 text-lg font-semibold shadow-lg transition-all duration-300 active:scale-[0.98]"
                                     variant="destructive"
-                                    disabled={!breakStartSlot || !breakEndSlot || isSubmitting}
+                                    disabled={isSubmitting}
                                     onClick={handleProceed}
                                 >
-                                    {isSubmitting ? <Loader2 className="animate-spin" /> : existingBreaks.length > 0 ? 'Add Another Break' : 'Add Break'}
+                                    {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : 'Confirm Selection'}
                                 </Button>
                             )}
                         </TabsContent>
@@ -1532,27 +1530,29 @@ function ScheduleBreakContent() {
                     <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle>Extend availability due to break?</AlertDialogTitle>
-                            <AlertDialogDescription className="space-y-2">
-                                {extensionOptions ? (
-                                    extensionOptions.hasOverrun ? (
-                                        // Bad scenario: tokens outside availability
-                                        <div className="space-y-3">
-                                            <ul className="list-disc list-inside space-y-1 text-sm">
-                                                <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
-                                                <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
-                                                <li><strong>Actual extension needed:</strong> {extensionOptions.actualExtensionNeeded || extensionOptions.minimalExtension} minutes (gaps absorbed)</li>
-                                            </ul>
-                                            <p className="text-sm font-medium">Choose how to extend availability:</p>
-                                        </div>
+                            <AlertDialogDescription asChild>
+                                <div className="space-y-2">
+                                    {extensionOptions ? (
+                                        extensionOptions.hasOverrun ? (
+                                            // Bad scenario: tokens outside availability
+                                            <div className="space-y-3">
+                                                <ul className="list-disc list-inside space-y-1 text-sm">
+                                                    <li><strong>Original availability ends at:</strong> {extensionOptions.originalEnd}</li>
+                                                    <li><strong>Break taken:</strong> {extensionOptions.breakDuration} minutes</li>
+                                                    <li><strong>Actual extension needed:</strong> {extensionOptions.actualExtensionNeeded} minutes (gaps absorbed)</li>
+                                                </ul>
+                                                <p className="text-sm font-medium">Choose how to extend availability:</p>
+                                            </div>
+                                        ) : (
+                                            // Safe scenario: all tokens within availability
+                                            <div className="space-y-2">
+                                                <p>A {extensionOptions.breakDuration}-minute break only needs {extensionOptions.actualExtensionNeeded || 0}-minute extension (gaps absorbed{extensionOptions.actualExtensionNeeded === 0 ? ' - no extension needed' : ''}). Do you still want to extend availability?</p>
+                                            </div>
+                                        )
                                     ) : (
-                                        // Safe scenario: all tokens within availability
-                                        <div className="space-y-2">
-                                            <p>A {extensionOptions.breakDuration}-minute break only needs {extensionOptions.actualExtensionNeeded || 0}-minute extension (gaps absorbed{extensionOptions.actualExtensionNeeded === 0 ? ' - no extension needed' : ''}). Do you still want to extend availability?</p>
-                                        </div>
-                                    )
-                                ) : (
-                                    <p>Do you want to extend the availability time to compensate for the break duration?</p>
-                                )}
+                                        <p>Do you want to extend the availability time to compensate for the break duration?</p>
+                                    )}
+                                </div>
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter className="mt-4 flex flex-col space-y-2 sm:flex-col sm:space-x-0">

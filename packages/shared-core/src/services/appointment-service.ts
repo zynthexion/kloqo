@@ -302,8 +302,8 @@ function buildCandidateSlots(
 
       }
 
-      // CRITICAL: If preferred slot is not available, only look for alternatives within the SAME session
-      // This ensures bookings stay within the same sessionIndex and don't cross session boundaries
+      // CRITICAL: If preferred slot is not available, first look for alternatives within the SAME session
+      // This ensures bookings stay within the same sessionIndex when possible
       if (candidates.length === 0 && typeof preferredSessionIndex === 'number') {
         slots.forEach(slot => {
           // Only consider slots in the same session as the preferred slot
@@ -315,6 +315,21 @@ function buildCandidateSlots(
             addCandidate(slot.index);
           }
         });
+
+        // CRITICAL FIX: If no slots found in preferred session, fall back to searching ALL sessions
+        // This prevents booking failures when the calculated session is full but other sessions have availability
+        // Common scenario: Nurse app calculates slotIndex in session 0, but all session 0 slots are reserved/occupied
+        if (candidates.length === 0) {
+          slots.forEach(slot => {
+            // Search across all sessions for any available slot
+            if (
+              isAfter(slot.time, oneHourFromNow) &&
+              !reservedWSlots.has(slot.index)
+            ) {
+              addCandidate(slot.index);
+            }
+          });
+        }
       }
     } else {
       // No preferred slot - look across all sessions

@@ -1619,6 +1619,8 @@ export default function AppointmentsPage() {
 
           // Generate token and reserve slot atomically (for both new and rescheduled appointments)
           // For rescheduling, regenerate token using same logic as new appointment
+          // CRITICAL FIX: Don't pass slotIndex - let shared logic find best available slot across all sessions
+          // This prevents booking failures when the calculated session is full but other sessions have availability
           let tokenData: {
             tokenNumber: string;
             numericToken: number;
@@ -1636,7 +1638,7 @@ export default function AppointmentsPage() {
               'A',
               {
                 time: appointmentTimeStr,
-                slotIndex,
+                // slotIndex removed - let shared logic find best available slot
                 doctorId: selectedDoctor.id,
                 existingAppointmentId: oldAppointmentId || undefined,
               }
@@ -1729,7 +1731,7 @@ export default function AppointmentsPage() {
           let inheritedDelay = 0;
           try {
             const appointmentTime = actualAppointmentTime;
-            cutOffTime = reportingTime;
+            cutOffTime = subMinutes(appointmentTime, 15);
 
             // Inherit delay from previous appointment (if any)
             // Find the appointment with the highest slotIndex that is less than actualSlotIndex

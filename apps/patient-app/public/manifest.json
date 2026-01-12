@@ -15,6 +15,13 @@
   "orientation": "any",
   "dir": "auto",
   "lang": "en-US",
+  "capture_links": "existing-app-window",
+  "protocol_handlers": [
+    {
+      "protocol": "web+kloqo",
+      "url": "/?source=%s"
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon-192x192.png",

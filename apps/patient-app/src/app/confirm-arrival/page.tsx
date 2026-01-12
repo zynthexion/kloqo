@@ -455,7 +455,7 @@ function ConfirmArrivalPage() {
 
   // Get skipped appointments
   const skippedAppointments = useMemo(() => {
-    return appointments.filter(apt => apt.status === 'Skipped')
+    return appointments.filter(apt => apt.status === 'Skipped' || apt.status === 'No-show')
       .sort(compareAppointments);
   }, [appointments]);
 
@@ -481,9 +481,9 @@ function ConfirmArrivalPage() {
   // For Pending: check cutOffTime within next 2 hours
   // For Skipped: always allow (no time restriction)
   const hasAppointmentInNext2Hours = useMemo(() => {
-    // Filter to only Pending and Skipped appointments
+    // Filter to only Pending, Skipped and No-show appointments
     const pendingOrSkipped = appointments.filter(apt =>
-      apt.status === 'Pending' || apt.status === 'Skipped'
+      apt.status === 'Pending' || apt.status === 'Skipped' || apt.status === 'No-show'
     );
 
     if (!pendingOrSkipped.length) return false;
@@ -539,7 +539,7 @@ function ConfirmArrivalPage() {
     // Wait for appointments to load before checking
     // onSnapshot fires immediately, so we need to check after appointments are loaded
     const pendingOrSkipped = appointments.filter(apt =>
-      apt.status === 'Pending' || apt.status === 'Skipped'
+      apt.status === 'Pending' || apt.status === 'Skipped' || apt.status === 'No-show'
     );
 
     // If we have appointments loaded but no Pending/Skipped appointments at all, redirect
@@ -629,8 +629,8 @@ function ConfirmArrivalPage() {
             description: 'You must confirm before 15 minutes of your appointment time. Your appointment has been skipped.',
           });
         }
-      } else if (appointment.status === 'Skipped') {
-        // For Skipped appointments, rejoin queue using deterministic logic
+      } else if (appointment.status === 'Skipped' || appointment.status === 'No-show') {
+        // For Skipped/No-show appointments, rejoin queue using deterministic logic
         if (!appointment.noShowTime) {
           throw new Error('Appointment missing noShowTime. Cannot rejoin automatically.');
         }
@@ -1034,7 +1034,7 @@ function ConfirmArrivalPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             {!isExpanded && (
-                              <Badge variant="destructive">Skipped</Badge>
+                              <Badge variant="destructive">{appointment.status}</Badge>
                             )}
                             {isExpanded ? (
                               <ChevronUp className="h-5 w-5 text-muted-foreground" />
@@ -1046,7 +1046,7 @@ function ConfirmArrivalPage() {
                         {isExpanded && (
                           <>
                             <div className="flex items-center justify-end">
-                              <Badge variant="destructive">Skipped</Badge>
+                              <Badge variant="destructive">{appointment.status}</Badge>
                             </div>
                             {canUpdateLate && (
                               <div className="space-y-2">

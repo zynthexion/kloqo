@@ -21,12 +21,12 @@ import nextDynamic from 'next/dynamic';
 import type { Doctor } from '@/lib/types';
 import { useFirestore } from '@/firebase';
 import { AuthGuard } from '@/components/auth-guard';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 // Lazy load QR scanner - only load when needed (mobile optimization)
 const loadQRScanner = () => import('html5-qrcode').then(module => module.Html5Qrcode);
 import { format, addMinutes, isBefore, isAfter, subMinutes, isWithinInterval, set } from 'date-fns';
 import { parseTime } from '@/lib/utils';
-import { getSessionEnd, getClinicNow, getClinicDayOfWeek } from '@kloqo/shared-core';
+import { getSessionEnd, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
 import { BottomNav } from '@/components/bottom-nav';
 import { FullScreenLoader } from '@/components/full-screen-loader';
 
@@ -250,6 +250,51 @@ function ConsultTodayContent() {
             }
         }
     }, [doctorId, doctors, selectedDoctor]);
+
+    // Check for existing appointments and redirect to confirm-arrival if found
+    useEffect(() => {
+        const checkExistingAppointments = async () => {
+            if (!clinicId || !firestore || !user?.patientId || permissionGranted) return;
+
+            try {
+                const today = getClinicDateString(getClinicNow());
+
+                // First, get the patient document to find related patients
+                const patientDocRef = doc(firestore, 'patients', user.patientId);
+                const patientDocSnap = await getDoc(patientDocRef);
+
+                let allPatientIds = [user.patientId];
+                if (patientDocSnap.exists()) {
+                    const patientData = patientDocSnap.data();
+                    if (patientData.relatedPatientIds && Array.isArray(patientData.relatedPatientIds)) {
+                        allPatientIds = [user.patientId, ...patientData.relatedPatientIds].filter(id => id);
+                    }
+                }
+
+                const appointmentsRef = collection(firestore, 'appointments');
+                const statuses = ['Pending', 'Skipped', 'No-show'];
+
+                const q = query(
+                    appointmentsRef,
+                    where('clinicId', '==', clinicId),
+                    where('date', '==', today),
+                    where('patientId', 'in', allPatientIds.slice(0, 30)),
+                    where('status', 'in', statuses)
+                );
+
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty) {
+                    router.push(`/confirm-arrival?clinic=${clinicId}`);
+                }
+            } catch (error) {
+                console.error('Error checking existing appointments:', error);
+            }
+        };
+
+        if (user && clinicId) {
+            checkExistingAppointments();
+        }
+    }, [clinicId, firestore, user, permissionGranted, router]);
 
     // Check location permission
     const checkLocation = async () => {

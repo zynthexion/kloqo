@@ -12,7 +12,7 @@ import {
 
 const DEBUG_BOOKING = process.env.NEXT_PUBLIC_DEBUG_BOOKING === 'true';
 
-const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']);
+const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped']);
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const RESERVATION_CONFLICT_CODE = 'slot-reservation-conflict';
 
@@ -231,7 +231,7 @@ export function buildCandidateSlots(
     ) {
       // CRITICAL: For advance bookings, NEVER allow slots reserved for walk-ins (last 15% of each session)
       if (type === 'A' && reservedWSlots.has(slotIndex)) {
-        const slot = slots[slotIndex];
+        const slot = slots.find(s => s.index === slotIndex);
         console.log(`[SLOT FILTER] Rejecting slot ${slotIndex} - reserved for walk-ins in session ${slot?.sessionIndex}`);
         return; // Skip reserved walk-in slots
       }
@@ -242,7 +242,7 @@ export function buildCandidateSlots(
   if (type === 'A') {
     if (typeof preferredSlotIndex === 'number') {
       const slotTime = getSlotTime(slots, preferredSlotIndex);
-      const preferredSlot = slots[preferredSlotIndex];
+      const preferredSlot = slots.find(s => s.index === preferredSlotIndex);
       const preferredSessionIndex = preferredSlot?.sessionIndex;
 
       // CRITICAL: Also check if preferred slot is not reserved for walk-ins
@@ -767,7 +767,7 @@ export async function generateNextTokenAndReserveSlot(
         // CRITICAL: For walk-in bookings, filter appointments to only include those in the active session
         // This prevents the scheduler from considering appointments in other sessions
         if (type === 'W' && activeSessionIndex !== null) {
-          const currentSessionStart = slots[0]?.time;
+          const currentSessionStart = slots.length > 0 ? slots[0].time : null;
 
           effectiveAppointments = effectiveAppointments.filter(appointment => {
             // Priority 1: Map via slotIndex if valid (Standard Slots)
@@ -1097,7 +1097,7 @@ export async function generateNextTokenAndReserveSlot(
             });
             // If a preferred slot was provided, check if it's in a specific session
             if (typeof appointmentData.slotIndex === 'number') {
-              const preferredSlot = slots[appointmentData.slotIndex];
+              const preferredSlot = slots.find(s => s.index === appointmentData.slotIndex);
               const sessionIndex = preferredSlot?.sessionIndex;
               throw new Error(
                 `No available slots in session ${typeof sessionIndex === 'number' ? sessionIndex + 1 : 'selected'}. ` +
@@ -1127,7 +1127,7 @@ export async function generateNextTokenAndReserveSlot(
             const reservedWSlots = calculatePerSessionReservedSlots(slots, now);
             if (type === 'A' && reservedWSlots.has(slotIndex)) {
               rejectedReasons.reservedForWalkIn++;
-              const slot = slots[slotIndex];
+              const slot = slots.find(s => s.index === slotIndex);
               console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ REJECTED - Slot ${slotIndex} is reserved for walk-ins in session ${slot?.sessionIndex}`, {
                 slotIndex,
                 sessionIndex: slot?.sessionIndex,
@@ -1250,7 +1250,7 @@ export async function generateNextTokenAndReserveSlot(
 
             reservationRef = reservationDocRef;
             chosenSlotIndex = slotIndex;
-            const reservedSlot = slots[chosenSlotIndex];
+            const reservedSlot = slots.find(s => s.index === chosenSlotIndex);
             sessionIndexForNew = reservedSlot?.sessionIndex ?? 0;
             resolvedTimeString = getClinicTimeString(reservedSlot?.time ?? now);
 
@@ -1749,11 +1749,11 @@ export async function prepareAdvanceShift({
     // Check if all slots in availability (future slots only, excluding cancelled slots in bucket) are occupied
     // Note: cancelledSlotsInBucket hasn't been calculated yet, so we can't check it here
     // We'll use a simplified check - if all future slots are occupied, we might need bucket
-    for (let i = 0; i < slots.length; i++) {
-      if (isBefore(slots[i].time, now)) {
+    for (const slot of slots) {
+      if (isBefore(slot.time, now)) {
         continue; // Skip past slots
       }
-      if (!occupiedSlots.has(i)) {
+      if (!occupiedSlots.has(slot.index)) {
         return false; // Found an empty slot
       }
     }
@@ -1967,7 +1967,7 @@ export async function prepareAdvanceShift({
       ? Math.max(
         differenceInMinutes(
           addMinutes(slots[slots.length - 1].time, averageConsultingTime),
-          slots[0].time
+          slots.length > 0 ? slots[0].time : now
         ),
         0
       )
@@ -1977,7 +1977,7 @@ export async function prepareAdvanceShift({
   ).length;
   const expectedMinutes = completedCount * averageConsultingTime;
   const actualElapsedRaw =
-    slots.length > 0 ? differenceInMinutes(now, slots[0].time) : 0;
+    slots.length > 0 && slots[0].time ? differenceInMinutes(now, slots[0].time) : 0;
   const actualElapsed = Math.max(0, Math.min(actualElapsedRaw, totalMinutes));
   const delayMinutes = actualElapsed - expectedMinutes;
 
@@ -2036,7 +2036,7 @@ export async function prepareAdvanceShift({
         (appointment.status === 'Cancelled' || appointment.status === 'No-show') &&
         typeof appointment.slotIndex === 'number'
       ) {
-        const slotMeta = slots[appointment.slotIndex];
+        const slotMeta = slots.find(s => s.index === appointment.slotIndex);
         if (
           slotMeta &&
           !isBefore(slotMeta.time, now) &&
@@ -2069,7 +2069,7 @@ export async function prepareAdvanceShift({
   const attemptSchedule = (useCancelledSlot: number | null): ScheduleAttemptResult | null => {
     // If using a cancelled slot directly (first walk-in case), create assignment directly
     if (useCancelledSlot !== null) {
-      const cancelledSlot = slots[useCancelledSlot];
+      const cancelledSlot = slots.find(s => s.index === useCancelledSlot);
       if (cancelledSlot) {
         return {
           schedule: { assignments: [] },
@@ -2161,7 +2161,7 @@ export async function prepareAdvanceShift({
       // Determine session index for the force-booked slot
       const forceBookSessionIndex = (() => {
         if (forceBookSlotIndex < slots.length) {
-          return slots[forceBookSlotIndex].sessionIndex;
+          return slots.find(s => s.index === forceBookSlotIndex)?.sessionIndex ?? 0;
         }
         // If beyond available slots, use the last session index
         const lastSlot = slots[slots.length - 1];
@@ -2172,9 +2172,10 @@ export async function prepareAdvanceShift({
       const slotDuration = doctor.averageConsultingTime || 15;
       let forceBookTime: Date;
 
-      if (forceBookSlotIndex < slots.length) {
+      const foundSlot = slots.find(s => s.index === forceBookSlotIndex);
+      if (foundSlot) {
         // Within availability - use slot's time
-        forceBookTime = slots[forceBookSlotIndex].time;
+        forceBookTime = foundSlot.time;
       } else {
         // Beyond availability - calculate from last slot
         const lastSlot = slots[slots.length - 1];
@@ -2247,7 +2248,7 @@ export async function prepareAdvanceShift({
     );
 
     if (assignedAppointment) {
-      const assignedSlotMeta = slots[newAssignment.slotIndex];
+      const assignedSlotMeta = slots.find(s => s.index === newAssignment.slotIndex);
       console.log(`[Walk-in Scheduling] Assigned slot ${newAssignment.slotIndex} is a cancelled/no-show slot at time:`, assignedSlotMeta?.time);
 
       // Check if this cancelled slot should be blocked (has walk-ins after it)
@@ -2544,10 +2545,10 @@ export async function prepareAdvanceShift({
     let newSlotTime: Date;
     const slotDuration = doctor.averageConsultingTime || 15;
 
-    if (newSlotIndex < slots.length) {
+    const foundSlot = slots.find(s => s.index === newSlotIndex);
+    if (foundSlot) {
       // New slot is within availability - use the slot's time
-      const slotMeta = slots[newSlotIndex];
-      newSlotTime = slotMeta ? slotMeta.time : addMinutes(now, slotDuration);
+      newSlotTime = foundSlot.time;
       console.info('[Walk-in Scheduling] Bucket compensation - slot within availability:', {
         newSlotIndex,
         slotTime: newSlotTime
@@ -2610,7 +2611,7 @@ export async function prepareAdvanceShift({
     let sessionIndexForNewSlot: number;
     if (newSlotIndex < slots.length) {
       // Slot is within availability - use the slot's sessionIndex
-      const slotMeta = slots[newSlotIndex];
+      const slotMeta = slots.find(s => s.index === newSlotIndex);
       sessionIndexForNewSlot = slotMeta?.sessionIndex ?? 0;
     } else {
       // Slot is outside availability - find reference appointment's sessionIndex or use last slot's
@@ -3117,10 +3118,7 @@ export async function calculateWalkInDetails(
 
   // Filter appointments to only include those in the active session
   const sessionAppointments = appointments.filter((appointment: any) => {
-    return (
-      appointment.sessionIndex === targetSessionIndex ||
-      (typeof appointment.slotIndex === 'number' && allSlots[appointment.slotIndex]?.sessionIndex === targetSessionIndex)
-    );
+    return appointment.sessionIndex === targetSessionIndex;
   });
 
   const allSlotIndicesFromSessionAppointments = sessionAppointments
@@ -3484,10 +3482,10 @@ export async function calculateWalkInDetails(
 
     const forceBookSlotIndex = maxOccupiedSlot + 1;
 
-    // Determine session index
     const forceBookSessionIndex = (() => {
-      if (forceBookSlotIndex < slots.length) {
-        return slots[forceBookSlotIndex].sessionIndex;
+      const foundSlot = slots.find(s => s.index === forceBookSlotIndex);
+      if (foundSlot) {
+        return foundSlot.sessionIndex;
       }
       const lastSlot = slots[slots.length - 1];
       return lastSlot ? lastSlot.sessionIndex : targetSessionIndex;
@@ -3496,9 +3494,10 @@ export async function calculateWalkInDetails(
     // Calculate time
     const slotDuration = doctor.averageConsultingTime || 15;
     let forceBookTime: Date;
+    const foundSlot = slots.find(s => s.index === forceBookSlotIndex);
 
-    if (forceBookSlotIndex < slots.length) {
-      forceBookTime = slots[forceBookSlotIndex].time;
+    if (foundSlot) {
+      forceBookTime = foundSlot.time;
     } else {
       const lastSlot = slots[slots.length - 1];
       if (lastSlot) {
@@ -3769,7 +3768,7 @@ export async function previewWalkInPlacement(
       return [];
     }
 
-    const fromTime = currentSlotIndex >= 0 ? slots[currentSlotIndex]?.time ?? null : null;
+    const fromTime = currentSlotIndex >= 0 ? slots.find(s => s.index === currentSlotIndex)?.time ?? null : null;
 
     return [
       {

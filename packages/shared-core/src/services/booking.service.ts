@@ -33,7 +33,7 @@ import { getClinicNow, getClinicDateString, getClinicTimeString } from '../utils
 import { parseTime } from '../utils/break-helpers';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 
-const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Skipped', 'Completed'];
+const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Skipped'];
 const ACTIVE_STATUS_SET = new Set(ACTIVE_STATUSES);
 
 export interface StaffBookingPayload {

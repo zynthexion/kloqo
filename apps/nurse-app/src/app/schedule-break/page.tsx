@@ -70,7 +70,7 @@ function ScheduleBreakContent() {
         sessionEnd: Date;
         sessionEffectiveEnd: Date;
     } | null>(null);
-    const [extensionOptions, setExtensionOptions] = useState<{ hasOverrun: boolean; minimalExtension: number; fullExtension: number; actualExtensionNeeded?: number; lastTokenBefore: string; lastTokenAfter: string; originalEnd: string; breakDuration: number; sessionEffectiveEnd?: string; } | null>(null);
+    const [extensionOptions, setExtensionOptions] = useState<{ hasOverrun: boolean; minimalExtension: number; fullExtension: number; actualExtensionNeeded?: number; lastTokenBefore: string; lastTokenAfter: string; originalEnd: string; breakDuration: number } | null>(null);
     const [currentSession, setCurrentSession] = useState<SessionInfo | null>(null);
     const [existingBreaks, setExistingBreaks] = useState<BreakPeriod[]>([]);
     const [availableSlots, setAvailableSlots] = useState<{ currentSessionSlots: SlotInfo[]; upcomingSessionSlots: Map<number, SlotInfo[]> } | null>(null);
@@ -622,8 +622,6 @@ function ScheduleBreakContent() {
         }
     };
 
-
-
     const handleProceed = async () => {
         if (!doctor || !clinicId || !breakStartSlot || !breakEndSlot) {
             toast({ variant: 'destructive', title: 'Invalid Selection', description: 'Please select a valid start and end time for the break.' });
@@ -705,210 +703,60 @@ function ScheduleBreakContent() {
             (apt) => apt.doctor === doctor.name &&
                 apt.date === dateStr &&
                 apt.sessionIndex === breakSessionIndex &&
-                apt.status !== 'Cancelled'
+                !(apt.cancelledByBreak === true && apt.status === 'Cancelled') // Exclude cancelled break blocks
         );
 
 
-        // Logic: Simulate the schedule with the new break to find the REAL shift amount
-        // The naive logic (counting slots in break) fails because it doesn't account for cascading shifts.
-        // We must simulate:
-        // 1. Sort appointments.
-        // 2. Map each appointment to its NEW time after the break.
-        // 3. Find the new end time of the LAST appointment.
+        // Calculate the ACTUAL shift amount using gap absorption logic
+        let actualShiftAmount = 0;
 
         if (appointmentsOnDate.length > 0) {
-            const sortedApps = [...appointmentsOnDate].sort((a, b) => {
+            // Build a map of occupied slots
+            const occupiedSlots = new Set<number>();
+            appointmentsOnDate.forEach(apt => {
+                if (typeof apt.slotIndex === 'number' && apt.status !== 'Cancelled' && !apt.cancelledByBreak) {
+                    occupiedSlots.add(apt.slotIndex);
+                }
+            });
+
+            // Calculate which break slots have appointments
+            const breakStartSlotIndex = Math.floor(
+                differenceInMinutes(startDate, breakSessionStart) / slotDuration
+            );
+            const slotsInBreak = breakDuration / slotDuration;
+
+            // Count how many break slots have appointments (these need to be shifted)
+            for (let i = 0; i < slotsInBreak; i++) {
+                const slotIndex = breakStartSlotIndex + i;
+                if (occupiedSlots.has(slotIndex)) {
+                    actualShiftAmount++;
+                }
+            }
+
+            const sortedByArriveByTime = [...appointmentsOnDate].sort((a, b) => {
                 const timeA = parseTime(a.arriveByTime || a.time || '', selectedDate).getTime();
                 const timeB = parseTime(b.arriveByTime || b.time || '', selectedDate).getTime();
                 return timeA - timeB;
             });
 
+            const lastAppointment = sortedByArriveByTime[sortedByArriveByTime.length - 1];
             const consultationTime = doctor.averageConsultingTime || 15;
-            const breakStartMs = startDate.getTime();
-            const breakEndMs = endDate.getTime() + (slotDuration * 60000); // End of break slots
-            const breakDurationMs = breakEndMs - breakStartMs;
 
-            let simulatedLastApptEndMs = 0;
-            let originalLastApptEndMs = 0;
+            const lastArriveByTime = parseTime(lastAppointment.arriveByTime || lastAppointment.time, selectedDate);
+            lastTokenBefore = format(lastArriveByTime, 'hh:mm a');
 
-            // Track the "virtual time" where the next appointment can be placed
-            let virtualAvailabilityStart = 0;
-
-            sortedApps.forEach((app, index) => {
-                const originalStart = parseTime(app.arriveByTime || app.time || '', selectedDate).getTime();
-                const originalEnd = originalStart + (consultationTime * 60000);
-
-                if (index === sortedApps.length - 1) {
-                    originalLastApptEndMs = originalEnd;
-                }
-
-                // Calculate NEW start time
-                let newStart = originalStart;
-
-                // If appointment was originally scheduled BEFORE the break, it stays put.
-                // UNLESS a previous appointment shifted and pushed it?
-                // But generally, appointments before break are safe.
-
-                // If appointment starts AT or AFTER break start, it is pushed by Break Duration.
-                // Wait, if it is strictly AFTER the break (e.g. 7:30, and break is 6:45-7:15).
-                // Does it shift? 
-                // Only if previous appointments shifted into it.
-                // BUT, inserting a break typically means "Reserve this time".
-                // If there are gaps, we might not need to shift LATER appointments.
-                // However, the Clinic Logic usually shifts EVERYTHING downstream if we insert a break?
-                // Actually, the `shiftAppointments` logic in shared-core calculates `offset`.
-                // It usually applies offset to everything AFTER the break start.
-                // Let's assume Worst Case: Everything after break start shifts.
-                // BUT the prompt says "gaps absorbed".
-                // This implies if there is a gap, we consume it.
-
-                // Simulation:
-                // Effectively, the break is a "Block".
-                // We flow appointments around it.
-
-                // If `newStart` < `breakEndMs` AND `newStart` >= `breakStartMs`:
-                // It must emerge at `breakEndMs`.
-
-                if (newStart >= breakStartMs) {
-                    // It is impacted.
-                    // Ideally, we respect its original time relative to others.
-                    // Let's try to maintain relative ordering and gaps, BUT respect the break block.
-
-                    // New Start must be at least Break End if it was overlapping.
-                    if (newStart < breakEndMs) {
-                        newStart = Math.max(newStart + breakDurationMs, breakEndMs);
-                    } else {
-                        // It was already after break.
-                        // Does it shift?
-                        // If previous appointment shifted and now overlaps this one?
-                        // We need to track `previousEnd`.
-                    }
-                }
-            });
-
-            // Improved Simulation Loop
-            let currentVirtualTime = 0;
-
-            console.log('[BREAK SIMULATION] Start', {
-                breakStart: format(new Date(breakStartMs), 'HH:mm'),
-                breakEnd: format(new Date(breakEndMs), 'HH:mm'),
-                sessionEnd: format(breakSessionEffectiveEnd, 'HH:mm'),
-                appCount: sortedApps.length
-            });
-
-            sortedApps.forEach((app) => {
-                let appStart = parseTime(app.arriveByTime || app.time || '', selectedDate).getTime();
-                const originalTimeStr = format(new Date(appStart), 'HH:mm');
-
-                // If this app is impacted by the break (starts inside or after)
-                // We effectively want to see where it lands.
-
-                // Strategy: 
-                // We "Play" the schedule.
-                // We have a "Next Available Time" pointer?
-                // No, that re-packs the schedule (removing intended gaps). We shouldn't remove gaps intended by user.
-                // We only shift if we collide.
-
-                // Collision Logic:
-                // The Break is an immovable object [breakStart, breakEnd].
-                // If an app falls in it, it moves to `breakEnd`.
-                // If that move makes it collide with next app, next app moves... cascade.
-
-                if (appStart >= breakStartMs && appStart < breakEndMs) {
-                    // Inside Break -> Move to End
-                    // The SHIFT is (breakEndMs - appStart).
-                    // But simpler: New Start = breakEndMs.
-                    // But wait, if we have 2 apps in break. They assume 15 min slots.
-                    // App 1 (6:45) -> Moves to 7:15.
-                    // App 2 (7:00) -> Moves to 7:30.
-                    // So we can't just set all to `breakEndMs`.
-                    // They maintain their relative spacing!
-
-                    // So, if app is in break or after break linear shift?
-                    // Let's assume: Shift = Break Duration.
-                    // Check if it lands in a gap?
-
-                    // Let's use the 'actualShiftAmount' logic conceptually but correctly.
-                    // If we are at/after break, we shift by Break Duration.
-                    // UNLESS there is a gap?
-
-                    // Correct Simulation:
-                    // 1. Calculate ideal shifted time = Original + BreakDuration.
-                    // 2. But check original time.
-                    // If Original Time was 8:00 (Gap). Break 6:45-7:15.
-                    // Shifted Time = 8:30? No.
-                    // If 8:00 was far enough (gap > break duration), it does not need to shift!
-                    // Gap absorption!
-
-                    // Logic:
-                    // NewStart = Math.max(OriginalStart, PreviousAppNewEnd);
-                    // If NewStart falls in Break: NewStart = BreakEnd.
-                    // Return NewEnd.
-
-                    // Initialization
-                    if (currentVirtualTime === 0) currentVirtualTime = appStart;
-
-                    // Respect Original Time (don't move earlier)
-                    let targetStart = Math.max(currentVirtualTime, appStart);
-
-                    // Check Break Collision
-                    if (targetStart >= breakStartMs && targetStart < breakEndMs) {
-                        // Push to after break
-                        // But we must preserve order.
-                        // If we are pushed, we take the slot at BreakEnd?
-                        // And subsequent apps stack?
-                        targetStart = Math.max(targetStart, breakEndMs);
-
-                        // Wait, if 6:45 moves to 7:15.
-                        // 7:00 moves to 7:30.
-                        // My logic: 
-                        // App 1 (6:45): target 6:45. In Break. -> 7:15. End 7:30.
-                        // App 2 (7:00): target 7:00. In Break. -> 7:15. Max(7:15, PrevEnd 7:30) -> 7:30. End 7:45.
-                        // App 3 (7:15): target 7:15. Not in Break (Break ends 7:15).
-                        //               But PrevEnd is 7:45.
-                        //               NewStart = Max(7:15, 7:45) -> 7:45.
-
-                        // This simulation handles "Gaps Absorbed" automatically!
-                        // Example: App 4 at 8:00.
-                        // PrevEnd (App 3) = 8:00.
-                        // NewStart = Max(8:00, 8:00) = 8:00.
-                        // It didn't shift! Gap absorbed!
-                    } else {
-                        // Not in break. But might be pushed by previous.
-                        targetStart = Math.max(targetStart, currentVirtualTime);
-                    }
-
-                    currentVirtualTime = targetStart + (consultationTime * 60000); // Set next available time
-                    simulatedLastApptEndMs = currentVirtualTime;
-                } else {
-                    // Before break.
-                    let targetStart = appStart;
-                    currentVirtualTime = targetStart + (consultationTime * 60000);
-                    simulatedLastApptEndMs = currentVirtualTime;
-                }
-                console.log(`[BREAK SIM] App ${app.patientName} (${originalTimeStr}) -> ${format(new Date(simulatedLastApptEndMs - consultationTime * 60000), 'HH:mm')} (End: ${format(new Date(simulatedLastApptEndMs), 'HH:mm')})`);
-            });
-
-            const lastAppointmentEnd = new Date(simulatedLastApptEndMs);
-            lastTokenAfter = format(new Date(simulatedLastApptEndMs - consultationTime * 60000), 'hh:mm a');
+            // After applying the NEW break, the last appointment shifts by ACTUAL shift amount (not full break duration)
+            const actualShiftMinutes = actualShiftAmount * slotDuration;
+            const lastTimeAfterBreak = addMinutes(lastArriveByTime, actualShiftMinutes);
+            const lastAppointmentEnd = addMinutes(lastTimeAfterBreak, consultationTime);
+            lastTokenAfter = format(lastTimeAfterBreak, 'hh:mm a');
 
             const overrunMinutes = Math.max(0, differenceInMinutes(lastAppointmentEnd, breakSessionEffectiveEnd));
-
-            console.log('[BREAK SIM] Result', {
-                lastApptEnd: format(lastAppointmentEnd, 'HH:mm'),
-                sessionEffectiveEnd: format(breakSessionEffectiveEnd, 'HH:mm'),
-                overrunMinutes
-            });
-
             hasOverrun = overrunMinutes > 0;
             minimalExtension = overrunMinutes;
-
-            // Recalculate actual extension needed (how much pushed beyond ORIGINAL end, or Effective End?)
-            const originalEndMs = breakSessionEnd.getTime(); // Or effective end? 
-            // Logic compares to `breakSessionEffectiveEnd` which handles existing extensions.
         }
 
-        const actualExtensionNeeded = minimalExtension;
+        const actualExtensionNeeded = actualShiftAmount * slotDuration;
 
         setExtensionOptions({
             hasOverrun,
@@ -918,8 +766,7 @@ function ScheduleBreakContent() {
             lastTokenBefore,
             lastTokenAfter,
             originalEnd,
-            breakDuration,
-            sessionEffectiveEnd: format(breakSessionEffectiveEnd, 'hh:mm a')
+            breakDuration
         });
 
         setPendingBreakData({
@@ -1450,16 +1297,12 @@ function ScheduleBreakContent() {
                             </section>
 
                             <div className="text-center mb-2 text-sm text-muted-foreground">
-                                {breakStartSlot && ((breakEndSlot) || (!breakEndSlot)) ? (
-                                    // Prioirytize showing the NEW selection if user has clicked something
-                                    breakStartSlot && breakEndSlot ? (
-                                        `New break: ${format(breakStartSlot.time, 'hh:mm a')} to ${format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}`
-                                    ) : (
-                                        "Select an end time for the break."
-                                    )
-                                ) : dailyLeaveSlots.length > 0 && breakStart && breakEnd ? (
-                                    // Fallback to existing breaks only if nothing selected
+                                {dailyLeaveSlots.length > 0 && breakStart && breakEnd ? (
                                     `Break from ${format(breakStart, 'hh:mm a')} to ${format(addMinutes(breakEnd, (doctor.averageConsultingTime || 15) - 1), 'hh:mm a')}`
+                                ) : breakStartSlot && !(breakEndSlot) ? (
+                                    "Select an end time for the break."
+                                ) : (breakStartSlot && breakEndSlot) ? (
+                                    `New break: ${format(breakStartSlot.time, 'hh:mm a')} to ${format(addMinutes(breakEndSlot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}`
                                 ) : (
                                     "Select a start and end time for the break."
                                 )}
@@ -1679,7 +1522,6 @@ function ScheduleBreakContent() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
-
                 <AlertDialog open={showExtensionDialog} onOpenChange={(open) => {
                     if (!open) {
                         setShowExtensionDialog(false);
@@ -1704,7 +1546,9 @@ function ScheduleBreakContent() {
                                         </div>
                                     ) : (
                                         // Safe scenario: all tokens within availability
-                                        <p>Do you want to extend the availability time to compensate for the break duration?</p>
+                                        <div className="space-y-2">
+                                            <p>A {extensionOptions.breakDuration}-minute break only needs {extensionOptions.actualExtensionNeeded || 0}-minute extension (gaps absorbed{extensionOptions.actualExtensionNeeded === 0 ? ' - no extension needed' : ''}). Do you still want to extend availability?</p>
+                                        </div>
                                     )
                                 ) : (
                                     <p>Do you want to extend the availability time to compensate for the break duration?</p>
@@ -1712,31 +1556,31 @@ function ScheduleBreakContent() {
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter className="mt-4 flex flex-col space-y-2 sm:flex-col sm:space-x-0">
-                            {extensionOptions && extensionOptions.hasOverrun ? (
+                            {extensionOptions?.hasOverrun ? (
                                 // Bad scenario: 2 buttons (minimal vs full extension)
                                 <>
                                     <AlertDialogCancel className="w-full justify-start h-auto py-3 whitespace-normal">Cancel</AlertDialogCancel>
                                     <AlertDialogAction className="w-full justify-start h-auto py-3 whitespace-normal" onClick={() => {
-                                        confirmBreakWithExtension(extensionOptions!.minimalExtension);
+                                        confirmBreakWithExtension(extensionOptions.minimalExtension);
                                     }}>
                                         <div className="flex flex-col items-start text-left">
                                             <span className="font-semibold">
                                                 Finish booked patients → Till {(() => {
-                                                    const originalEndDate = parseTime(extensionOptions!.originalEnd, selectedDate);
-                                                    const minimalEndDate = addMinutes(originalEndDate, extensionOptions!.minimalExtension);
+                                                    const originalEndDate = parseTime(extensionOptions.originalEnd, selectedDate);
+                                                    const minimalEndDate = addMinutes(originalEndDate, extensionOptions.minimalExtension);
                                                     return format(minimalEndDate, 'hh:mm a');
                                                 })()}
                                             </span>
                                         </div>
                                     </AlertDialogAction>
                                     <AlertDialogAction className="w-full justify-start h-auto py-3 whitespace-normal" onClick={() => {
-                                        confirmBreakWithExtension(extensionOptions!.fullExtension);
+                                        confirmBreakWithExtension(extensionOptions.fullExtension);
                                     }}>
                                         <div className="flex flex-col items-start text-left">
                                             <span className="font-semibold">
                                                 Fully compensate break → Till {(() => {
-                                                    const originalEndDate = parseTime(extensionOptions!.originalEnd, selectedDate);
-                                                    const fullEndDate = addMinutes(originalEndDate, extensionOptions!.fullExtension);
+                                                    const originalEndDate = parseTime(extensionOptions.originalEnd, selectedDate);
+                                                    const fullEndDate = addMinutes(originalEndDate, extensionOptions.fullExtension);
                                                     return format(fullEndDate, 'hh:mm a');
                                                 })()}
                                             </span>

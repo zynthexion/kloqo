@@ -306,6 +306,20 @@ export async function completeStaffWalkInBooking(
             });
         }
 
+        // C4b. Delete Stale Reservations (Deferred from prepareAdvanceShift)
+        if (shiftPlan.reservationDeletes) {
+            for (const ref of shiftPlan.reservationDeletes) {
+                transaction.delete(ref);
+            }
+        }
+
+        // C4c. Execute Deferred Reservation Writes (e.g. Bucket)
+        if (shiftPlan.reservationWrites) {
+            for (const write of shiftPlan.reservationWrites) {
+                transaction.set(write.ref, write.data);
+            }
+        }
+
         // C5. Update Patient Profile
         transaction.update(patientRef, {
             clinicIds: arrayUnion(clinicId),
@@ -572,6 +586,18 @@ export async function completePatientWalkInBooking(
                 arriveByTime: update.arriveByTime,
                 noShowTime: Timestamp.fromDate(update.noShowTime),
             });
+        }
+
+        // Deferred Deletes/Writes for Patient Flow
+        if (shiftPlan.reservationDeletes) {
+            for (const ref of shiftPlan.reservationDeletes) {
+                transaction.delete(ref);
+            }
+        }
+        if (shiftPlan.reservationWrites) {
+            for (const write of shiftPlan.reservationWrites) {
+                transaction.set(write.ref, write.data);
+            }
         }
 
         transaction.update(patientRef, {

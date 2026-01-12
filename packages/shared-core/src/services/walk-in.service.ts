@@ -1548,6 +1548,7 @@ export async function prepareAdvanceShift({
 }): Promise<{
   newAssignment: SchedulerAssignment | null;
   reservationDeletes: DocumentReference[];
+  reservationWrites?: { ref: DocumentReference; data: any }[];
   appointmentUpdates: Array<{
     docRef: DocumentReference;
     slotIndex: number;
@@ -1609,27 +1610,44 @@ export async function prepareAdvanceShift({
   const maxSlotToRead = Math.max(totalSlots + 10, maxSlotIndex + 50);
 
   const existingReservations = new Map<number, Date>();
+  const reservationDeletes = new Map<string, DocumentReference>();
   const staleReservationsToDelete: DocumentReference[] = [];
 
-  const reservationReadPromises: Promise<DocumentSnapshot>[] = [];
-  const reservationRefs: DocumentReference[] = [];
+  // Batch read reservations for better performance - Fix for ERR_INSUFFICIENT_RESOURCES
+  // Instead of reading thousands of potential slots transactionally (which crashes the browser),
+  // we fetch all ACTIVE reservations for this doctor/date in a single query.
+  // This gives us the "existingReservations" map needed for logic.
+  // We will then transactionally verify the specific target slot later.
+  const reservationsQuery = query(
+    collection(firestore, 'slot-reservations'),
+    where('clinicId', '==', clinicId),
+    where('doctorName', '==', doctorName),
+    where('date', '==', dateStr)
+  );
 
-  for (let slotIdx = 0; slotIdx <= maxSlotToRead; slotIdx += 1) {
-    const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIdx);
-    const reservationRef = doc(firestore, 'slot-reservations', reservationId);
-    reservationRefs.push(reservationRef);
-    reservationReadPromises.push(transaction.get(reservationRef));
-  }
+  // Note: We use getDocs (non-transactional) here to build the state map.
+  // This is safe because we will perform a transaction.get() on the FINAL chosen slot
+  // before writing to it, which ensures we don't overwrite concurrent changes.
+  const reservationSnapshot = await getDocs(reservationsQuery);
+  const reservationSnapshots = reservationSnapshot.docs;
 
-  const reservationSnapshots = await Promise.all(reservationReadPromises);
+
 
   for (let i = 0; i < reservationSnapshots.length; i += 1) {
     const reservationSnapshot = reservationSnapshots[i];
-    const reservationRef = reservationRefs[i];
-    const slotIdx = i;
+    const reservationData = reservationSnapshot.data();
+    const slotIdx = reservationData.slotIndex; // Extract slotIndex from data since we don't have it by index anymore
+
+    // Create ref for potential deletion
+    const reservationRef = reservationSnapshot.ref;
+
+    // Skip if slotIdx is invalid
+    if (typeof slotIdx !== 'number') continue;
+
+
 
     if (reservationSnapshot.exists()) {
-      const reservationData = reservationSnapshot.data();
+      // reservationData already extracted above
       const reservedAt = reservationData?.reservedAt;
       let reservedTime: Date | null = null;
 
@@ -1834,10 +1852,15 @@ export async function prepareAdvanceShift({
     }
   }
 
-  // Delete stale reservations within the transaction
+  // Delete stale reservations within the transaction - DEFERRED
+  // Instead of executing immediately, we add to reservationDeletes map
+  // for the caller to execute.
   for (const staleRef of staleReservationsToDelete) {
-    transaction.delete(staleRef);
+    reservationDeletes.set(staleRef.path, staleRef);
   }
+
+  // New: Capture reservation writes (e.g. bucket)
+  const reservationWrites: { ref: DocumentReference; data: any }[] = [];
 
   // Create placeholder walk-in candidates for reserved slots
   // This tells the scheduler that these slots are already taken
@@ -2180,7 +2203,17 @@ export async function prepareAdvanceShift({
         // Beyond availability - calculate from last slot
         const lastSlot = slots[slots.length - 1];
         if (lastSlot) {
-          const slotsAfterAvailability = forceBookSlotIndex - (slots.length - 1);
+          // Use relative indexing to handle remapped/segmented indices
+          const getRelativeIndex = (idx: number) => {
+            if (idx >= 10000) return idx % 10000;
+            if (idx >= 1000) return idx % 1000;
+            return idx;
+          };
+
+          const relativeForceIndex = getRelativeIndex(forceBookSlotIndex);
+          const relativeLastIndex = getRelativeIndex(lastSlot.index);
+          const slotsAfterAvailability = relativeForceIndex - relativeLastIndex;
+
           forceBookTime = addMinutes(lastSlot.time, slotsAfterAvailability * slotDuration);
         } else {
           forceBookTime = now;
@@ -2521,13 +2554,17 @@ export async function prepareAdvanceShift({
     }
 
     // Create reservation for the new bucket slot to prevent concurrent usage
-    transaction.set(bucketReservationRef, {
-      clinicId,
-      doctorName,
-      date: dateStr,
-      slotIndex: newSlotIndex,
-      reservedAt: serverTimestamp(),
-      type: 'bucket',
+    // Create reservation for the new bucket slot to prevent concurrent usage - DEFERRED
+    reservationWrites.push({
+      ref: bucketReservationRef,
+      data: {
+        clinicId,
+        doctorName,
+        date: dateStr,
+        slotIndex: newSlotIndex,
+        reservedAt: serverTimestamp(),
+        type: 'bucket',
+      }
     });
 
     console.info('[Walk-in Scheduling] Bucket compensation - interval-based placement:', {
@@ -2703,7 +2740,7 @@ export async function prepareAdvanceShift({
     console.info('[patient booking] prepareAdvanceShift schedule', schedule.assignments);
   }
 
-  const reservationDeletes = new Map<string, DocumentReference>();
+
   const appointmentUpdates: Array<{
     docRef: DocumentReference;
     slotIndex: number;
@@ -2771,16 +2808,56 @@ export async function prepareAdvanceShift({
     // Using cancelled slot directly or bucket - no shift needed
     // Skip appointment shifting
 
-    // CRITICAL FIX: Return the result for this path
-    // This was missing, causing "Function lacks ending return statement" error
+    // CRITICAL: Transactional verification of target slots
+    // Since we used a non-transactional query to build existingReservations,
+    // we MUST verify the specific slots we are about to write to.
+
+    // 1. Verify the new walk-in slot
+    const slotsToVerify = new Set<number>();
+    if (typeof newAssignment.slotIndex === 'number') {
+      slotsToVerify.add(newAssignment.slotIndex);
+    }
+
+    // 2. Verify all shifted appointment destination slots
+    for (const update of appointmentUpdates) {
+      if (typeof update.slotIndex === 'number') {
+        slotsToVerify.add(update.slotIndex);
+      }
+    }
+
+    // Perform verify
+    for (const slotIndex of slotsToVerify) {
+      const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
+      const reservationRef = doc(firestore, 'slot-reservations', reservationId);
+
+      // We don't need the result, just the read to ensure consistency
+      // If the slot changed since our query, transaction will fail/retry
+      const snap = await transaction.get(reservationRef);
+
+      if (snap.exists()) {
+        const data = snap.data();
+        // If a reservation exists and is BOOKED by someone else (and not one of the appointments we are shifting), conflict!
+        if (data.status === 'booked') {
+          const blockingApptId = data.appointmentId;
+          const isKnownAppt = blockingApptId && effectiveAppointments.some(a => a.id === blockingApptId);
+
+          if (!isKnownAppt) {
+            // Conflict with unknown booking
+            throw new Error(RESERVATION_CONFLICT_CODE);
+          }
+        }
+      }
+    }
+
     return {
       newAssignment: scheduleAttempt.newAssignment,
       reservationDeletes: Array.from(reservationDeletes.values()),
-      appointmentUpdates: [], // No updates needed for direct assignment
+      appointmentUpdates: appointmentUpdates,
       usedBucketSlotIndex,
       existingReservations,
     };
   } else {
+
     // Normal scheduling - may need to shift advance appointments
     // Get the walk-in's slot index
     const walkInSlotIndex = newAssignment.slotIndex;
@@ -3043,10 +3120,47 @@ export async function prepareAdvanceShift({
       });
     }
 
+
+    // CRITICAL: Transactional verification for Normal Path
+    // (Same logic as bucket path - verify final slots)
+    // 1. Verify the new walk-in slot
+    const slotsToVerify = new Set<number>();
+    if (typeof newAssignment.slotIndex === 'number') {
+      slotsToVerify.add(newAssignment.slotIndex);
+    }
+
+    // 2. Verify all shifted appointment destination slots
+    for (const update of appointmentUpdates) {
+      if (typeof update.slotIndex === 'number') {
+        slotsToVerify.add(update.slotIndex);
+      }
+    }
+
+    // Perform verify
+    for (const slotIndex of slotsToVerify) {
+      const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
+      const reservationRef = doc(firestore, 'slot-reservations', reservationId);
+
+      const snap = await transaction.get(reservationRef);
+
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.status === 'booked') {
+          const blockingApptId = data.appointmentId;
+          const isKnownAppt = blockingApptId && effectiveAppointments.some(a => a.id === blockingApptId);
+
+          if (!isKnownAppt) {
+            throw new Error(RESERVATION_CONFLICT_CODE);
+          }
+        }
+      }
+    }
+
     return {
       newAssignment,
       reservationDeletes: Array.from(reservationDeletes.values()),
       appointmentUpdates,
+      reservationWrites, // Return deferred writes
       usedBucketSlotIndex,
       existingReservations,
     };
@@ -3335,37 +3449,33 @@ export async function calculateWalkInDetails(
   const dateStr = getClinicDateString(date);
 
   // Batch read reservations for better performance
-  const reservationChecks: Promise<{ slotIdx: number; snap: DocumentSnapshot }>[] = [];
+  // Batch read reservations for better performance
+  // Refactored to use a single query instead of 200 individual reads to prevent network resource exhaustion
+  const q = query(
+    collection(firestore, 'slot-reservations'),
+    where('clinicId', '==', doctor.clinicId),
+    where('doctorName', '==', doctor.name),
+    where('date', '==', dateStr)
+  );
 
-  for (let slotIdx = 0; slotIdx < maxSlotToCheck; slotIdx++) {
-    const reservationId = buildReservationDocId(
-      doctor.clinicId || '',
-      doctor.name,
-      dateStr,
-      slotIdx
-    );
-
-    reservationChecks.push(
-      getDoc(doc(firestore, 'slot-reservations', reservationId))
-        .then(snap => ({ slotIdx, snap }))
-        .catch(() => ({ slotIdx, snap: null as any }))
-    );
+  let reservationDocs: DocumentSnapshot[] = [];
+  try {
+    const querySnapshot = await getDocs(q);
+    reservationDocs = querySnapshot.docs;
+  } catch (error) {
+    console.error('[WALK-IN:ESTIMATE] Failed to fetch reservations:', error);
   }
 
-  // Wait for all reservation checks to complete
-  const reservationResults = await Promise.all(reservationChecks);
-
-
-
   // Process reservation results
-  reservationResults.forEach(({ slotIdx, snap }) => {
-    if (!snap || !snap.exists()) return;
+  reservationDocs.forEach((snap) => {
+    if (!snap.exists()) return;
 
     try {
       const data = snap.data();
       const reservedAt = data?.reservedAt;
+      const slotIdx = data?.slotIndex;
 
-      if (!reservedAt) return;
+      if (!reservedAt || typeof slotIdx !== 'number') return;
 
       // Parse reservation time
       let reservedTime: Date | null = null;
@@ -3382,19 +3492,20 @@ export async function calculateWalkInDetails(
       // Check if reservation is still valid (not stale)
       const ageInSeconds = (now.getTime() - reservedTime.getTime()) / 1000;
       const isBooked = data.status === 'booked';
-      const threshold = isBooked ? 300 : 30; // 5 minutes for booked, 30 seconds for temporary
+      // Use 30s threshold for temporary reservations to match appointment service logic
+      const threshold = isBooked ? 300 : 30;
 
       if (ageInSeconds <= threshold) {
-        // Skip reservations from advance booking (they don't block walk-ins in actual booking)
+        // Skip reservations from advance booking (they don't block walk-ins in actual booking previews)
+        // But for walk-in estimation, we SHOULD respect them if they block the slot we want?
+        // Actually, the original code excluded 'appointment-booking' reservedBy.
         const reservedBy = data?.reservedBy as string | undefined;
         if (reservedBy !== 'appointment-booking') {
           reservedSlots.add(slotIdx);
-
-
         }
       }
     } catch (e) {
-      // Ignore parsing errors, continue with other slots
+      // Ignore parsing errors
     }
   });
 
@@ -3491,6 +3602,12 @@ export async function calculateWalkInDetails(
       return lastSlot ? lastSlot.sessionIndex : targetSessionIndex;
     })();
 
+    // Helper to get relative index within session (handles segmented 1000+ and remapped 10000+ indices)
+    const getRelativeIndex = (idx: number) => {
+      if (idx >= 10000) return idx - 10000;
+      return idx % 1000;
+    };
+
     // Calculate time
     const slotDuration = doctor.averageConsultingTime || 15;
     let forceBookTime: Date;
@@ -3501,7 +3618,11 @@ export async function calculateWalkInDetails(
     } else {
       const lastSlot = slots[slots.length - 1];
       if (lastSlot) {
-        const slotsAfterAvailability = forceBookSlotIndex - (slots.length - 1);
+        // Use relative distance to calculate overflow time
+        const relativeForceIndex = getRelativeIndex(forceBookSlotIndex);
+        const relativeLastIndex = getRelativeIndex(lastSlot.index);
+        const slotsAfterAvailability = relativeForceIndex - relativeLastIndex;
+
         forceBookTime = addMinutes(lastSlot.time, slotsAfterAvailability * slotDuration);
       } else {
         forceBookTime = now;
@@ -3574,14 +3695,24 @@ export async function calculateWalkInDetails(
       let overflowTime: Date;
       const consultationTime = doctor.averageConsultingTime || 15;
 
+      const getRelativeIndex = (idx: number) => {
+        if (idx >= 10000) return idx - 10000;
+        return idx % 1000;
+      };
+
       if (slots.length > 0) {
         const lastSlot = slots[slots.length - 1];
-        overflowTime = addMinutes(lastSlot.time, consultationTime * (overflowSlotIndex - lastSlotIndexInSession));
+        const relativeOverflowIndex = getRelativeIndex(overflowSlotIndex);
+        const relativeLastIndex = getRelativeIndex(lastSlot.index);
+        const slotsAfterAvailability = relativeOverflowIndex - relativeLastIndex;
+
+        overflowTime = addMinutes(lastSlot.time, slotsAfterAvailability * consultationTime);
       } else {
         // No slots exist, use current time
         overflowTime = addMinutes(now, consultationTime);
       }
 
+      // Determine session index
       // Determine session index
       const lastSessionIndex = targetSessionIndex;
 

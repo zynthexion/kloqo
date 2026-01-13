@@ -101,8 +101,13 @@ export function computeWalkInSchedule({
 
   const indexToPosition = new Map<number, number>();
   orderedSlots.forEach((slot, position) => {
-    indexToPosition.set(slot.index, position);
+    indexToPosition.set(Number(slot.index), position);
   });
+
+  if (DEBUG) {
+    console.log('[SCHEDULER DEBUG] Index Map:', Array.from(indexToPosition.entries()));
+    console.log('[SCHEDULER DEBUG] Advance Apps Input:', advanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })));
+  }
 
   const spacing =
     Number.isFinite(walkInTokenAllotment) && walkInTokenAllotment > 0
@@ -111,18 +116,37 @@ export function computeWalkInSchedule({
 
   const occupancy: (Occupant | null)[] = new Array(positionCount).fill(null);
   const overflowAdvance: { id: string; sourcePosition: number }[] = [];
+
+  console.log('[SCHEDULER] Processing advance appointments:', {
+    count: advanceAppointments.length,
+    appointments: advanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex }))
+  });
+
   advanceAppointments.forEach(entry => {
-    const position = indexToPosition.get(entry.slotIndex);
+    // Robust lookup: ensure slotIndex is a number
+    const slotIndex = Number(entry.slotIndex);
+    const position = indexToPosition.get(slotIndex);
+
+    console.log(`[SCHEDULER] Processing ${entry.id}: slotIndex=${slotIndex}, position=${position}`);
+
     if (typeof position === 'number') {
       if (occupancy[position] === null) {
         occupancy[position] = { type: 'A', id: entry.id };
+        console.log(`[SCHEDULER] ✅ Assigned ${entry.id} to position ${position}`);
       } else {
         overflowAdvance.push({ id: entry.id, sourcePosition: position });
+        console.log(`[SCHEDULER] ⚠️ Collision: ${entry.id} at position ${position} (occupied by ${occupancy[position]?.id})`);
       }
     } else {
+      if (DEBUG) console.log(`[SCHEDULER DEBUG] Advance app ${entry.id} with slotIndex ${entry.slotIndex} has NO MATCHING POSITION in slots.`);
+      console.log(`[SCHEDULER] ❌ DROPPED: ${entry.id} with slotIndex ${slotIndex} - NO MATCHING POSITION`);
       overflowAdvance.push({ id: entry.id, sourcePosition: -1 });
     }
   });
+
+  if (DEBUG) {
+    console.log('[SCHEDULER DEBUG] Initial Occupancy:', occupancy.map((o, i) => `${i}:${o?.type}-${o?.id}`));
+  }
 
   const sortedWalkIns = [...walkInCandidates].sort((a, b) => {
     if (a.numericToken !== b.numericToken) {
@@ -176,9 +200,10 @@ export function computeWalkInSchedule({
       pos += 1
     ) {
       const occupant = occupancy[pos];
-      // Count only advance appointments, exclude blocked appointments (skipped/cancelled)
-      // Blocked appointments have IDs starting with '__blocked_'
-      if (occupant?.type === 'A' && !occupant.id.startsWith('__blocked_')) {
+      // Count ONLY shiftable (active) appointments for spacing.
+      // We ignore __blocked_ (Completed/Skipped) and __break_ (Administrative).
+      // This ensures we throttle based on the ACTIVE queue.
+      if (occupant?.type === 'A' && occupant.id.startsWith('__shiftable_')) {
         count += 1;
       }
     }
@@ -196,9 +221,8 @@ export function computeWalkInSchedule({
       pos += 1
     ) {
       const occupant = occupancy[pos];
-      // Count only advance appointments, exclude blocked appointments (skipped/cancelled)
-      // Blocked appointments have IDs starting with '__blocked_'
-      if (occupant?.type === 'A' && !occupant.id.startsWith('__blocked_')) {
+      // Count ONLY shiftable (active) appointments for spacing
+      if (occupant?.type === 'A' && occupant.id.startsWith('__shiftable_')) {
         count += 1;
         if (count === nth) {
           return pos;
@@ -210,7 +234,7 @@ export function computeWalkInSchedule({
 
   const findLastAdvanceAfter = (anchorPosition: number): number => {
     for (let pos = positionCount - 1; pos > anchorPosition; pos -= 1) {
-      if (occupancy[pos]?.type === 'A') {
+      if (occupancy[pos]?.type === 'A' && occupancy[pos]?.id.startsWith('__shiftable_')) {
         return pos;
       }
     }
@@ -334,21 +358,29 @@ export function computeWalkInSchedule({
     for (let pos = candidatePosition; pos < positionCount; pos += 1) {
       const occupant = occupancy[pos];
       if (occupant === null) {
+        console.log('[SCHEDULER] makeSpace loop found null at:', pos);
         break;
       }
       if (occupant.type === 'W') {
+        console.log('[SCHEDULER] makeSpace loop found W at:', pos);
         break;
       }
       if (occupant.type === 'A') {
         // CRITICAL FIX: If we hit a blocked appointment, we CANNOT shift this block.
         // We must skip this entire block and try finding space AFTER it.
-        // This prevents BreakBlocks and Completed appointments from being moved.
         if (occupant.id.startsWith('__blocked_') || occupant.id.startsWith('__reserved_')) {
-          return makeSpaceForWalkIn(pos + 1, isExistingWalkIn);
+          console.log('[SCHEDULER] makeSpace loop found blocked at:', pos, occupant.id);
+          if (blockPositions.length === 0) {
+            console.log('[SCHEDULER] Candidate pos is blocked, recursing to:', pos + 1);
+            return makeSpaceForWalkIn(pos + 1, isExistingWalkIn);
+          }
+          console.log('[SCHEDULER] Found block after shiftable items, breaking loop to execute shift.');
+          break;
         }
         blockPositions.push(pos);
       }
     }
+    console.log('[SCHEDULER] Block positions identified:', blockPositions);
 
     if (blockPositions.length === 0) {
       return { position: candidatePosition, shifts: [] };
@@ -477,61 +509,101 @@ export function computeWalkInSchedule({
       }
     }
 
-    // Check if interval logic should be enforced before filling empty slots
-    // Note: shouldEnforceInterval was already calculated above for bubble logic check
-    // This ensures interval logic works the same way before and after consultation starts
+    // CRITICAL FIX: Always fill empty slots first, regardless of spacing logic
+    // Spacing logic should only apply when there are no empty slots available
+    // This ensures walk-ins use available physical slots before creating overflow slots
+    let spacingTargetPosition = -1;
 
-    // Only fill empty slots if interval logic shouldn't be enforced
-    // (e.g., no spacing configured or no advance appointments available)
-    if (!shouldEnforceInterval) {
-      for (let pos = effectiveFirstFuturePosition; pos < positionCount; pos += 1) {
-        const slotMeta = orderedSlots[pos];
-        if (isAfter(slotMeta.time, oneHourFromNow)) {
-          break;
-        }
-        if (isBefore(slotMeta.time, now)) {
-          continue;
-        }
-        if (occupancy[pos] === null) {
-          assignedPosition = pos;
-          break;
-        }
+    // 1. Calculate spacing target first
+    // Note: anchorPosition and advanceAfterAnchor are already calculated above (lines 423-424)
+    console.log('[SCHEDULER] Spacing logic prep:', {
+      anchorPosition,
+      advanceAfterAnchor,
+      spacing,
+      hasAdvanceAppointments: advanceAfterAnchor > 0
+    });
+
+    const hasAdvanceAppointments = advanceAfterAnchor > 0;
+    const isSpacingActive = hasAdvanceAppointments && spacing > 0 && advanceAfterAnchor >= spacing;
+
+    if (isSpacingActive) {
+      const nthAdvancePosition = findNthAdvanceAfter(anchorPosition, spacing);
+      console.log('[SCHEDULER] Found nth advance position:', { nth: spacing, position: nthAdvancePosition });
+      if (nthAdvancePosition !== -1) {
+        spacingTargetPosition = nthAdvancePosition + 1;
+        console.log('[SCHEDULER] Spacing target calculated:', spacingTargetPosition);
+      }
+    } else if (hasAdvanceAppointments) {
+      // Fallback to last advance position if not enough spacing interval
+      const lastAdvancePosition = findLastAdvanceAfter(anchorPosition);
+      // Only use this fallback if we haven't placed enough walk-ins yet? 
+      // Actually, if we haven't reached spacing threshold, we should try to fill gaps first.
+      console.log('[SCHEDULER] Using last advance position (fallback):', lastAdvancePosition);
+      if (lastAdvancePosition !== -1) {
+        // If we are strictly following spacing, we might want to wait? 
+        // But usually we append to end if not enough advance apps.
+        // Let's set it as a potential target
+        spacingTargetPosition = lastAdvancePosition + 1;
       }
     }
 
+    // 2. Check for empty slots, but prioritize spacing target if active
+    console.log('[SCHEDULER] Checking for empty slots with target limit:', spacingTargetPosition);
+
+    // Scan for empty slots
+    let validationLimitPosition = positionCount;
+    // If we have a spacing target, we only want to pick an empty slot if it's EARLIER or EQUAL to the target.
+    // Picking a later empty slot (like pos 17 when target is 14) defeats the purpose of queue priority.
+    if (spacingTargetPosition !== -1) {
+      validationLimitPosition = spacingTargetPosition + 1; // Allow checking up to the target itself
+    }
+
+    for (let pos = effectiveFirstFuturePosition; pos < positionCount; pos += 1) {
+      if (spacingTargetPosition !== -1 && pos > spacingTargetPosition) {
+        // If we passed the spacing target, stop looking for empty slots.
+        // We should enforce insertion at the spacing target instead.
+        console.log(`[SCHEDULER] Stopped empty slot search at ${pos} (target: ${spacingTargetPosition})`);
+        break;
+      }
+
+      const slotMeta = orderedSlots[pos];
+      if (isAfter(slotMeta.time, oneHourFromNow)) {
+        break;
+      }
+      if (isBefore(slotMeta.time, now)) {
+        console.log(`[SCHEDULER] Skipping past slot ${pos}: ${slotMeta.time.toISOString()} vs Now: ${now.toISOString()}`);
+        continue;
+      }
+      if (occupancy[pos] === null) {
+        assignedPosition = pos;
+        console.log('[SCHEDULER] Found acceptable empty slot:', assignedPosition);
+        break;
+      }
+    }
+
+    // 3. If no empty slot found (or empty slot was too far), use spacing target
+    if (assignedPosition === null && spacingTargetPosition !== -1) {
+      assignedPosition = null; // Ensure null to trigger makeSpace logic below
+      // We will pass spacingTargetPosition to makeSpaceForWalkIn
+    }
+
+
+    if (assignedPosition !== null) {
+      console.log('[SCHEDULER] Assigned to empty slot:', assignedPosition);
+    } else {
+      console.log('[SCHEDULER] No acceptable empty slots found, attempting spacing logic');
+    }
+
     if (assignedPosition === null) {
-      const anchorPosition = getLastWalkInPosition();
-      let targetPosition = -1;
+      let targetPosition = spacingTargetPosition;
 
-      const advanceAfterAnchor = countAdvanceAfter(anchorPosition);
-
-      // CRITICAL FIX: Only apply spacing logic if there are advance appointments
-      // In walk-in-only scenarios, place walk-ins sequentially without spacing
-      const hasAdvanceAppointments = advanceAfterAnchor > 0;
-
-      if (hasAdvanceAppointments && spacing > 0 && advanceAfterAnchor >= spacing) {
-        const nthAdvancePosition = findNthAdvanceAfter(anchorPosition, spacing);
-        if (nthAdvancePosition !== -1) {
-          targetPosition = nthAdvancePosition + 1;
-        }
-      }
-
-      if (targetPosition === -1 && hasAdvanceAppointments) {
-        const lastAdvancePosition = findLastAdvanceAfter(anchorPosition);
-        if (lastAdvancePosition !== -1) {
-          targetPosition = lastAdvancePosition + 1;
-        }
-      }
-
+      // Re-run fallback logic if target is still -1
       if (targetPosition === -1) {
         targetPosition = findFirstEmptyPosition(effectiveFirstFuturePosition);
       }
 
-      // CRITICAL: Don't fall back to slot 0 if all slots are filled
-      // This prevents incorrect slot 0 assignment when all slots are occupied
-      // Only try slot 0 if we haven't found a position and effectiveFirstFuturePosition is 0
+      // Slot 0 fallback
       if (targetPosition === -1 && effectiveFirstFuturePosition === 0) {
-        // Only try slot 0 if it's the first future position (meaning no past slots)
         const slot0Empty = occupancy[0] === null;
         if (slot0Empty) {
           targetPosition = 0;
@@ -542,6 +614,14 @@ export function computeWalkInSchedule({
         targetPosition === -1 ? effectiveFirstFuturePosition : targetPosition,
         false
       );
+
+      console.log('[SCHEDULER] makeSpaceForWalkIn result:', {
+        targetPosition,
+        preparedPosition: prepared.position,
+        shiftsCount: prepared.shifts.length,
+        shifts: prepared.shifts
+      });
+
       if (prepared.position === -1) {
         // Proceed to fallback
       } else {
@@ -552,6 +632,7 @@ export function computeWalkInSchedule({
           }
         });
         assignedPosition = prepared.position;
+        console.log('[SCHEDULER] Assigned position set to:', assignedPosition);
       }
     }
 
@@ -577,6 +658,47 @@ export function computeWalkInSchedule({
       });
     }
   }
+
+  // CRITICAL FIX: Add ALL appointments from occupancy to assignments map
+  // Previously, only walk-ins were added via applyAssignment, but advance appointments
+  // were only tracked in occupancy array and never added to assignments.
+  console.log('[SCHEDULER] Adding occupancy appointments to assignments map...');
+  occupancy.forEach((occupant, position) => {
+    if (occupant && occupant.type === 'A' && !assignments.has(occupant.id)) {
+      const slotMeta = orderedSlots[position];
+      if (slotMeta) {
+        assignments.set(occupant.id, {
+          id: occupant.id,
+          slotIndex: slotMeta.index,
+          sessionIndex: slotMeta.sessionIndex,
+          slotTime: slotMeta.time,
+        });
+        console.log(`[SCHEDULER] Added ${occupant.id} from occupancy[${position}] to assignments`);
+      }
+    }
+  });
+
+  // CRITICAL FIX: Ensure overflow/colliding appointments are included in assignments
+  // so they are counted for "Patients Ahead" logic.
+  // Collisions happen when multiple appointments map to the same slot (e.g. Breaks + Patients).
+  // We assigns them to the same slot metadata.
+  console.log('[SCHEDULER] Processing overflow appointments...', { overflowCount: overflowAdvance.length });
+  overflowAdvance.forEach(item => {
+    if (!assignments.has(item.id) && item.sourcePosition !== -1) {
+      const slotMeta = orderedSlots[item.sourcePosition];
+      if (slotMeta) {
+        assignments.set(item.id, {
+          id: item.id,
+          slotIndex: slotMeta.index,
+          sessionIndex: slotMeta.sessionIndex,
+          slotTime: slotMeta.time,
+        });
+        console.log(`[SCHEDULER] Added ${item.id} from overflow to assignments`);
+      }
+    }
+  });
+
+  console.log('[SCHEDULER] Final assignments count:', assignments.size);
 
   if (DEBUG) {
     console.info('[walk-in scheduler] assignments complete', {

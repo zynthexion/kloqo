@@ -392,7 +392,7 @@ function ConsultTodayContent() {
         return R * c;
     };
 
-    // Check if walk-in is available (30 minutes before first session starts, closes 15 minutes before effective end incl. extensions)
+    // Check if walk-in is available (30 minutes before EACH session starts, closes 15 minutes before EACH session effective end)
     const isWalkInAvailable = (doctor: Doctor): boolean => {
         if (!doctor.availabilitySlots?.length) return false;
 
@@ -400,23 +400,22 @@ function ConsultTodayContent() {
         const todayDay = getClinicDayOfWeek(now);
         const todaysAvailability = doctor.availabilitySlots.find(s => s.day === todayDay);
 
-        if (!todaysAvailability || todaysAvailability.timeSlots.length === 0) return false;
+        if (!todaysAvailability || !todaysAvailability.timeSlots || todaysAvailability.timeSlots.length === 0) return false;
 
-        const firstSession = todaysAvailability.timeSlots[0];
-        const lastSessionIndex = todaysAvailability.timeSlots.length - 1;
-        const lastSession = todaysAvailability.timeSlots[lastSessionIndex];
+        // Check if ANY session is currently "open" for walk-in
+        return todaysAvailability.timeSlots.some((session, index) => {
+            const startTime = parseTime(session.from, now);
 
-        const startTime = parseTime(firstSession.from, now);
+            // Use session-aware effective end (includes extensions). Fallback to original end.
+            const effectiveEnd = getSessionEnd(doctor, now, index) || parseTime(session.to, now);
 
-        // Use session-aware effective end (includes extensions). Fallback to original end.
-        const effectiveEnd = getSessionEnd(doctor, now, lastSessionIndex) || parseTime(lastSession.to, now);
+            // Walk-in opens 30 minutes before session starts
+            const walkInStartTime = subMinutes(startTime, 30);
+            // Walk-in closes 15 minutes before consultation end
+            const walkInEndTime = subMinutes(effectiveEnd, 15);
 
-        // Walk-in opens 30 minutes before the first session starts
-        const walkInStartTime = subMinutes(startTime, 30);
-        // Walk-in closes 15 minutes before consultation end
-        const walkInEndTime = subMinutes(effectiveEnd, 15);
-
-        return isWithinInterval(now, { start: walkInStartTime, end: walkInEndTime });
+            return isWithinInterval(now, { start: walkInStartTime, end: walkInEndTime });
+        });
     };
 
     const handleScanQR = async () => {

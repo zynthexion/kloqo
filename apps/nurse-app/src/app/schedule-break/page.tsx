@@ -849,6 +849,7 @@ function ScheduleBreakContent() {
             const startDate = parseISO(startSlot.isoString);
             const endDate = parseISO(endSlot.isoString);
             const slotDuration = doctor.averageConsultingTime || 15;
+            console.log('[ScheduleBreak] Using slotDuration:', slotDuration);
 
             const selectedBreakSlots: string[] = [];
             let currentTime = new Date(startDate);
@@ -954,7 +955,7 @@ function ScheduleBreakContent() {
                     selectedDate,
                     doctor.name,
                     clinicId,
-                    doctor.averageConsultingTime
+                    slotDuration // Pass the extracted duration
                 );
             } catch (error) {
                 toast({

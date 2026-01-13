@@ -127,40 +127,66 @@ export async function shiftAppointmentsForNewBreak(
 
         if (!doctorSnap.empty) {
             doctorData = doctorSnap.docs[0].data();
+
+            // HARDEN: Use DB value if valid, overriding function argument
+            if (doctorData.averageConsultingTime) {
+                console.log('[BREAK SERVICE] Overriding consulting time from DB:', doctorData.averageConsultingTime);
+                averageConsultingTime = doctorData.averageConsultingTime;
+            }
+
             const dayOfWeek = getClinicDayOfWeek(date);
             const availabilitySlot = doctorData.availabilitySlots?.find((s: any) => s.day === dayOfWeek);
             if (availabilitySlot?.timeSlots?.[sessionIndex]) {
                 const sessionTime = availabilitySlot.timeSlots[sessionIndex];
                 sessionStart = parseTime(sessionTime.from, date);
 
-                // Calculate slotIndexOffset by summing slots in previous sessions
-                // This is crucial because slotIndex is absolute for the day, but our 
-                // break calculation is session-relative.
-                const extensions = doctorData.availabilityExtensions?.[getClinicDateString(date)]?.sessions || [];
+                sessionStart = parseTime(sessionTime.from, date);
 
-                for (let i = 0; i < sessionIndex; i++) {
-                    const prevSession = availabilitySlot.timeSlots[i];
-                    if (prevSession) {
-                        const psStart = parseTime(prevSession.from, date);
-                        let psEnd = parseTime(prevSession.to, date);
+                // CRITICAL FIX: Use Segmented Indexing (1000, 2000...) instead of Continuous Summation
+                // Default base offset
+                let calculatedOffset = sessionIndex * 1000;
 
-                        // CRITICAL: Include extensions from previous sessions in the absolute offset
-                        // This matches how the Patient and Nurse apps calculate slotIndex
-                        const prevExt = extensions.find((s: any) => s.sessionIndex === i);
-                        if (prevExt && prevExt.totalExtendedBy > 0) {
-                            psEnd = addMinutes(psEnd, prevExt.totalExtendedBy);
+                // DYNAMIC CALIBRATION: Check existing appointments to determine exact offset (handling 0-based vs 1-based)
+                // We scan the snapshot for a valid appointment to anchor our index calculation.
+                if (!snapshot.empty) {
+                    for (const docSnap of snapshot.docs) {
+                        const appt = docSnap.data() as Appointment;
+                        const baseTimeStr = appt.arriveByTime || appt.time;
+                        if (typeof appt.slotIndex === 'number' && baseTimeStr) {
+                            const apptTime = parseTime(baseTimeStr, date);
+                            // Only use if same session
+                            if (appt.sessionIndex === sessionIndex) {
+                                const diffMinutes = differenceInMinutes(apptTime, sessionStart);
+                                const slotDiff = Math.floor(diffMinutes / averageConsultingTime);
+                                const impliedOffset = appt.slotIndex - slotDiff;
+
+                                // Sanity check: Offset should be close to sessionIndex * 1000
+                                if (Math.abs(impliedOffset - (sessionIndex * 1000)) < 100) {
+                                    calculatedOffset = impliedOffset;
+                                    console.log('[BREAK SERVICE] Calibrated slotIndexOffset:', calculatedOffset, 'using appt', appt.id);
+                                    break;
+                                }
+                            }
                         }
-
-                        const durationInMin = differenceInMinutes(psEnd, psStart);
-                        slotIndexOffset += Math.ceil(durationInMin / averageConsultingTime);
                     }
                 }
+
+                slotIndexOffset = calculatedOffset;
 
                 const breakStartDiff = differenceInMinutes(breakStart, sessionStart);
                 const breakEndDiff = differenceInMinutes(breakEnd, sessionStart);
 
                 startSlotIndex = Math.floor(breakStartDiff / averageConsultingTime) + slotIndexOffset;
                 endSlotIndex = Math.ceil(breakEndDiff / averageConsultingTime) - 1 + slotIndexOffset;
+
+                // Safety: Expand range to include any pre-identified cancelled slots (from Time Matching)
+                // This ensures we don't miss slots due to rounding or slight time misalignments
+                if (cancelledSlotIndices.size > 0) {
+                    const minCancelled = Math.min(...Array.from(cancelledSlotIndices));
+                    const maxCancelled = Math.max(...Array.from(cancelledSlotIndices));
+                    startSlotIndex = Math.min(startSlotIndex, minCancelled);
+                    endSlotIndex = Math.max(endSlotIndex, maxCancelled);
+                }
 
                 console.log('[BREAK SERVICE] Calculated indices for session', sessionIndex, {
                     slotIndexOffset,

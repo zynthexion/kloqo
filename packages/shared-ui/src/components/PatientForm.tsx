@@ -876,7 +876,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     // We trust the backend calculateWalkInDetails to decide if a walk-in is available.
                     // If it returns a result, we allow it even if it overflows the nominal session.
                     const isOutside = availabilityEnd ? isAfter(apptEnd, availabilityEnd) : false;
-                    const canProceed = true; // Trust the service result for walk-ins
+                    // Enforce availability check for Patient App
+                    const canProceed = !isOutside;
 
                     console.log('[PF:ESTIMATE] Availability Check (RELAXED)', {
                         apptEnd: getClinicTimeString(apptEnd),
@@ -893,8 +894,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         });
                         toast({
                             variant: "destructive",
-                            title: "Walk-in Not Available",
-                            description: `${t.consultToday.doctorNotAvailableTill} ${availabilityEndLabel}. ${t.consultToday.estimate} ${getClinicTimeString(adjustedEstimatedTime)}`,
+                            title: t.consultToday.bookingFailed,
+                            description: t.consultToday.unableToBookDoctor,
                         });
                         setIsSubmitting(false);
                         return;

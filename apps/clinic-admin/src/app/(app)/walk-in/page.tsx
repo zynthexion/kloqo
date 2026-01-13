@@ -237,19 +237,73 @@ function WalkInRegistrationContent() {
   };
 
 
+  const [activeAppointmentsCount, setActiveAppointmentsCount] = useState<Record<number, number>>({});
+
+  // Listen to active appointments to handle overtime logic
+  useEffect(() => {
+    if (!doctor || !clinicId) return;
+
+    const todayDateStr = format(currentTime, "d MMMM yyyy");
+    const q = query(
+      collection(db, 'appointments'),
+      where('clinicId', '==', clinicId),
+      where('doctor', '==', doctor.name), // Ideally use doctorId, but system uses name often. Using doctor ID is safer if available in schema.
+      where('date', '==', todayDateStr),
+      where('status', 'in', ['Pending', 'Confirmed', 'Skipped', 'No-show'])
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const counts: Record<number, number> = {};
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        // Assuming sessionIndex is stored. If not, this logic requires sessionIndex.
+        if (typeof data.slotIndex === 'number') {
+          // We need sessionIndex. Most appointments have it.
+          // If strictly relying on slotIndex is hard, we rely on data.sessionIndex if available.
+          const sIndex = data.sessionIndex;
+          if (typeof sIndex === 'number') {
+            counts[sIndex] = (counts[sIndex] || 0) + 1;
+          }
+        }
+      });
+      setActiveAppointmentsCount(counts);
+    }, (err) => {
+      console.error("Error listening to appointments:", err);
+    });
+
+    return () => unsubscribe();
+  }, [doctor, clinicId, currentTime]); // Re-subscribe if date changes (midnight)
+
   const isDoctorConsultingNow = useMemo(() => {
     if (!doctor?.availabilitySlots) return false;
 
     const todayDay = format(currentTime, 'EEEE');
     const todaysAvailability = doctor.availabilitySlots.find(s => s.day === todayDay);
-    if (!todaysAvailability) return false;
+    if (!todaysAvailability || !todaysAvailability.timeSlots) return false;
 
-    return todaysAvailability.timeSlots.some(slot => {
+    return todaysAvailability.timeSlots.some((slot, index) => {
       const startTime = parseTime(slot.from, currentTime);
-      const endTime = parseTime(slot.to, currentTime);
-      return isWithinInterval(currentTime, { start: startTime, end: endTime });
+
+      // Open 30 mins before session start
+      const openTime = subMinutes(startTime, 30);
+      if (isBefore(currentTime, openTime)) return false;
+
+      // Calculate logic end time
+      // 15 minutes buffer NOT applicable for clinic/nurse apps
+      const effectiveEnd = getSessionEnd(doctor, currentTime, index) || parseTime(slot.to, currentTime);
+
+      // If within normal hours (incl extension) -> Available
+      if (!isAfter(currentTime, effectiveEnd)) return true;
+
+      // If Overtime: Only available if there are active appointments in this session
+      const activeCount = activeAppointmentsCount[index] || 0;
+      if (activeCount > 0) {
+        return true; // Keep open for queue
+      }
+
+      return false; // Ended and empty
     });
-  }, [doctor, currentTime]);
+  }, [doctor, currentTime, activeAppointmentsCount]);
 
   useEffect(() => {
     if (!clinicId) return;

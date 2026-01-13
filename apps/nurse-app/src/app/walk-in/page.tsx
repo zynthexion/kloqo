@@ -17,7 +17,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppFrameLayout from '@/components/layout/app-frame';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, updateDoc, arrayUnion, increment, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, updateDoc, arrayUnion, increment, setDoc, deleteDoc, runTransaction, onSnapshot } from 'firebase/firestore';
 import type { Appointment, Doctor, Patient } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { format, isWithinInterval, subMinutes, parse, addMinutes, isBefore, differenceInMinutes, parseISO, isAfter } from 'date-fns';
@@ -294,27 +294,73 @@ function WalkInRegistrationContent() {
   };
 
 
+  const [activeAppointmentsCount, setActiveAppointmentsCount] = useState<Record<number, number>>({});
+
+  // Listen to active appointments to handle overtime logic
+  useEffect(() => {
+    if (!doctor || !clinicId) return;
+
+    const todayDateStr = format(currentTime, "d MMMM yyyy");
+    const q = query(
+      collection(db, 'appointments'),
+      where('clinicId', '==', clinicId),
+      where('doctor', '==', doctor.name),
+      where('date', '==', todayDateStr),
+      where('status', 'in', ['Pending', 'Confirmed', 'Skipped', 'No-show'])
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const counts: Record<number, number> = {};
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (typeof data.slotIndex === 'number') {
+          const sIndex = data.sessionIndex;
+          if (typeof sIndex === 'number') {
+            counts[sIndex] = (counts[sIndex] || 0) + 1;
+          }
+        }
+      });
+      setActiveAppointmentsCount(counts);
+    }, (err) => {
+      console.error("Error listening to appointments:", err);
+    });
+
+    return () => unsubscribe();
+  }, [doctor, clinicId, currentTime]);
+
   // Session-aware walk-in availability check
   const isDoctorConsultingNow = useMemo(() => {
     if (!doctor?.availabilitySlots) return false;
 
     const today = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
+    const dayOfWeek = format(currentTime, 'EEEE');
+    const todaysAvailability = doctor.availabilitySlots.find(s => s.day === dayOfWeek);
 
-    // Get current active session (session-aware walk-in)
-    const activeSession = getCurrentActiveSession(doctor, currentTime, today);
+    if (!todaysAvailability || !todaysAvailability.timeSlots) return false;
 
-    if (!activeSession) return false;
+    // Check if ANY session is currently "open" for walk-in
+    return todaysAvailability.timeSlots.some((session, index) => {
+      const startTime = parseTime(session.from, currentTime);
 
-    // Walk-in window: 30 minutes before session start to 15 minutes before effective end
-    // Effective end already includes break duration in getCurrentActiveSession
-    const walkInOpenTime = subMinutes(activeSession.sessionStart, 30);
-    const walkInCloseTime = subMinutes(activeSession.effectiveEnd, 15);
+      // Open 30 mins before session start
+      const openTime = subMinutes(startTime, 30);
+      if (isBefore(currentTime, openTime)) return false; // Too early
 
-    // Allow access during normal walk-in window OR during the 15-minute force booking window
-    // Force booking window: between walkInCloseTime and effectiveEnd
-    return (currentTime >= walkInOpenTime && currentTime <= walkInCloseTime) ||
-      (currentTime > walkInCloseTime && currentTime <= activeSession.effectiveEnd);
-  }, [doctor, currentTime]);
+      // Calculate logic end time
+      const effectiveEnd = getSessionEnd(doctor, currentTime, index) || parseTime(session.to, currentTime);
+
+      // If within normal hours (incl extension) -> Available
+      if (!isAfter(currentTime, effectiveEnd)) return true;
+
+      // If Overtime: Only available if there are active appointments in this session
+      const activeCount = activeAppointmentsCount[index] || 0;
+      if (activeCount > 0) {
+        return true; // Keep open for queue
+      }
+
+      return false; // Ended and empty
+    });
+  }, [doctor, currentTime, activeAppointmentsCount]);
 
   useEffect(() => {
     if (!clinicId) return;
@@ -417,6 +463,41 @@ function WalkInRegistrationContent() {
           numericToken,
           isForceBooked,
         });
+
+        // CRITICAL CHECK: Ensure the estimated time is within availability
+        // CRITICAL CHECK: Ensure the estimated time is within availability
+        // Match the strict check used in the Estimate Modal (lines 1125+)
+        const apptDateForSession = getClinicNow();
+        const sessionEnd = getSessionEnd(doctor, apptDateForSession, sessionIndex); // Specific session end
+        const consultationDuration = doctor.averageConsultingTime || 15;
+        const apptEnd = addMinutes(estimatedTime, consultationDuration);
+
+        // If sessionEnd exists (it should), check strict overflow
+        // If sessionEnd is missing, fallback to general availabilityEnd
+        let isStrictlyOutside = false;
+
+        if (sessionEnd) {
+          isStrictlyOutside = isAfter(apptEnd, sessionEnd);
+        } else {
+          const availabilityEnd = getAvailabilityEndForDate(doctor, estimatedTime);
+          if (availabilityEnd) {
+            isStrictlyOutside = isAfter(estimatedTime, availabilityEnd);
+          }
+        }
+
+        if (isStrictlyOutside) {
+          console.log('[NURSE:FORCE-BOOK] Appointment strictly outside availability:', {
+            estimatedTime: getClinicTimeString(estimatedTime),
+            apptEnd: getClinicTimeString(apptEnd),
+            sessionEnd: sessionEnd ? getClinicTimeString(sessionEnd) : 'N/A'
+          });
+
+          // Trigger force book logic
+          setPendingForceBookData(values);
+          setShowForceBookDialog(true);
+          setIsSubmitting(false);
+          return;
+        }
       } catch (err: any) {
         console.error('[NURSE:GET-TOKEN] Error calculating walk-in details:', err);
         const errorMessage = err.message || "";

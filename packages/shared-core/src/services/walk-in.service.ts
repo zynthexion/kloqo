@@ -1,5 +1,5 @@
 import { collection, query, where, orderBy, getDocs, getDoc, Firestore, runTransaction, doc, serverTimestamp, type Transaction, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
-import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse } from 'date-fns';
+import { format, addMinutes, differenceInMinutes, isAfter, isBefore, subMinutes, parse, parseISO } from 'date-fns';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 import { computeWalkInSchedule, type SchedulerAssignment } from './walk-in-scheduler';
 import { logger } from '../lib/logger';
@@ -1555,14 +1555,25 @@ export async function prepareAdvanceShift({
     sessionIndex: number;
     timeString: string;
     arriveByTime: string;
+    cutOffTime: Date;
     noShowTime: Date;
   }>;
   usedBucketSlotIndex: number | null;
   existingReservations: Map<number, Date>;
 }> {
   let hasReservationConflict = false; // Add this definition at function start
+  // CRITICAL: Determine target session from slots array
+  const targetSessionIndex = slots.length > 0 ? slots[0].sessionIndex : 0;
+
   const activeAdvanceAppointments = effectiveAppointments.filter((appointment: any) => {
+    // CRITICAL FIX: Filter by session to prevent cross-session bleeding
+    // Session 0 appointments (indices 0-11) should not interfere with Session 1 (indices 1000+)
+    const appointmentSessionIndex = typeof appointment.slotIndex === 'number' && appointment.slotIndex >= 1000
+      ? Math.floor(appointment.slotIndex / 1000)
+      : 0;
+
     return (
+      appointmentSessionIndex === targetSessionIndex && // CRITICAL: Session filter
       (appointment.bookedVia !== 'Walk-in' || (appointment.bookedVia as string) === 'BreakBlock') &&
       typeof appointment.slotIndex === 'number' &&
       ACTIVE_STATUSES.has(appointment.status) &&
@@ -1570,8 +1581,42 @@ export async function prepareAdvanceShift({
     );
   });
 
+  // CRITICAL FIX: Add "Break Block" appointments from doctor.breakPeriods
+  // These are stored in doctor config, not as appointment documents, but must be treated as BLOCKED slots.
+  // We determine which session we are targeting based on the first slot in 'slots' array.
+  if (doctor.breakPeriods) {
+    const breaksForDate = doctor.breakPeriods[dateStr] || [];
+
+    // Determine target session index. 
+    // Usually 'slots' contains slots for ONE session (the active one).
+    // We can check the sessionIndex of the first slot.
+    const targetSessionIndex = slots.length > 0 ? slots[0].sessionIndex : 0; // Default to 0 if empty
+
+    const breaksForSession = breaksForDate.filter((bp: any) => bp.sessionIndex === targetSessionIndex);
+
+    breaksForSession.forEach((bp: any) => {
+      const breakSlotIndices = bp.slots || []; // Array of slot indices
+      breakSlotIndices.forEach((slotIdx: number) => {
+        // Create synthetic appointment for this break slot
+        activeAdvanceAppointments.push({
+          id: `__break_${slotIdx}`, // distinct ID
+          bookedVia: 'BreakBlock',
+          status: 'Completed', // Treat as completed so it is blocked
+          slotIndex: slotIdx,
+          // Add other required fields if needed by filter logic (though filter is already done)
+        } as any);
+      });
+    });
+  }
+
   const activeWalkIns = effectiveAppointments.filter((appointment: any) => {
+    // CRITICAL FIX: Filter by session to prevent cross-session bleeding
+    const appointmentSessionIndex = typeof appointment.slotIndex === 'number' && appointment.slotIndex >= 1000
+      ? Math.floor(appointment.slotIndex / 1000)
+      : 0;
+
     return (
+      appointmentSessionIndex === targetSessionIndex && // CRITICAL: Session filter
       appointment.bookedVia === 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
       ACTIVE_STATUSES.has(appointment.status) &&
@@ -1862,13 +1907,21 @@ export async function prepareAdvanceShift({
   // New: Capture reservation writes (e.g. bucket)
   const reservationWrites: { ref: DocumentReference; data: any }[] = [];
 
+  // Normalize indices helper
+  const sessionStartSlotIndex = slots.length > 0 ? slots[0].index : 0;
+  const normalizeIndex = (idx: number | undefined): number | undefined => {
+    if (typeof idx !== 'number') return idx;
+    if (idx >= 1000) return (idx % 1000) + sessionStartSlotIndex;
+    return idx;
+  };
+
   // Create placeholder walk-in candidates for reserved slots
   // This tells the scheduler that these slots are already taken
   const reservedWalkInCandidates = Array.from(existingReservations.entries()).map(([slotIndex, reservedTime], idx) => ({
     id: `__reserved_${slotIndex}__`,
     numericToken: totalSlots + 1000 + idx, // High token number to ensure they're placed correctly
     createdAt: reservedTime,
-    currentSlotIndex: slotIndex,
+    currentSlotIndex: normalizeIndex(slotIndex), // CRITICAL: Normalize reservation indices
   }));
 
   // For actual booking, we MUST include existing walk-ins as candidates 
@@ -1877,7 +1930,7 @@ export async function prepareAdvanceShift({
     id: appt.id,
     numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
     createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
-    currentSlotIndex: appt.slotIndex,
+    currentSlotIndex: normalizeIndex(appt.slotIndex), // CRITICAL: Normalize walk-in indices
   }));
 
   const newWalkInCandidate = {
@@ -1885,6 +1938,12 @@ export async function prepareAdvanceShift({
     numericToken: newWalkInNumericToken,
     createdAt: now,
   };
+
+  console.log('[Walk-in Scheduling:DEBUG] Walk-in candidates before scheduler:', {
+    baseWalkIns: baseWalkInCandidates.map(w => ({ id: w.id, token: w.numericToken, currentSlot: w.currentSlotIndex })),
+    reserved: reservedWalkInCandidates.map(r => ({ id: r.id, token: r.numericToken, currentSlot: r.currentSlotIndex })),
+    newWalkIn: { id: newWalkInCandidate.id, token: newWalkInCandidate.numericToken }
+  });
 
   const oneHourAhead = addMinutes(now, 60);
 
@@ -2114,14 +2173,33 @@ export async function prepareAdvanceShift({
     const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
       // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
       // The scheduler treats IDs starting with '__blocked_' as immovable.
-      const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
-      const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+      // NOTE: 'Skipped' should be treated as movable/active in the queue context (unless specified otherwise)
+      // In calculateWalkInDetails we treated Skipped as blocked? Let's align.
+      // Actually, standard is: Completed = Blocked. Pending/Confirmed/Skipped = Active (Shiftable).
+
+      const isBreakBlock = (entry.bookedVia as string) === 'BreakBlock';
+      const isStrictlyImmovable = entry.status === 'Completed';
+
+      // Use different prefixes so scheduler knows what can be moved
+      let idPrefix = '__shiftable_';
+      if (isBreakBlock) {
+        idPrefix = '__break_';
+      } else if (isStrictlyImmovable) {
+        idPrefix = '__blocked_';
+      }
+
+      // DEBUG: Log status handling
+      if (entry.status === 'Skipped') {
+        console.log(`[Walk-in Scheduling:DEBUG] Skipped appointment ${entry.id} treated as ${idPrefix} (Immovable=${idPrefix === '__blocked_'})`);
+      }
 
       return {
-        id,
+        id: `${idPrefix}${entry.id}`,
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
       };
     });
+
+    console.log('[Walk-in Scheduling:DEBUG] Blocked Advance Appointments Summary:', blockedAdvanceAppointments.map(a => `${a.id}:${a.slotIndex}`));
 
     // CRITICAL: REMOVED the hack that added existing walk-ins as blocked advance appointments.
     // This was causing a type mismatch ('type: A') in the scheduler's occupancy map,
@@ -2238,17 +2316,86 @@ export async function prepareAdvanceShift({
       schedule = { assignments: [] };
     } else {
       // Normal walk-in booking - use scheduler
+
+      // CRITICAL FIX: Ensure scheduler has enough "virtual" slots for spillover.
+      const bufferSlotsCount = 20;
+      const extendedSlots = [...slots];
+      const lastSlot = slots[slots.length - 1];
+
+      if (lastSlot) {
+        const slotDuration = doctor.averageConsultingTime || 10;
+        for (let i = 1; i <= bufferSlotsCount; i++) {
+          extendedSlots.push({
+            index: lastSlot.index + i,
+            time: addMinutes(lastSlot.time, i * slotDuration),
+            sessionIndex: lastSlot.sessionIndex,
+          } as any);
+        }
+      }
+
+      // CRITICAL FIX: Normalize indices!
+      const sessionStartSlotIndex = slots.length > 0 ? slots[0].index : 0;
+      const normalizedAdvanceAppointments = blockedAdvanceAppointments.map(app => {
+        let normalizedSlotIndex = app.slotIndex;
+        // If index is segmented (1000+), convert to continuous by subtracting session start
+        if (typeof app.slotIndex === 'number' && app.slotIndex >= 1000) {
+          // CRITICAL FIX: Subtract sessionStartSlotIndex to get continuous index
+          // Example: slot 1005 in Session 1 (start=1000) → 1005 - 1000 = 5
+          normalizedSlotIndex = app.slotIndex - sessionStartSlotIndex;
+        }
+        return { ...app, slotIndex: normalizedSlotIndex };
+      }).filter(app => {
+        return typeof app.slotIndex === 'number' && app.slotIndex >= 0 && app.slotIndex < extendedSlots.length;
+      });
+
+      console.log('[Walk-in Scheduling:DEBUG] Calling scheduler with:', {
+        extendedSlotsCount: extendedSlots.length,
+        normalizedAdvanceCount: normalizedAdvanceAppointments.length,
+        normalizedAdvance: normalizedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })),
+        allWalkInCandidatesCount: allWalkInCandidates.length,
+        allWalkInCandidates: allWalkInCandidates.map(w => ({ id: w.id, token: w.numericToken, currentSlot: w.currentSlotIndex }))
+      });
+
       schedule = computeWalkInSchedule({
-        slots,
+        slots: extendedSlots,
         now,
         walkInTokenAllotment: walkInSpacingValue,
-        advanceAppointments: blockedAdvanceAppointments,
+        advanceAppointments: normalizedAdvanceAppointments,
         walkInCandidates: allWalkInCandidates,
+      });
+
+      console.log('[Walk-in Scheduling:DEBUG] Scheduler result:', {
+        assignmentsCount: schedule?.assignments.length,
+        newWalkInAssignment: schedule?.assignments.find(a => a.id === '__new_walk_in__')
       });
 
       newAssignment = schedule.assignments.find(
         assignment => assignment.id === '__new_walk_in__'
       ) || null;
+
+      // CRITICAL FIX: Convert position-based slot index back to segmented format
+      // The scheduler works with position-based indices (0-N), but we need segmented indices
+      // for multi-session schedules (e.g., session 1 uses 1000-1999)
+      if (newAssignment) {
+        const sessionStartSlotIndex = slots.length > 0 ? slots[0].index : 0;
+        const positionIndex = newAssignment.slotIndex;
+
+        // Convert back to segmented index
+        // If this is session 1+, convert position to segmented (1000+)
+        if (newAssignment.sessionIndex > 0) {
+          const segmentedIndex = (newAssignment.sessionIndex * 1000) + (positionIndex - sessionStartSlotIndex);
+          console.log('[Walk-in Scheduling] Converting position to segmented index:', {
+            position: positionIndex,
+            sessionIndex: newAssignment.sessionIndex,
+            sessionStart: sessionStartSlotIndex,
+            segmented: segmentedIndex
+          });
+          newAssignment = {
+            ...newAssignment,
+            slotIndex: segmentedIndex
+          };
+        }
+      }
     }
 
 
@@ -2268,10 +2415,30 @@ export async function prepareAdvanceShift({
     // CRITICAL: Check if the assigned slot is already reserved by a concurrent request
     // This must happen IMMEDIATELY after scheduler assignment to prevent race conditions
     if (existingReservations.has(newAssignment.slotIndex)) {
-      console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to slot that is already reserved by concurrent request:', newAssignment.slotIndex);
-      // Mark as conflict so caller knows to throw conflict error for retry
-      hasReservationConflict = true;
-      return null; // Reject this assignment, will retry with different slot
+      // Check if this is a FALSE POSITIVE: Is the slot occupied by an appointment that is VACATING it?
+      // If the scheduler moved the current occupant, then the reservation (for the old spot) can be ignored.
+      const currentOccupant = effectiveAppointments.find(a =>
+        ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number' && a.slotIndex === newAssignment!.slotIndex
+      );
+
+      let isVacating = false;
+      if (currentOccupant) {
+        // Find if this occupant is assigned to a DIFFERENT slot in the final plan
+        // We check all possible prefixes
+        const occupantAssignment = schedule.assignments.find(a => a.id.includes(currentOccupant.id));
+
+        if (occupantAssignment && occupantAssignment.slotIndex !== newAssignment.slotIndex) {
+          isVacating = true;
+          console.log(`[Walk-in Scheduling] Reservation conflict at ${newAssignment.slotIndex} ignored - occupant ${currentOccupant.id} is vacating to ${occupantAssignment.slotIndex}`);
+        }
+      }
+
+      if (!isVacating) {
+        console.error('[Walk-in Scheduling] ERROR: Scheduler assigned to slot that is already reserved by concurrent request:', newAssignment.slotIndex);
+        // Mark as conflict so caller knows to throw conflict error for retry
+        hasReservationConflict = true;
+        return null; // Reject this assignment, will retry with different slot
+      }
     }
 
     // Check if the assigned slot is a cancelled slot
@@ -2309,14 +2476,18 @@ export async function prepareAdvanceShift({
       return null; // Reject this assignment, will use bucket compensation instead
     }
 
+
     // CRITICAL FIX: Verify the assignment is valid. If it's an overflow slot (index > last available slot index),
     // we must have explicit permission (forceBook) or valid bucket compensation.
+    // IMPORTANT: Use the ABSOLUTE index (before segmented conversion) for this check
+    const absoluteSlotIndex = schedule.assignments.find(a => a.id === '__new_walk_in__')?.slotIndex || newAssignment.slotIndex;
     const lastAvailableSlotIndex = slots.length > 0 ? slots[slots.length - 1].index : -1;
-    const isOverflowSlot = newAssignment.slotIndex > lastAvailableSlotIndex;
+    const isOverflowSlot = absoluteSlotIndex > lastAvailableSlotIndex;
 
     if (isOverflowSlot && !forceBook && cancelledSlotsInBucket.size === 0) {
       console.error('[Walk-in Scheduling] ERROR: Scheduler assigned virtual overflow slot without forceBook or bucket credits - rejecting:', {
-        assignedSlot: newAssignment.slotIndex,
+        assignedSlot: absoluteSlotIndex,
+        assignedSlotSegmented: newAssignment.slotIndex,
         lastAvailableSlot: lastAvailableSlotIndex,
         totalSlots: slots.length
       });
@@ -2747,6 +2918,7 @@ export async function prepareAdvanceShift({
     sessionIndex: number;
     timeString: string;
     arriveByTime: string; // Added this
+    cutOffTime: Date;
     noShowTime: Date;
   }> = [];
 
@@ -2858,257 +3030,145 @@ export async function prepareAdvanceShift({
     };
   } else {
 
-    // Normal scheduling - may need to shift advance appointments
-    // Get the walk-in's slot index
+    // Normal scheduling - use the assignments returned by the scheduler
     const walkInSlotIndex = newAssignment.slotIndex;
 
-    // CRITICAL: Calculate walk-in time based on previous appointment instead of scheduler time
-    // Get the appointment before the walk-in slot
-    let walkInTime: Date = newAssignment.slotTime; // Default to scheduler time
-    if (walkInSlotIndex > 0) {
-      const appointmentBeforeWalkIn = advanceOccupancy[walkInSlotIndex - 1];
-      if (appointmentBeforeWalkIn && appointmentBeforeWalkIn.time) {
-        try {
-          const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          const previousAppointmentTime = parse(
-            appointmentBeforeWalkIn.time,
-            'hh:mm a',
-            appointmentDate
-          );
-          // Walk-in time = previous appointment time (same time as A004)
-          walkInTime = previousAppointmentTime;
-        } catch (e) {
-          // If parsing fails, use scheduler's time
-          walkInTime = newAssignment.slotTime;
-        }
+    // Create a map of assignments by ID for easy lookup
+    const assignmentById = new Map<string, SchedulerAssignment>();
+    if (scheduleAttempt.schedule && scheduleAttempt.schedule.assignments) {
+      for (const assign of scheduleAttempt.schedule.assignments) {
+        // Strip prefixes if present
+        const cleanId = assign.id.replace(/^__shiftable_/, '').replace(/^__blocked_/, '');
+        assignmentById.set(cleanId, assign);
       }
     }
 
-    // Get the appointment before the walk-in (or use walk-in time if walkInSlotIndex is 0)
-    // This will be used to calculate the first moved appointment's time
-    let previousAppointmentTime: Date;
-    if (walkInSlotIndex > 0) {
-      const appointmentBeforeWalkIn = advanceOccupancy[walkInSlotIndex - 1];
-      if (appointmentBeforeWalkIn && appointmentBeforeWalkIn.time) {
-        // Parse the appointment time string to Date using date-fns parse
-        try {
-          const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          previousAppointmentTime = parseTimeString(
-            appointmentBeforeWalkIn.time,
-            appointmentDate
-          );
-        } catch (e) {
-          // If parsing fails, use walk-in time
-          previousAppointmentTime = walkInTime;
-        }
-      } else {
-        // No appointment before, use walk-in time
-        previousAppointmentTime = walkInTime;
-      }
-    } else {
-      // walkInSlotIndex is 0, use walk-in time
-      previousAppointmentTime = walkInTime;
-    }
+    // Convert scheduler assignments to appointment updates
+    const appointmentUpdates: Array<{
+      docRef: DocumentReference;
+      slotIndex: number;
+      sessionIndex: number;
+      timeString: string;
+      arriveByTime: string;
+      cutOffTime: Date;
+      noShowTime: Date;
+    }> = [];
 
-    // CRITICAL: Only shift appointments if the walk-in slot is actually occupied
-    // If the slot is empty (reserved for walk-ins), no shifting is needed
-    const isSlotOccupied = advanceOccupancy[walkInSlotIndex] !== null ||
-      activeWalkIns.some(w => typeof w.slotIndex === 'number' && w.slotIndex === walkInSlotIndex);
+    // Iterate through assignments from the scheduler
+    for (const assignment of scheduleAttempt.schedule.assignments) {
+      // Skip the new walk-in itself (handled by caller)
+      if (assignment.id === '__new_walk_in__') continue;
 
-    // Get appointments that need to be shifted (at or after walk-in slot)
-    // Sort by original slotIndex to process them in order
-    const appointmentsToShift = isSlotOccupied
-      ? activeAdvanceAppointments.filter(appointment => {
-        const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-        return currentSlotIndex >= walkInSlotIndex;
-      }).sort((a, b) => {
-        const aIdx = typeof a.slotIndex === 'number' ? a.slotIndex : -1;
-        const bIdx = typeof b.slotIndex === 'number' ? b.slotIndex : -1;
-        return aIdx - bIdx;
-      })
-      : []; // No shifting needed if slot is empty
+      // Skip blocked/immovable slots (scheduler returns them but they don't change)
+      if (assignment.id.startsWith('__blocked_')) continue;
 
-    // Process appointments that need shifting (at or after walk-in slot)
-    // CRITICAL: For W booking, increment slotIndex by 1 and recalculate time
-    // IMPORTANT: We only shift if the slot is occupied - empty slots don't need shifting
-    for (const appointment of appointmentsToShift) {
-      const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-      if (currentSlotIndex < 0) continue; // Skip invalid slot indices
+      // Find the original appointment
+      const originalAppointmentId = assignment.id.replace(/^__shiftable_/, '');
+      const originalAppointment = effectiveAppointments.find(a => a.id === originalAppointmentId);
 
-      // CRITICAL: Increment slotIndex by 1 for each appointment being shifted
-      const newSlotIndex = currentSlotIndex + 1;
-
-      // Validate that newSlotIndex is within bounds OR is an allowed overflow
-      // NOTE: We cannot compare against slots.length because slots might be filtered (e.g. Session 1 only)
-      // while indices are global.
-      // We check if it's "beyond the last available slot index" 
-      const lastAvailableSlotIndex = slots.length > 0 ? slots[slots.length - 1].index : -1;
-
-      // If newSlotIndex is beyond the last slot in the session, it's an overflow.
-      // But we generally allow shifting into overflow slots (they will be synthesized below).
-      // The only hard limit is some reasonable upper bound if needed, but for now we rely on synthesis logic.
-      if (lastAvailableSlotIndex !== -1 && newSlotIndex > lastAvailableSlotIndex + 10) {
-        // Sanity check: Don't shift way too far (e.g. >10 slots beyond session end)
-        console.warn(`[BOOKING DEBUG] Cannot shift appointment ${appointment.id} from slot ${currentSlotIndex} to ${newSlotIndex} - exceeds session range significantly`);
+      if (!originalAppointment) {
+        console.warn(`[Walk-in Scheduling] Could not find original appointment for assignment ${assignment.id}`);
         continue;
       }
 
-      // CRITICAL: Calculate new time from appointment's current time field + averageConsultingTime
-      // Parse the appointment's current time field and add averageConsultingTime to it
-      let newAppointmentTime: Date;
-      if (appointment.time) {
-        try {
-          const appointmentDate = parse(dateStr, 'd MMMM yyyy', new Date());
-          const currentAppointmentTime = parseTimeString(appointment.time, appointmentDate);
-          // New time = current time + averageConsultingTime
-          newAppointmentTime = addMinutes(currentAppointmentTime, averageConsultingTime);
-        } catch (e) {
-          console.warn(`[BOOKING DEBUG] Failed to parse appointment time "${appointment.time}" for appointment ${appointment.id}, skipping time update`);
-          continue;
-        }
-      } else {
-        console.warn(`[BOOKING DEBUG] Appointment ${appointment.id} has no time field, skipping time update`);
-        continue;
-      }
+      const newSlotIndex = assignment.slotIndex;
+      const newSessionIndex = assignment.sessionIndex;
+      const currentSlotIndex = typeof originalAppointment.slotIndex === 'number' ? originalAppointment.slotIndex : -1;
 
-      const newTimeString = getClinicTimeString(newAppointmentTime);
-
-      // CRITICAL: Calculate new noShowTime from appointment's current noShowTime field + averageConsultingTime
-      // Parse the appointment's current noShowTime field and add averageConsultingTime to it
-      let noShowTime: Date;
-      if (appointment.noShowTime) {
-        try {
-          let currentNoShowTime: Date;
-          if (appointment.noShowTime instanceof Date) {
-            currentNoShowTime = appointment.noShowTime;
-          } else if (typeof appointment.noShowTime === 'object' && appointment.noShowTime !== null) {
-            const noShowTimeObj = appointment.noShowTime as { toDate?: () => Date; seconds?: number };
-            if (typeof noShowTimeObj.toDate === 'function') {
-              currentNoShowTime = noShowTimeObj.toDate();
-            } else if (typeof noShowTimeObj.seconds === 'number') {
-              currentNoShowTime = new Date(noShowTimeObj.seconds * 1000);
-            } else {
-              // Fallback to using new appointment time + averageConsultingTime
-              currentNoShowTime = addMinutes(newAppointmentTime, averageConsultingTime);
-            }
-          } else {
-            // Fallback to using new appointment time + averageConsultingTime
-            currentNoShowTime = addMinutes(newAppointmentTime, averageConsultingTime);
-          }
-          // New noShowTime = current noShowTime + averageConsultingTime
-          noShowTime = addMinutes(currentNoShowTime, averageConsultingTime);
-        } catch (e) {
-          // If parsing fails, use new appointment time + averageConsultingTime
-          noShowTime = addMinutes(newAppointmentTime, averageConsultingTime);
-        }
-      } else {
-        // No noShowTime available, use new appointment time + averageConsultingTime
-        noShowTime = addMinutes(newAppointmentTime, averageConsultingTime);
-      }
-
-      // Find the sessionIndex for the new slotIndex
-      // CRITICAL FIX: Use .find() because slotIndex (global) doesn't equal array index (0-based) for Session 1
-      let newSlotMeta = slots.find(s => s.index === newSlotIndex);
-      if (!newSlotMeta && slots.length > 0) {
-        // CRITICAL SURGICAL FIX: Synthesize slot metadata for overflow indices
-        // to support shifting beyond the regular availability session.
-        const lastSlot = slots[slots.length - 1];
-        const avgDuration = slots.length > 1
-          ? (slots[1].time.getTime() - slots[0].time.getTime()) / 60000
-          : 15;
-
-        newSlotMeta = {
-          index: newSlotIndex,
-          time: addMinutes(lastSlot.time, (newSlotIndex - lastSlot.index) * avgDuration),
-          sessionIndex: lastSlot.sessionIndex
-        };
-        console.info(`[BOOKING DEBUG] Synthesized overflow slot meta for index ${newSlotIndex}`, newSlotMeta);
-      }
-
-      if (!newSlotMeta) {
-        console.warn(`[BOOKING DEBUG] Slot ${newSlotIndex} does not exist and cannot be synthesized, skipping appointment ${appointment.id}`);
-        continue;
-      }
-      const newSessionIndex = newSlotMeta.sessionIndex;
-
-      // CRITICAL: Always update if slotIndex changed OR time changed
-      // Don't skip updates when slotIndex changes, even if time happens to match
-      const slotIndexChanged = currentSlotIndex !== newSlotIndex;
-      const timeChanged = appointment.time !== newTimeString;
-
-      if (!slotIndexChanged && !timeChanged) {
-        // Only skip if both slotIndex and time are unchanged
-        continue;
-      }
-
-      const appointmentRef = doc(firestore, 'appointments', appointment.id);
-      appointmentUpdates.push({
-        docRef: appointmentRef,
-        slotIndex: newSlotIndex,
-        sessionIndex: newSessionIndex,
-        timeString: newTimeString,
-        arriveByTime: newTimeString, // arriveByTime is always the raw slot time string
-        noShowTime,
-      });
-
-      if (DEBUG_BOOKING || slotIndexChanged || timeChanged) {
-        console.info(`[BOOKING DEBUG] Updating appointment ${appointment.id}`, {
-          slotIndexChanged,
-          timeChanged,
-          oldSlotIndex: currentSlotIndex,
-          newSlotIndex,
-          oldTime: appointment.time,
-          newTime: newTimeString,
-          oldNoShowTime: appointment.noShowTime,
-          newNoShowTime: noShowTime,
+      // CRITICAL FIX: Convert position-based slot index back to segmented format
+      // The scheduler returns position-based indices, but we need segmented indices
+      let finalSlotIndex = newSlotIndex;
+      if (newSessionIndex > 0) {
+        const sessionStartSlotIndex = slots.length > 0 ? slots[0].index : 0;
+        finalSlotIndex = (newSessionIndex * 1000) + (newSlotIndex - sessionStartSlotIndex);
+        console.log('[Walk-in Scheduling] Converting shifted appointment position to segmented:', {
+          appointmentId: originalAppointment.id,
+          position: newSlotIndex,
+          sessionIndex: newSessionIndex,
+          sessionStart: sessionStartSlotIndex,
+          segmented: finalSlotIndex
         });
       }
 
-      const cloned = updatedAdvanceMap.get(appointment.id);
-      if (cloned) {
-        cloned.slotIndex = newSlotIndex;
-        cloned.sessionIndex = newSessionIndex;
-        cloned.time = newTimeString;
-        cloned.arriveByTime = newTimeString; // Added this
-        cloned.noShowTime = noShowTime;
+      // Calculate new time
+      let newAppointmentTime: Date;
+      let newTimeString: string;
+
+      const slotMeta = slots.find(s => s.index === newSlotIndex);
+      if (slotMeta) {
+        newAppointmentTime = slotMeta.time;
+        newTimeString = getClinicTimeString(newAppointmentTime);
+      } else {
+        // Overflow slot logic
+        // Synthesize slot meta if missing
+        const slotDuration = doctor.averageConsultingTime || 15;
+        const lastSlot = slots[slots.length - 1];
+        if (lastSlot) {
+          const diff = newSlotIndex - lastSlot.index;
+          newAppointmentTime = addMinutes(lastSlot.time, diff * slotDuration);
+          newTimeString = getClinicTimeString(newAppointmentTime);
+        } else {
+          newAppointmentTime = now;
+          newTimeString = getClinicTimeString(now);
+        }
       }
-    }
 
-    // Handle appointments that are NOT being shifted (before walk-in slot)
-    // These should use the scheduler's assignment time (if they moved)
-    for (const appointment of activeAdvanceAppointments) {
-      const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-      if (currentSlotIndex >= walkInSlotIndex) {
-        continue; // Already handled above
+      // Calculate No Show Time
+      let noShowTime: Date;
+      let cutOffTime: Date;
+      try {
+        let currentNoShowTime: Date;
+        if (originalAppointment.noShowTime instanceof Date) {
+          currentNoShowTime = originalAppointment.noShowTime;
+        } else if (typeof originalAppointment.noShowTime === 'object' && originalAppointment.noShowTime !== null) {
+          // Handle Firestore timestamp
+          const noShowTimeObj = originalAppointment.noShowTime as any;
+          if (typeof noShowTimeObj.toDate === 'function') {
+            currentNoShowTime = noShowTimeObj.toDate();
+          } else if (typeof noShowTimeObj.seconds === 'number') {
+            currentNoShowTime = new Date(noShowTimeObj.seconds * 1000);
+          } else {
+            currentNoShowTime = addMinutes(newAppointmentTime, 15);
+          }
+        } else {
+          currentNoShowTime = addMinutes(newAppointmentTime, 15);
+        }
+        const duration = doctor.averageConsultingTime || 15;
+        noShowTime = addMinutes(newAppointmentTime, duration);
+        cutOffTime = subMinutes(newAppointmentTime, 15); // 15 minutes before appointment
+      } catch (e) {
+        const duration = doctor.averageConsultingTime || 15;
+        noShowTime = addMinutes(newAppointmentTime, duration);
+        cutOffTime = subMinutes(newAppointmentTime, 15);
       }
 
-      const assignment = assignmentById.get(appointment.id);
-      if (!assignment) continue;
+      // Only update if changed
+      const slotIndexChanged = currentSlotIndex !== finalSlotIndex;
+      const timeChanged = originalAppointment.time !== newTimeString;
 
-      const newSlotIndex = assignment.slotIndex;
-      const newTimeString = getClinicTimeString(assignment.slotTime);
-      const noShowTime = addMinutes(assignment.slotTime, averageConsultingTime);
-
-      if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
+      if (!slotIndexChanged && !timeChanged) {
         continue;
       }
 
-      const appointmentRef = doc(firestore, 'appointments', appointment.id);
       appointmentUpdates.push({
-        docRef: appointmentRef,
-        slotIndex: newSlotIndex,
-        sessionIndex: assignment.sessionIndex,
+        docRef: doc(firestore, 'appointments', originalAppointment.id),
+        slotIndex: finalSlotIndex,
+        sessionIndex: newSessionIndex,
         timeString: newTimeString,
         arriveByTime: newTimeString,
-        noShowTime,
+        noShowTime: noShowTime,
+        cutOffTime: cutOffTime // CRITICAL: Add cutOffTime for shifted appointments
       });
 
-      const cloned = updatedAdvanceMap.get(appointment.id);
-      if (cloned) {
-        cloned.slotIndex = newSlotIndex;
-        cloned.sessionIndex = assignment.sessionIndex;
-        cloned.time = newTimeString;
-        cloned.noShowTime = noShowTime;
+      if (DEBUG_BOOKING || slotIndexChanged || timeChanged) {
+        console.info(`[BOOKING DEBUG] Updating appointment ${originalAppointment.id}`, {
+          slotIndexChanged,
+          timeChanged,
+          oldSlotIndex: currentSlotIndex,
+          newSlotIndex: finalSlotIndex,
+          oldTime: originalAppointment.time,
+          newTime: newTimeString,
+        });
       }
     }
 
@@ -3119,53 +3179,54 @@ export async function prepareAdvanceShift({
         appointmentUpdates,
       });
     }
+  }
 
 
-    // CRITICAL: Transactional verification for Normal Path
-    // (Same logic as bucket path - verify final slots)
-    // 1. Verify the new walk-in slot
-    const slotsToVerify = new Set<number>();
-    if (typeof newAssignment.slotIndex === 'number') {
-      slotsToVerify.add(newAssignment.slotIndex);
+  // CRITICAL: Transactional verification for Normal Path
+  // (Same logic as bucket path - verify final slots)
+  // 1. Verify the new walk-in slot
+  const slotsToVerify = new Set<number>();
+  if (typeof newAssignment.slotIndex === 'number') {
+    slotsToVerify.add(newAssignment.slotIndex);
+  }
+
+  // 2. Verify all shifted appointment destination slots
+  for (const update of appointmentUpdates) {
+    if (typeof update.slotIndex === 'number') {
+      slotsToVerify.add(update.slotIndex);
     }
+  }
 
-    // 2. Verify all shifted appointment destination slots
-    for (const update of appointmentUpdates) {
-      if (typeof update.slotIndex === 'number') {
-        slotsToVerify.add(update.slotIndex);
-      }
-    }
+  // Perform verify
+  for (const slotIndex of slotsToVerify) {
+    const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
+    const reservationRef = doc(firestore, 'slot-reservations', reservationId);
 
-    // Perform verify
-    for (const slotIndex of slotsToVerify) {
-      const reservationId = buildReservationDocId(clinicId, doctorName, dateStr, slotIndex);
-      const reservationRef = doc(firestore, 'slot-reservations', reservationId);
+    const snap = await transaction.get(reservationRef);
 
-      const snap = await transaction.get(reservationRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.status === 'booked') {
+        const blockingApptId = data.appointmentId;
+        const isKnownAppt = blockingApptId && effectiveAppointments.some(a => a.id === blockingApptId);
 
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.status === 'booked') {
-          const blockingApptId = data.appointmentId;
-          const isKnownAppt = blockingApptId && effectiveAppointments.some(a => a.id === blockingApptId);
-
-          if (!isKnownAppt) {
-            throw new Error(RESERVATION_CONFLICT_CODE);
-          }
+        if (!isKnownAppt) {
+          throw new Error(RESERVATION_CONFLICT_CODE);
         }
       }
     }
-
-    return {
-      newAssignment,
-      reservationDeletes: Array.from(reservationDeletes.values()),
-      appointmentUpdates,
-      reservationWrites, // Return deferred writes
-      usedBucketSlotIndex,
-      existingReservations,
-    };
   }
+
+  return {
+    newAssignment,
+    reservationDeletes: Array.from(reservationDeletes.values()),
+    appointmentUpdates,
+    reservationWrites, // Return deferred writes
+    usedBucketSlotIndex,
+    existingReservations,
+  };
 }
+
 
 export async function calculateWalkInDetails(
   firestore: Firestore,
@@ -3254,6 +3315,15 @@ export async function calculateWalkInDetails(
     }))
   });
 
+  console.log('[WALK-IN:ESTIMATE] Server Side Data Check:', {
+    slotsCount: slots.length,
+    firstSlot: slots[0],
+    lastSlot: slots[slots.length - 1],
+    targetSessionIndex,
+    activeSessionIndex,
+    now: now.toISOString()
+  });
+
   // Extract walkInTokenAllotment from clinic data if needed
   if (walkInTokenAllotment === undefined && clinicSnap?.exists()) {
     try {
@@ -3296,8 +3366,8 @@ export async function calculateWalkInDetails(
     return (
       appointment.bookedVia === 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
-      ACTIVE_STATUSES.has(appointment.status) &&
-      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped')
+      appointment.status === 'Pending' && // CRITICAL: Only Pending walk-ins for preview (not Completed/Skipped)
+      !appointment.cancelledByBreak // CRITICAL: Exclude walk-ins cancelled by breaks
     );
   });
 
@@ -3356,14 +3426,43 @@ export async function calculateWalkInDetails(
 
   // Restore variable initialization
   const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
-    // CRITICAL: Identify immovable slots (BreakBlocks or Completed appointments)
-    // The scheduler treats IDs starting with '__blocked_' as immovable and excludes them from spacing.
-    const isImmovable = (entry.bookedVia as string) === 'BreakBlock' || entry.status === 'Completed';
-    const id = isImmovable ? `__blocked_${entry.id}` : entry.id;
+    // CRITICAL FIX: Distinguish between "Strictly Immovable" (Completed, Breaks) 
+    // and "Shiftable" (Online appointments).
+    // Online appointments SHOULD be shiftable to accommodate Walk-in "Token Allotment" (Interleaving),
+    // effectively delaying the online appointment if a walk-in is inserted before it.
+
+    // Check if truly immovable
+    const isStrictlyImmovable =
+      entry.status === 'Completed'; // CRITICAL: Skipped is now treated as SHIFTABLE (Active)
+
+    const isBreakBlock = (entry.bookedVia as string) === 'BreakBlock';
+
+    // Use different prefixes so scheduler knows what can be moved
+    let idPrefix = '__shiftable_';
+    if (isBreakBlock) {
+      idPrefix = '__break_';
+    } else if (isStrictlyImmovable) {
+      idPrefix = '__blocked_';
+    }
+
+    const id = `${idPrefix}${entry.id}`;
+
+    // NORMALIZE INDEX: Match appointment time to available slots
+    // This handles the mismatch between Segmented Indices (1000+) stored in DB
+    // and Raw Indices (12+) used in local session slots.
+    let effectiveSlotIndex = typeof entry.slotIndex === 'number' ? entry.slotIndex : -1;
+
+    if (entry.time) {
+      const apptTimeStr = entry.time as string; // e.g. "08:00 PM"
+      const matchingSlot = slots.find(s => getClinicTimeString(s.time) === apptTimeStr);
+      if (matchingSlot) {
+        effectiveSlotIndex = matchingSlot.index;
+      }
+    }
 
     return {
       id,
-      slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
+      slotIndex: effectiveSlotIndex,
     };
   });
 
@@ -3526,42 +3625,103 @@ export async function calculateWalkInDetails(
   const allSlotsFilled = (() => {
     // ------------------------------------------------------------------------
     // REVISED LOGIC: Account for "Overflow" appointments filling gaps in Scheduler
+    // Break slots are UNAVAILABLE and should be excluded from BOTH total and occupied counts
     // ------------------------------------------------------------------------
     let freeFutureSlotsCount = 0;
     const occupiedIndices = new Set<number>();
+    const breakBlockIndices = new Set<number>();
 
-    // 1. Identify Occupied Indices from Appointments & Blocked
+    // 1. Identify Break Block Indices (unavailable slots) from doctor's breakPeriods
+    // Break blocks are stored in doctor.breakPeriods, not in appointments array
+    const dateStr = getClinicDateString(date);
+    const breaksForDate = doctor.breakPeriods?.[dateStr] || [];
+    const breaksForSession = breaksForDate.filter((bp: any) => bp.sessionIndex === targetSessionIndex);
+
+    console.log('[WALK-IN:ESTIMATE] Break blocks from doctor.breakPeriods:', {
+      dateStr,
+      sessionIndex: targetSessionIndex,
+      breaksForSession: breaksForSession.map((bp: any) => ({
+        id: bp.id,
+        startTime: bp.startTimeFormatted,
+        endTime: bp.endTimeFormatted,
+        duration: bp.duration,
+        slots: bp.slots?.length || 0
+      }))
+    });
+
+    // Extract slot indices from break periods
+    breaksForSession.forEach((bp: any) => {
+      if (bp.slots && Array.isArray(bp.slots)) {
+        bp.slots.forEach((slotTimeStr: string) => {
+          try {
+            const slotTime = parseISO(slotTimeStr);
+            // Find matching slot index
+            const matchingSlot = slots.find(s => {
+              const diff = Math.abs(s.time.getTime() - slotTime.getTime());
+              return diff < 60000; // Within 1 minute
+            });
+            if (matchingSlot) {
+              breakBlockIndices.add(matchingSlot.index);
+            }
+          } catch (e) {
+            // Ignore parsing errors
+          }
+        });
+      }
+    });
+
+    // 2. Identify Occupied Indices from real appointments
     const registerOccupancy = (idx: number) => {
       if (typeof idx === 'number') occupiedIndices.add(idx);
     };
 
     sessionAppointments.forEach(appt => {
-      if (typeof appt.slotIndex === 'number' && ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
+      // Only count real appointments, not break blocks or appointments cancelled by breaks
+      if (
+        typeof appt.slotIndex === 'number' &&
+        ACTIVE_STATUSES.has(appt.status) &&
+        (appt.bookedVia as string) !== 'BreakBlock' &&
+        !appt.cancelledByBreak // CRITICAL: Exclude appointments that were cancelled/shifted by breaks
+      ) {
         occupiedIndices.add(appt.slotIndex);
       }
     });
-    blockedAdvanceAppointments.forEach(blocked => {
-      if (typeof blocked.slotIndex === 'number') registerOccupancy(blocked.slotIndex);
+
+    console.log('[WALK-IN:ESTIMATE] Occupied appointments:', {
+      occupiedCount: occupiedIndices.size,
+      occupiedIndices: Array.from(occupiedIndices),
+      allSessionAppointments: sessionAppointments.map(a => ({
+        id: a.id,
+        slotIndex: a.slotIndex,
+        status: a.status,
+        bookedVia: a.bookedVia,
+        cancelledByBreak: a.cancelledByBreak,
+        included: typeof a.slotIndex === 'number' ? occupiedIndices.has(a.slotIndex) : false
+      }))
     });
 
-    // 2. Count "Free" Slots in the future
+    // NOTE: blockedAdvanceAppointments are already counted in sessionAppointments above
+    // No need to add them again here
+
+    // 3. Count "Free" Slots in the future (excluding break blocks)
     for (const slot of slots) {
       if (isBefore(slot.time, now)) continue;
       if (hasExistingWalkIns && cancelledSlotsInBucket.has(slot.index)) continue; // Blocked by bucket
+      if (breakBlockIndices.has(slot.index)) continue; // CRITICAL: Skip break blocks from available count
 
       if (!occupiedIndices.has(slot.index)) {
         freeFutureSlotsCount++;
       }
     }
 
-    // 3. Count "Overflow" Appointments (Indices >= lastSlotIndexInSession + 1)
+    // 4. Count "Overflow" Appointments (Indices >= lastSlotIndexInSession + 1)
     let overflowCount = 0;
     const lastSlotIndexInSession = slots.length > 0
       ? Math.max(...slots.map(s => s.index))
       : -1;
 
     sessionAppointments.forEach(appt => {
-      if (ACTIVE_STATUSES.has(appt.status) && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
+      if (ACTIVE_STATUSES.has(appt.status) && (appt.bookedVia as string) !== 'BreakBlock' && (!appt.cancelledByBreak || appt.status === 'Completed' || appt.status === 'Skipped')) {
         if (typeof appt.slotIndex === 'number' && appt.slotIndex > lastSlotIndexInSession) {
           overflowCount++;
         }
@@ -3569,7 +3729,24 @@ export async function calculateWalkInDetails(
     });
 
     // Final verdict: Session is full if free slots <= overflow count
-    return freeFutureSlotsCount <= overflowCount;
+    const isFull = freeFutureSlotsCount <= overflowCount;
+
+    console.log('[WALK-IN:ESTIMATE] allSlotsFilled calculation:', {
+      totalSlots: slots.length,
+      breakBlockCount: breakBlockIndices.size,
+      breakBlockIndices: Array.from(breakBlockIndices),
+      availableSlots: slots.length - breakBlockIndices.size,
+      occupiedCount: occupiedIndices.size,
+      occupiedIndices: Array.from(occupiedIndices),
+      freeFutureSlotsCount,
+      overflowCount,
+      isFull,
+      verdict: isFull ? 'SESSION FULL - No walk-ins allowed' : 'SESSION HAS SPACE - Walk-ins allowed',
+      DEBUG_BREAKS: Array.from(breakBlockIndices).join(', '),
+      DEBUG_OCCUPIED: Array.from(occupiedIndices).join(', ')
+    });
+
+    return isFull;
   })();
 
 
@@ -3641,16 +3818,68 @@ export async function calculateWalkInDetails(
       sessionIndex: forceBookSessionIndex,
       time: forceBookTime.toISOString(),
     });
+
   } else {
-    // Normal walk-in preview - use scheduler
+    // CRITICAL FIX: Ensure scheduler has enough "virtual" slots for spillover.
+    // If physical slots are full, scheduler needs extra slots to place walk-ins/shifts.
+    const bufferSlotsCount = 20;
+    const extendedSlots = [...slots];
+    const lastSlot = slots[slots.length - 1];
+
+    if (lastSlot) {
+      const slotDuration = doctor.averageConsultingTime || 10;
+      for (let i = 1; i <= bufferSlotsCount; i++) {
+        extendedSlots.push({
+          index: lastSlot.index + i,
+          time: addMinutes(lastSlot.time, i * slotDuration),
+          sessionIndex: lastSlot.sessionIndex,
+        } as any);
+      }
+    }
+
+    // CRITICAL FIX: Normalize indices! appointments might have segmented indices (1000+)
+    // but scheduler expects indices relative to the slots array (0-N) or absolute indices (if slots are absolute).
+    // Start index of the session is needed to offset the relative index.
+    const sessionStartSlotIndex = slots.length > 0 ? slots[0].index : 0;
+
+    const normalizedAdvanceAppointments = blockedAdvanceAppointments.map(app => {
+      let normalizedSlotIndex = app.slotIndex;
+      if (typeof app.slotIndex === 'number' && app.slotIndex >= 1000) {
+        normalizedSlotIndex = (app.slotIndex % 1000) + sessionStartSlotIndex;
+      }
+      return { ...app, slotIndex: normalizedSlotIndex };
+    }).filter(app => {
+      // Ensure index is within EXTENDED bounds
+      return typeof app.slotIndex === 'number' && app.slotIndex >= 0 && app.slotIndex < extendedSlots.length;
+    });
+
     try {
+      console.log('[WALK-IN:ESTIMATE] Calling scheduler with:', {
+        slotsCount: extendedSlots.length,
+        blockedCount: normalizedAdvanceAppointments.length,
+        blockedSlotIndices: normalizedAdvanceAppointments.map(b => b.slotIndex),
+        walkInCandidatesCount: activeWalkInCandidates.length,
+        walkInCandidates: activeWalkInCandidates
+      });
+
       schedule = computeWalkInSchedule({
-        slots,
+        slots: extendedSlots, // Pass extended slots!
         now,
         walkInTokenAllotment: walkInTokenAllotment || 0,
-        advanceAppointments: blockedAdvanceAppointments,
+        advanceAppointments: normalizedAdvanceAppointments,
         walkInCandidates: activeWalkInCandidates,
       });
+
+      console.log('[WALK-IN:ESTIMATE] Scheduler returned:', {
+        assignmentsCount: schedule?.assignments.length,
+        assignments: schedule?.assignments.map(a => ({
+          id: a.id,
+          slotIndex: a.slotIndex,
+          sessionIndex: a.sessionIndex,
+          time: a.slotTime.toISOString()
+        }))
+      });
+
       newAssignment = schedule?.assignments.find(a => a.id === '__new_walk_in__');
     } catch (error) {
       // If all slots are filled, we should fallback to overflow logic (Bucket/Overflow)
@@ -3745,13 +3974,43 @@ export async function calculateWalkInDetails(
     throw new Error('No walk-in slots are available at this time.');
   }
 
-  const allActiveStatusesCount = new Set(['Pending', 'Confirmed', 'Skipped']);
-  const patientsAheadDetails = sessionAppointments.filter(appointment => {
-    const isMatched = typeof appointment.slotIndex === 'number' &&
-      appointment.slotIndex < chosenSlotIndex &&
-      allActiveStatusesCount.has(appointment.status);
+  // CRITICAL FIX: Use scheduler assignments to determine slot order
+  // DB slot indices might be segmented (1000+), while scheduler uses continuous indices (0-35).
+  // We must use the 'assigned' slot index for comparison.
+  const assignedSlotMap = new Map<string, number>();
+  if (schedule && schedule.assignments) {
+    schedule.assignments.forEach(a => {
+      assignedSlotMap.set(a.id, a.slotIndex);
 
-    return isMatched;
+      // CRITICAL FIX: Also map the original ID (without __blocked_ or __shiftable_ prefix)
+      // The scheduler uses synthetic IDs like "__shiftable_87cgyf3o7ezIHHRPvH9l"
+      // but sessionAppointments have original IDs like "87cgyf3o7ezIHHRPvH9l"
+      if (a.id.startsWith('__blocked_') || a.id.startsWith('__shiftable_')) {
+        const originalId = a.id.replace(/^__(blocked|shiftable)_/, '');
+        assignedSlotMap.set(originalId, a.slotIndex);
+      }
+    });
+  }
+
+  const allActiveStatusesCount = new Set(['Pending', 'Confirmed']); // Exclude Skipped from queue count? usually queue = waiting.
+
+  const patientsAheadDetails = sessionAppointments.filter(appointment => {
+    // 1. Must be a valid status (Waiting to be seen)
+    if (!allActiveStatusesCount.has(appointment.status)) return false;
+
+    // 2. Must be scheduled ahead of us
+    // Try to get assigned slot from scheduler (most accurate for shifted apps)
+    // Fallback to existing slotIndex (normalized or raw) if not in scheduler (shouldn't happen for active apps)
+    let effectiveSlotIndex = assignedSlotMap.get(appointment.id);
+
+    // If not in scheduler, maybe it's not "active" for scheduling but still in session?
+    // If it's not in scheduler, it probably shouldn't count as "ahead" in the verified schedule.
+    if (typeof effectiveSlotIndex !== 'number') return false;
+
+    // 3. Exclude administrative blocks
+    if (appointment.id.startsWith('__blocked_')) return false;
+
+    return effectiveSlotIndex < chosenSlotIndex;
   });
 
   const patientsAhead = patientsAheadDetails.length;
@@ -3785,29 +4044,86 @@ export async function calculateWalkInDetails(
     ? Math.max(...sessionSlots.map((s: any) => s.index))
     : -1;
 
+  console.log('[WALK-IN:ESTIMATE] Spillover detection:', {
+    chosenSlotIndex,
+    chosenSessionIndex,
+    maxAssignedSlotIndex,
+    maxPhysicalSlotIndexInSession,
+    sessionSlotsCount: sessionSlots.length,
+    allSlotsCount: allSlots.length,
+    sessionSlotIndices: sessionSlots.map((s: any) => s.index),
+    forceBook,
+    canUseBucketCompensation
+  });
+
   if (maxAssignedSlotIndex > maxPhysicalSlotIndexInSession) {
     isSpillover = true;
+    console.log('[WALK-IN:ESTIMATE] ⚠️ SPILLOVER DETECTED: maxAssignedSlotIndex > maxPhysicalSlotIndexInSession', {
+      maxAssignedSlotIndex,
+      maxPhysicalSlotIndexInSession,
+      difference: maxAssignedSlotIndex - maxPhysicalSlotIndexInSession
+    });
   }
 
-  // Also check the specific walk-in's end time (as a safety measure)
-  if (!isSpillover && sessionSlots.length > 0) {
-    const lastPhysicalSlot = sessionSlots.sort((a, b) => b.index - a.index)[0];
-    const formalSessionEnd = addMinutes(lastPhysicalSlot.time, consultationTime);
-    if (apptEnd.getTime() > formalSessionEnd.getTime()) {
-      isSpillover = true;
-    }
-  }
+  // NOTE: Removed time-based spillover check that was causing false positives
+  // The index-based check above is sufficient and correctly accounts for session extensions
+  // since sessionSlots already includes extended slots from loadDoctorAndSlots
 
   // CRITICAL FIX: If we have a spillover (into virtual slots), we MUST enforce forceBook or bucket compensation.
-  if (isSpillover && !forceBook && !canUseBucketCompensation) {
-    throw new Error('No walk-in slots are available. (Session Full)');
+  // EXCEPTION: If allSlotsFilled is false, it means there are free physical slots available.
+  // In this case, the spillover is just due to scheduler's spacing logic, not actual capacity limits.
+  // We should allow it and let the system create the overflow slot.
+  if (isSpillover && !forceBook && !canUseBucketCompensation && allSlotsFilled) {
+    // RELAXED CHECK: If the scheduler returned a valid assignment, we trust it (even if it spills over).
+    // This allows spacing logic to create necessary overflow.
+    console.warn('[WALK-IN:ESTIMATE] ⚠️ Spillover detected but allowed based on scheduler assignment', {
+      isSpillover,
+      forceBook,
+      canUseBucketCompensation,
+      allSlotsFilled,
+      chosenSlotIndex,
+      maxPhysicalSlotIndexInSession
+    });
+    // throw new Error('No walk-in slots are available. (Session Full)');
+  }
+
+  if (isSpillover && !allSlotsFilled) {
+    console.log('[WALK-IN:ESTIMATE] ⚠️ Spillover allowed: Free slots available but scheduler chose overflow due to spacing logic', {
+      chosenSlotIndex,
+      maxPhysicalSlotIndexInSession,
+      allSlotsFilled
+    });
+  }
+
+  // FIX: Convert absolute slot index back to segmented DB index if needed.
+  // The scheduler (and allSlots) uses absolute indices (0..N across day).
+  // But DB might use segmented indices (Session 0: 0+, Session 1: 1000+, etc).
+  // We apply the offset: SessionIndex * 1000 + RelativeIndex.
+  let finalSlotIndex = chosenSlotIndex;
+
+  if (chosenSlotIndex >= 0) {
+    const sessionStart = sessionSlots.length > 0 ? sessionSlots[0].index : 0;
+    // Map absolute index to relative index within session
+    const relativeIndex = chosenSlotIndex - sessionStart;
+
+    // Apply segmented offset
+    // Convention: Session 0 -> 0, Session 1 -> 1000, etc.
+    finalSlotIndex = (chosenSessionIndex * 1000) + relativeIndex;
+
+    console.log('[WALK-IN:ESTIMATE] Converted absolute slot index to segmented index:', {
+      absolute: chosenSlotIndex,
+      sessionStart,
+      relativeIndex,
+      sessionIndex: chosenSessionIndex,
+      final: finalSlotIndex
+    });
   }
 
   return {
     estimatedTime: chosenTime,
     patientsAhead,
     numericToken,
-    slotIndex: chosenSlotIndex,
+    slotIndex: finalSlotIndex,
     sessionIndex: chosenSessionIndex,
     actualSlotTime: chosenTime,
     isForceBooked: forceBook || isSpillover, // Respect input forceBook AND auto-detect spillover

@@ -302,6 +302,7 @@ export async function completeStaffWalkInBooking(
                 sessionIndex: update.sessionIndex,
                 time: update.timeString,
                 arriveByTime: update.arriveByTime,
+                cutOffTime: Timestamp.fromDate(update.cutOffTime),
                 noShowTime: Timestamp.fromDate(update.noShowTime),
             });
         }
@@ -445,11 +446,18 @@ export async function completePatientWalkInBooking(
     const communicationPhone = patientData?.communicationPhone || patientData?.phone || formData.phone || '';
 
     // 2. Initial Calculation
+    console.log('[BOOKING:SERVER] Calculating server-side walk-in details...');
     const walkInDetails = await calculateWalkInDetails(
         firestore,
         doctorData.doctor,
         walkInTokenAllotment
     );
+    console.log('[BOOKING:SERVER] Server calculation result:', {
+        slotIndex: walkInDetails.slotIndex,
+        estimated: walkInDetails.estimatedTime,
+        patientsAhead: walkInDetails.patientsAhead,
+        numericToken: walkInDetails.numericToken
+    });
 
     if (!walkInDetails || walkInDetails.slotIndex == null) {
         throw new Error('No walk-in slots are available.');
@@ -478,6 +486,10 @@ export async function completePatientWalkInBooking(
             .filter(s => s.exists())
             .map(s => ({ ...s.data(), id: s.id } as Appointment));
 
+        // REMOVED: Naive reservation check.
+        // We rely on prepareAdvanceShift to handle reservation logic (staleness, shifting, etc.)
+        // The check here was causing false positives for stale reservations that prepareAdvanceShift would otherwise clean up.
+        /*
         const reservationId = buildReservationDocId(clinicId, doctor.name, dateStr, walkInDetails.slotIndex);
         const reservationRef = doc(firestore, 'slot-reservations', reservationId);
         const reservationSnap = await transaction.get(reservationRef);
@@ -493,6 +505,7 @@ export async function completePatientWalkInBooking(
                 }
             }
         }
+        */
 
         // B. Logic Section
         const nextWalkInNumericToken = doctorData.slots.length + counterState.nextNumber + 100;
@@ -533,17 +546,41 @@ export async function completePatientWalkInBooking(
             throw new Error('No walk-in slots are available.');
         }
 
+        // CRITICAL FIX: Convert absolute slot indices to segmented DB format
+        // The scheduler returns absolute indices (0-N), but DB expects segmented (Session * 1000 + Relative)
+        const sessionStartSlotIndex = doctorData.slots.length > 0 ? doctorData.slots[0].index : 0;
+        const convertToSegmentedIndex = (absoluteIndex: number, sessionIndex: number): number => {
+            const relativeIndex = absoluteIndex - sessionStartSlotIndex;
+            return (sessionIndex * 1000) + relativeIndex;
+        };
+
+        // Convert new assignment slot index
+        const segmentedSlotIndex = convertToSegmentedIndex(
+            shiftPlan.newAssignment.slotIndex,
+            shiftPlan.newAssignment.sessionIndex
+        );
+
+        // Convert all shifted appointment indices
+        const segmentedUpdates = shiftPlan.appointmentUpdates.map(update => ({
+            ...update,
+            slotIndex: convertToSegmentedIndex(update.slotIndex, update.sessionIndex)
+        }));
+
         const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;
         const newDocRef = doc(collection(firestore, 'appointments'));
 
         // C. Write Section
         commitNextTokenNumber(transaction, counterRef, counterState);
 
+        // Re-define reservationRef using the confirmed slot index
+        const reservationId = buildReservationDocId(clinicId, doctor.name, dateStr, segmentedSlotIndex);
+        const reservationRef = doc(firestore, 'slot-reservations', reservationId);
+
         transaction.set(reservationRef, {
             clinicId,
             doctorName: doctor.name,
             date: dateStr,
-            slotIndex: shiftPlan.newAssignment.slotIndex,
+            slotIndex: segmentedSlotIndex,
             status: 'booked',
             appointmentId: newDocRef.id,
             bookedAt: serverTimestamp(),
@@ -569,7 +606,7 @@ export async function completePatientWalkInBooking(
             tokenNumber,
             numericToken: nextWalkInNumericToken,
             clinicId,
-            slotIndex: shiftPlan.newAssignment.slotIndex,
+            slotIndex: segmentedSlotIndex,
             sessionIndex: shiftPlan.newAssignment.sessionIndex,
             createdAt: serverTimestamp(),
             cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
@@ -578,7 +615,7 @@ export async function completePatientWalkInBooking(
             walkInPatientsAhead: walkInDetails.patientsAhead,
         });
 
-        for (const update of shiftPlan.appointmentUpdates) {
+        for (const update of segmentedUpdates) {
             transaction.update(update.docRef, {
                 slotIndex: update.slotIndex,
                 sessionIndex: update.sessionIndex,

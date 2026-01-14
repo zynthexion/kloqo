@@ -380,9 +380,15 @@ export async function shiftAppointmentsForNewBreak(
 
             // Prepare data for new appointment
             const newDocRef = doc(collection(db, 'appointments'));
+
+            // BUSINESS LOGIC: When appointments are shifted, change 'Skipped' to 'Pending'
+            // since they're getting a new time slot and should be re-attempted
+            const newStatus = appt.status === 'Skipped' ? 'Pending' : appt.status;
+
             const newData = {
                 ...appt,
                 id: newDocRef.id,
+                status: newStatus,
                 time: newTimeStr,
                 arriveByTime: getClinicTimeString(newArriveBy),
                 ...(newSlotIndex !== null ? { slotIndex: newSlotIndex } : {}),

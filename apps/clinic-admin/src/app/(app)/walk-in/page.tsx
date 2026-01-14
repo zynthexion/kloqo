@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, generateWalkInTokenNumber } from '@kloqo/shared-core';
 
 import { getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing } from '@kloqo/shared-core';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
@@ -575,7 +575,7 @@ function WalkInRegistrationContent() {
         bookingFor: 'self',
       });
 
-      const previewTokenNumber = `W${String(numericToken).padStart(3, '0')}`;
+      const previewTokenNumber = generateWalkInTokenNumber(numericToken, details.sessionIndex);
       const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
       const cutOffTime = subMinutes(estimatedTime, 15);
       const noShowTime = addMinutes(estimatedTime, 15);

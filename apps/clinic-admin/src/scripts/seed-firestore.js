@@ -84,7 +84,7 @@ const doctors = [
     reviews: 1500,
     consultationFee: 200,
   },
-    {
+  {
     id: 'D005',
     name: 'Dr. Emily Smith',
     specialty: 'Routine Check-Ups',
@@ -120,7 +120,7 @@ const doctors = [
     reviews: 2500,
     consultationFee: 275,
   },
-    {
+  {
     id: 'D007',
     name: 'Dr. Sarah Johnson',
     specialty: 'Child Health',
@@ -273,7 +273,7 @@ const departments = [
     image: 'https://images.unsplash.com/photo-1681878096238-31e1388b0a99?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8b3J0aG9wZWRpY3N8ZW58MHx8MHx8fDA%3D',
     doctors: ['Dr. Mark Wilson', 'Dr. Petra Winsburry', 'Dr. Olivia Martinez', 'Dr. Samuel Thompson', 'Dr. Andrew Peterson', 'Dr. Thomas Brown', 'Dr. Chloe Harrington', 'Dr. Damian Sanchez'],
   },
-    {
+  {
     id: 'dept-07',
     name: 'Neurology',
     description: 'Deals with disorders of the nervous system, offering expert care for conditions affecting the brain, spinal cord, and nerves.',
@@ -302,16 +302,17 @@ const currentMonth = today.getMonth();
 const currentDay = today.getDate();
 
 const formatDate = (day) => {
-    const date = new Date(currentYear, currentMonth, day);
-    return format(date, 'd MMMM yyyy');
+  const date = new Date(currentYear, currentMonth, day);
+  return format(date, 'd MMMM yyyy');
 };
 
 const getTokenNumber = (bookedVia, index) => {
-    let prefix = '';
-    if (bookedVia === 'Online') prefix = 'A';
-    else if (bookedVia === 'Phone') prefix = 'P';
-    else if (bookedVia === 'Walk-in') prefix = 'W';
-    return `${prefix}${(index + 1).toString().padStart(3, '0')}`;
+  let prefix = '';
+  if (bookedVia === 'Online') prefix = 'A1-';
+  else if (bookedVia === 'Phone') prefix = 'P1-';
+  else if (bookedVia === 'Walk-in') prefix = 'W1-';
+  else prefix = 'T'; // Default or other
+  return `${prefix}${(index + 1).toString().padStart(3, '0')}`;
 };
 
 const rawAppointments = [
@@ -522,14 +523,14 @@ const appointments = rawAppointments.map((apt, index) => ({
 // This requires a service account key file. 
 // Ensure GOOGLE_APPLICATION_CREDENTIALS is set in your environment.
 try {
-    initializeApp({
-        // If you're running this locally with a service account file:
-        // credential: cert(require('./path/to/your/serviceAccountKey.json'))
-    });
-} catch(e) {
-    if (e.code !== 'app/duplicate-app') {
-        console.error("Firebase Admin initialization error:", e);
-    }
+  initializeApp({
+    // If you're running this locally with a service account file:
+    // credential: cert(require('./path/to/your/serviceAccountKey.json'))
+  });
+} catch (e) {
+  if (e.code !== 'app/duplicate-app') {
+    console.error("Firebase Admin initialization error:", e);
+  }
 }
 
 
@@ -550,9 +551,9 @@ async function seedCollection(collectionName, data, idField) {
 }
 
 async function main() {
-    await seedCollection('doctors', doctors, 'id');
-    await seedCollection('departments', departments, 'id');
-    await seedCollection('appointments', appointments, 'id');
+  await seedCollection('doctors', doctors, 'id');
+  await seedCollection('departments', departments, 'id');
+  await seedCollection('appointments', appointments, 'id');
 }
 
 

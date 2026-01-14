@@ -763,36 +763,16 @@ function BookingSummaryPage() {
                 autoSelected: slotIndex !== tokenData.slotIndex,
             });
 
-            actualSlotIndex = tokenData.slotIndex; // Use the actual slotIndex returned from the function
+            actualSlotIndex = tokenData.slotIndex;
 
-            // CRITICAL: Verify and correct token to match slotIndex
-            // Token should be slotIndex + 1 (slotIndex is 0-based, tokens are 1-based)
-            const expectedNumericToken = actualSlotIndex + 1;
-            const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
-
-            if (tokenData.numericToken !== expectedNumericToken || tokenData.tokenNumber !== expectedTokenNumber) {
-                console.error(`[BOOKING FLOW DEBUG] ${bookingRequestId}: ⚠️ TOKEN MISMATCH - Correcting token to match slotIndex`, {
-                    slotIndex: actualSlotIndex,
-                    receivedNumericToken: tokenData.numericToken,
-                    expectedNumericToken,
-                    receivedTokenNumber: tokenData.tokenNumber,
-                    expectedTokenNumber,
-                    timestamp: new Date().toISOString()
-                });
-                // Override with correct token based on slotIndex
-                numericToken = expectedNumericToken;
-                tokenNumber = expectedTokenNumber;
-            } else {
-                // Token is correct, use as-is
-                tokenNumber = tokenData.tokenNumber;
-                numericToken = tokenData.numericToken;
-            }
+            // Use the token details directly from tokenData (expected format A{session}-{number})
+            tokenNumber = tokenData.tokenNumber;
+            numericToken = tokenData.numericToken;
 
             console.log(`[BOOKING FLOW DEBUG] ${bookingRequestId}: Final token assignment`, {
                 slotIndex: actualSlotIndex,
                 numericToken,
                 tokenNumber,
-                tokenMatchesSlot: numericToken === actualSlotIndex + 1,
                 timestamp: new Date().toISOString()
             });
 

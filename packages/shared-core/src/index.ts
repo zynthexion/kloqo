@@ -17,3 +17,4 @@ export * from './utils/reservation-utils';
 export * from './utils/errors';
 export * from './utils/error-emitter';
 export * from './utils/text-utils';
+export * from './utils/token-utils';

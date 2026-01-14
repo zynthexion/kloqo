@@ -51,11 +51,7 @@ function isReservationConflict(error: unknown): boolean {
  * Format: A{sessionIndex+1}-{numericToken:003}
  * Examples: A1-001 (Session 0), A2-001 (Session 1), A3-015 (Session 2)
  */
-function generateOnlineTokenNumber(numericToken: number, sessionIndex: number): string {
-  const sessionLabel = sessionIndex + 1;
-  const tokenPart = String(numericToken).padStart(3, '0');
-  return `A${sessionLabel}-${tokenPart}`;
-}
+import { generateOnlineTokenNumber, generateWalkInTokenNumber } from '../utils/token-utils';
 
 interface DailySlot {
   index: number;
@@ -821,13 +817,15 @@ export async function generateNextTokenAndReserveSlot(
           });
 
           numericToken = nextWalkInNumericToken;
-          tokenNumber = `W${String(numericToken).padStart(3, '0')}`;
 
+          // Re-generate token after shift plan to use correct final session index
           const { newAssignment, reservationDeletes, appointmentUpdates, usedBucketSlotIndex, existingReservations } = shiftPlan;
 
           if (!newAssignment) {
             throw new Error('Unable to schedule walk-in token.');
           }
+
+          tokenNumber = generateWalkInTokenNumber(numericToken, newAssignment.sessionIndex);
 
           // If we used a bucket slot, assign a NEW slotIndex at the end (don't reuse cancelled slot's index)
           let finalSlotIndex = newAssignment.slotIndex;

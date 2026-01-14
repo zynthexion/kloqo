@@ -25,16 +25,7 @@ const toRelativeIndex = (idx: number, sessionBase: number) => {
   return relative >= sessionBase ? relative - sessionBase : relative;
 };
 
-/**
- * Generate an online appointment token number with session index
- * Format: A{sessionIndex+1}-{numericToken:003}
- * Examples: A1-001 (Session 0), A2-001 (Session 1), A3-015 (Session 2)
- */
-const generateOnlineTokenNumber = (numericToken: number, sessionIndex: number): string => {
-  const sessionLabel = sessionIndex + 1;
-  const tokenPart = String(numericToken).padStart(3, '0');
-  return `A${sessionLabel}-${tokenPart}`;
-};
+import { generateOnlineTokenNumber, generateWalkInTokenNumber } from '../utils/token-utils';
 
 export interface DailySlot {
   index: number;
@@ -941,7 +932,9 @@ export async function generateNextTokenAndReserveSlot(
           });
 
           numericToken = nextWalkInNumericToken;
-          tokenNumber = `W${String(numericToken).padStart(3, '0')}`;
+          // Use currentSessionIndex for initial token generation before shift plan is applied
+          // Shift plan uses newAssignment.sessionIndex which is more accurate if it changes
+          tokenNumber = generateWalkInTokenNumber(numericToken, currentSessionIndex);
 
           const { newAssignment, reservationDeletes, appointmentUpdates, usedBucketSlotIndex, existingReservations } = shiftPlan;
 

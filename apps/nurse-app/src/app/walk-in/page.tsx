@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, getClinicDayOfWeek, getClinicDateString, getClinicNow } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, getClinicDayOfWeek, getClinicDateString, getClinicNow, generateWalkInTokenNumber } from '@kloqo/shared-core';
 
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, type BreakInterval } from '@kloqo/shared-core';
@@ -629,7 +629,7 @@ function WalkInRegistrationContent() {
         return;
       }
 
-      const previewTokenNumber = `W${String(numericToken).padStart(3, '0')}`;
+      const previewTokenNumber = generateWalkInTokenNumber(numericToken, sessionIndex);
       const now = getClinicNow();
       const appointmentDate = now;
       const cutOffTime = subMinutes(estimatedTime, 15);
@@ -766,7 +766,7 @@ function WalkInRegistrationContent() {
         bookingFor: 'self',
       });
 
-      const previewTokenNumber = `W${String(numericToken).padStart(3, '0')}`;
+      const previewTokenNumber = generateWalkInTokenNumber(numericToken, sessionIndex);
       const now = getClinicNow();
       const appointmentDateStr = getClinicDateString(now);
       const appointmentDate = now;

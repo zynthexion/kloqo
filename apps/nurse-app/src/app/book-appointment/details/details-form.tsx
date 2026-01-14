@@ -224,6 +224,7 @@ function AppointmentDetailsFormContent() {
             // Use the data returned from generateNextTokenAndReserveSlot
             // This trusts shared-core to provide the correct pre-calculated slot times and arrive-by times
             const actualSlotIndex = (tokenData as any).slotIndex;
+            const sessionIndex = (tokenData as any).sessionIndex; // Extract sessionIndex from tokenData
             const reservationId = (tokenData as any).reservationId;
             const actualAppointmentTimeStr = (tokenData as any).time;
             const adjustedAppointmentTimeStr = (tokenData as any).arriveByTime || (tokenData as any).time;

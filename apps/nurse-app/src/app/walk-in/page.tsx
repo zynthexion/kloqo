@@ -338,7 +338,11 @@ function WalkInRegistrationContent() {
 
     if (!todaysAvailability || !todaysAvailability.timeSlots) return false;
 
-    // Check if ANY session is currently "open" for walk-in
+    // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+    // Original logic: Walk-in opens 30 minutes before session starts and stays open during consultation hours.
+    // Testing logic: Always allow if there are slots today.
+    return true;
+    /*
     return todaysAvailability.timeSlots.some((session, index) => {
       const startTime = parseTime(session.from, currentTime);
 
@@ -360,6 +364,7 @@ function WalkInRegistrationContent() {
 
       return false; // Ended and empty
     });
+    */
   }, [doctor, currentTime, activeAppointmentsCount]);
 
   useEffect(() => {
@@ -599,7 +604,7 @@ function WalkInRegistrationContent() {
         where("patientId", "==", patientId),
         where("doctor", "==", doctor.name),
         where("date", "==", appointmentDateStr),
-        where("status", "in", ["Pending", "Confirmed", "Skipped", "Completed"])
+        where("status", "in", ["Pending", "Confirmed", "Skipped"])
       );
 
       const duplicateSnapshot = await getDocs(duplicateCheckQuery);
@@ -1289,19 +1294,21 @@ function WalkInRegistrationContent() {
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
                 Force Book Walk-in?
               </AlertDialogTitle>
-              <AlertDialogDescription className="space-y-2">
-                <p>
-                  {isWithin15MinutesOfClosing(doctor, new Date())
-                    ? "Walk-in booking is closing soon (within 15 minutes)."
-                    : "All available slots are fully booked."}
-                </p>
-                <p className="font-semibold text-foreground">
-                  This booking will go outside the doctor's normal availability time.
-                  Do you want to accommodate this patient?
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  The patient will be assigned a token after all currently scheduled appointments.
-                </p>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  <p>
+                    {isWithin15MinutesOfClosing(doctor, new Date())
+                      ? "Walk-in booking is closing soon (within 15 minutes)."
+                      : "All available slots are fully booked."}
+                  </p>
+                  <p className="font-semibold text-foreground text-sm">
+                    This booking will go outside the doctor's normal availability time.
+                    Do you want to accommodate this patient?
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    The patient will be assigned a token after all currently scheduled appointments.
+                  </p>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

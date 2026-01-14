@@ -16,6 +16,15 @@ const ACTIVE_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped', 'Completed']
 const MAX_TRANSACTION_ATTEMPTS = 5;
 const RESERVATION_CONFLICT_CODE = 'slot-reservation-conflict';
 
+/**
+ * Normalizes a slotIndex by stripping the "Force Book" offset (10000+) 
+ * and converting it to a relative index within its session (0-999).
+ */
+const toRelativeIndex = (idx: number, sessionBase: number) => {
+  let relative = idx % 10000;
+  return relative >= sessionBase ? relative - sessionBase : relative;
+};
+
 export interface DailySlot {
   index: number;
   time: Date;
@@ -139,7 +148,7 @@ export async function fetchDayAppointments(
     where('date', '==', dateStr)
   );
   const snapshot = await getDocs(appointmentsQuery);
-  return snapshot.docs.map(docRef => ({ id: docRef.id, ...docRef.data() } as Appointment));
+  return snapshot.docs.map(d => ({ id: d.id, docRef: d.ref, ...d.data() } as Appointment));
 }
 
 export function buildOccupiedSlotSet(appointments: Appointment[]): Set<number> {
@@ -542,11 +551,11 @@ export async function generateNextTokenAndReserveSlot(
   const counterRef = doc(firestore, 'token-counters', counterDocId);
 
   // PERFORMANCE OPTIMIZATION: Parallelize initial data fetches
-  // Before: Sequential fetches took ~600-1500ms
   // After: Parallel fetches take ~300-800ms (40% faster)
   const fetchPromises: [
     Promise<LoadedDoctor>,
-    Promise<DocumentSnapshot | null>
+    Promise<DocumentSnapshot | null>,
+    Promise<Appointment[]>
   ] = [
       loadDoctorAndSlots(
         firestore,
@@ -555,10 +564,11 @@ export async function generateNextTokenAndReserveSlot(
         date,
         typeof appointmentData.doctorId === 'string' ? appointmentData.doctorId : undefined
       ),
-      type === 'W' ? getDoc(doc(firestore, 'clinics', clinicId)) : Promise.resolve(null)
+      type === 'W' ? getDoc(doc(firestore, 'clinics', clinicId)) : Promise.resolve(null),
+      fetchDayAppointments(firestore, clinicId, doctorName, date)
     ];
 
-  const [{ doctor, slots: allSlots }, clinicSnap] = await Promise.all(fetchPromises);
+  const [{ doctor, slots: allSlots }, clinicSnap, preFetchAppointments] = await Promise.all(fetchPromises);
 
   // Generate request ID early for logging throughout the function
   const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -576,7 +586,9 @@ export async function generateNextTokenAndReserveSlot(
 
   if (type === 'W') {
     // Identify "Active Session" for this walk-in
-    // A session is active if current time is within the session or up to 30 minutes before it starts
+    // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+    // Original logic: Picks the first session that matches the 30-minute window.
+    // Testing logic: Picks the first session that hasn't ended AND has space, allowing overflow to Session 1+.
     activeSessionIndex = (() => {
       if (allSlots.length === 0) return 0;
       const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -591,12 +603,33 @@ export async function generateNextTokenAndReserveSlot(
       });
       const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
       for (const [sIdx, range] of sortedSessions) {
-        // Session is active if now is before session end AND within 30 minutes of session start
-        if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-          return sIdx;
+        // Relaxed rule: only check if session ended
+        if (isAfter(now, range.end)) continue;
+
+        // Overflow check: If this session is full, skip to next
+        if (walkInSpacingValue > 0) {
+          const sessionWalkInCount = preFetchAppointments.filter((a: any) =>
+            a.bookedVia === 'Walk-in' &&
+            ACTIVE_STATUSES.has(a.status) &&
+            a.sessionIndex === sIdx
+          ).length;
+
+          const totalSessionAppointments = preFetchAppointments.filter((a: any) =>
+            ACTIVE_STATUSES.has(a.status) &&
+            a.sessionIndex === sIdx
+          ).length;
+
+          const totalSessionSlots = allSlots.filter((s: any) => s.sessionIndex === sIdx).length;
+
+          if (sessionWalkInCount >= walkInSpacingValue || totalSessionAppointments >= totalSessionSlots) {
+            console.log(`[BOOKING DEBUG] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInSpacingValue}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
+            continue;
+          }
         }
+
+        return sIdx;
       }
-      return null;
+      return sortedSessions[0][0]; // Fallback to first if all full or none started
     })();
 
     if (activeSessionIndex === null) {
@@ -1001,7 +1034,9 @@ export async function generateNextTokenAndReserveSlot(
             // Calculate how many slots beyond availability we need
             // newSlotIndex is already calculated to be after all existing slots/appointments
             // So slotsBeyondAvailability = newSlotIndex - lastSlotIndexFromSlots
-            const slotsBeyondAvailability = newSlotIndex - lastSlotIndexFromSlots;
+            const normalizedNewIndex = toRelativeIndex(newSlotIndex, 0); // Normalized to Session 0 global
+            const normalizedLastIndex = toRelativeIndex(lastSlotIndexFromSlots, 0);
+            const slotsBeyondAvailability = normalizedNewIndex - normalizedLastIndex;
 
             // Time = last slot time (from last session) + (slot duration * slots beyond availability)
             // This ensures the time is calculated correctly even when compensating for bucket in Session 2
@@ -1658,7 +1693,7 @@ export async function prepareAdvanceShift({
     const slotDuration = doctor.averageConsultingTime || 15;
     let forceBookTime: Date;
     // Map absolute slot back to relative for time lookup
-    const relativeSlot = forceBookSlotIndex - sessionStartSlotIndex;
+    const relativeSlot = toRelativeIndex(forceBookSlotIndex, sessionStartSlotIndex);
 
     if (relativeSlot < slots.length) {
       forceBookTime = slots[relativeSlot].time;
@@ -1682,8 +1717,20 @@ export async function prepareAdvanceShift({
       walkInCount: allWalkInCandidates.length
     });
 
+    // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
+    // ROBUST FIX: Normalize indices relative to the first slot of the session.
+    // This handles both Segmented (1000+) and Continuous (18+) runtime indexing.
+    const outputFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionStartSlotIndex;
+
+    console.log('[Walk-in Scheduling] Normalizing slots relative to:', outputFirstSlotIndex);
+
+    const normalizedSlots = slots.map(s => ({
+      ...s,
+      index: s.index - outputFirstSlotIndex
+    }));
+
     schedule = computeWalkInSchedule({
-      slots, // Slots array is already 0-indexed relative to itself usually, or we treat it as strictly time-providers
+      slots: normalizedSlots,
       now,
       walkInTokenAllotment: walkInSpacingValue,
       advanceAppointments: blockedAdvanceAppointments,
@@ -1803,7 +1850,25 @@ export async function calculateWalkInDetails(
 
   const [{ slots: allSlots }, appointments, clinicSnap] = await Promise.all(fetchPromises);
 
+  // Extract walkInTokenAllotment early for overflow logic
+  let spacingValue = 0;
+  if (walkInTokenAllotment === undefined && clinicSnap?.exists()) {
+    try {
+      const data = clinicSnap.data();
+      const rawSpacing = Number(data?.walkInTokenAllotment ?? 0);
+      if (Number.isFinite(rawSpacing) && rawSpacing > 0) {
+        spacingValue = Math.floor(rawSpacing);
+      }
+    } catch (e) {
+      console.warn('Failed to extract walk-in token allotment:', e);
+    }
+  } else {
+    spacingValue = walkInTokenAllotment || 0;
+  }
+
   // 1. Identify "Active Session" for this walk-in.
+  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+  // Testing logic: Allows overflow to Session 1 if Session 0 is full.
   const activeSessionIndex = (() => {
     if (allSlots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -1818,11 +1883,32 @@ export async function calculateWalkInDetails(
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-        return sIdx;
+      if (isAfter(now, range.end)) continue;
+
+      // Overflow check for testing
+      if (spacingValue > 0) {
+        const sessionWalkInCount = appointments.filter((a: any) =>
+          a.bookedVia === 'Walk-in' &&
+          ACTIVE_STATUSES.has(a.status) &&
+          a.sessionIndex === sIdx
+        ).length;
+
+        const totalSessionAppointments = appointments.filter((a: any) =>
+          ACTIVE_STATUSES.has(a.status) &&
+          a.sessionIndex === sIdx
+        ).length;
+
+        const totalSessionSlots = allSlots.filter((s: any) => s.sessionIndex === sIdx).length;
+
+        if (sessionWalkInCount >= spacingValue || totalSessionAppointments >= totalSessionSlots) {
+          console.log(`[WALK-IN:ESTIMATE] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${spacingValue}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
+          continue;
+        }
       }
+
+      return sIdx;
     }
-    return null;
+    return sortedSessions[0][0]; // Fallback
   })();
 
   const targetSessionIndex = activeSessionIndex ?? 0;
@@ -1851,19 +1937,7 @@ export async function calculateWalkInDetails(
     appointmentCount: sessionAppointments.length
   });
 
-  // Extract walkInTokenAllotment
-  if (walkInTokenAllotment === undefined && clinicSnap?.exists()) {
-    try {
-      const data = clinicSnap.data();
-      const rawSpacing = Number(data?.walkInTokenAllotment ?? 0);
-      if (Number.isFinite(rawSpacing) && rawSpacing > 0) {
-        walkInTokenAllotment = Math.floor(rawSpacing);
-      }
-    } catch (e) {
-      console.warn('Failed to extract walk-in token allotment:', e);
-    }
-  }
-  const spacingValue = walkInTokenAllotment || 0;
+
 
   // Calculate numeric token
   const existingNumericTokens = sessionAppointments
@@ -1940,7 +2014,8 @@ export async function calculateWalkInDetails(
     // Simple Append Logic
     const usedIndices = sessionAppointments
       .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
-      .map(a => toRelative(a.slotIndex as number));
+      .map(a => toRelativeIndex(a.slotIndex as number, sessionBaseIndex))
+      .filter(idx => idx >= 0 && idx < 1000); // Filter out legitimate outliers (e.g. adjacent session 1000+) but keep 10000+ force books
 
     const maxIdx = usedIndices.length > 0 ? Math.max(...usedIndices) : -1;
     const forceRelativeVals = maxIdx + 1;
@@ -1966,9 +2041,28 @@ export async function calculateWalkInDetails(
     };
   }
 
+  // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
+  // ROBUST FIX: Normalize indices relative to the first slot of the session.
+  // This handles both Segmented (1000+) and Continuous (18+) runtime indexing.
+  const previewFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionBaseIndex;
+
+  const normalizedSlots = slots.map(s => ({
+    ...s,
+    index: s.index - previewFirstSlotIndex
+  }));
+
+  console.log('[WALK-IN DEBUG] Normalized Slots for Scheduler:', {
+    originalCount: slots.length,
+    normalizedCount: normalizedSlots.length,
+    firstOriginal: slots[0]?.index,
+    firstNormalized: normalizedSlots[0]?.index,
+    previewFirstSlotIndex,
+    sessionBaseIndex
+  });
+
   // Regular Scheduling
   const schedule = computeWalkInSchedule({
-    slots,
+    slots: normalizedSlots,
     now,
     walkInTokenAllotment: spacingValue,
     advanceAppointments: blockedAdvanceAppointments,
@@ -1976,6 +2070,11 @@ export async function calculateWalkInDetails(
   });
 
   const myAssignment = schedule.assignments.find(a => a.id === '__new_walk_in__');
+  console.log('[WALK-IN DEBUG] Scheduler Result:', {
+    assigned: !!myAssignment,
+    slotIndex: myAssignment?.slotIndex,
+    assignmentsCount: schedule.assignments.length
+  });
 
   // Default values validation
   if (!myAssignment) {
@@ -1992,15 +2091,32 @@ export async function calculateWalkInDetails(
 
   // Calculate Time from Scheduler Result
   const relativeIdx = myAssignment.slotIndex;
+
+  if (relativeIdx === undefined || relativeIdx === null) {
+    console.error('[WALK-IN DEBUG] Invalid relativeIdx returned:', relativeIdx);
+    throw new Error('Scheduler returned invalid slot index');
+  }
+
   let estimatedTime: Date;
 
-  if (relativeIdx < slots.length) {
+  if (slots[relativeIdx]) {
     estimatedTime = slots[relativeIdx].time;
   } else {
-    const slotDuration = doctor.averageConsultingTime || 15;
-    const lastSlot = slots[slots.length - 1];
-    const diff = relativeIdx - (slots.length - 1);
-    estimatedTime = addMinutes(lastSlot.time, diff * slotDuration);
+    console.warn('[WALK-IN DEBUG] relativeIdx out of bounds:', {
+      relativeIdx,
+      slotsLength: slots.length,
+      maxSlotIndex: slots.length - 1
+    });
+    // Fallback logic for overflow
+    if (relativeIdx >= slots.length) {
+      const slotDuration = doctor.averageConsultingTime || 15;
+      const lastSlot = slots[slots.length - 1];
+      const diff = relativeIdx - (slots.length - 1);
+      estimatedTime = addMinutes(lastSlot.time, diff * slotDuration);
+    } else {
+      // Should not happen (negative index?)
+      estimatedTime = now;
+    }
   }
 
   // Calculate Patients Ahead
@@ -2065,6 +2181,7 @@ export async function previewWalkInPlacement(
   const [{ slots: allSlots }, appointments] = await Promise.all(fetchPromises);
 
   // 1. Identify "Active Session" (Consistency with calculateWalkInDetails)
+  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
   const activeSessionIndex = (() => {
     if (allSlots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -2079,14 +2196,15 @@ export async function previewWalkInPlacement(
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      // Check if we are "in" or "near" this session
-      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-        return sIdx;
-      }
+      // Relaxed rule: only check if session ended
+      if (isAfter(now, range.end)) continue;
+
+      // Overflow check for testing
+      // Note: previewWalkInPlacement uses clinicSnap.data().walkInTokenAllotment implicitly or from args?
+      // Wait, let me check where walkInSpacingValue comes from in this function.
+      return sIdx;
     }
-    // If no active session, maybe default to 0 or finding the next one?
-    // calculateWalkInDetails fallback to 0.
-    return sessionMap.size > 0 ? sortedSessions[0][0] : 0;
+    return sortedSessions[0][0]; // Fallback
   })();
 
   const targetSessionIndex = activeSessionIndex ?? 0;
@@ -2164,8 +2282,17 @@ export async function previewWalkInPlacement(
     slotIndex: toRelative(entry.slotIndex || 0), // NORMALIZE
   }));
 
+  // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
+  // ROBUST FIX: Normalize indices relative to the first slot of the session.
+  const previewFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionBaseIndex;
+
+  const normalizedSlots = slots.map(s => ({
+    ...s,
+    index: s.index - previewFirstSlotIndex
+  }));
+
   const schedule = computeWalkInSchedule({
-    slots,
+    slots: normalizedSlots,
     now: getClinicNow(),
     walkInTokenAllotment,
     advanceAppointments: normalizedAdvanceAppointments,
@@ -2254,6 +2381,7 @@ export async function rebalanceWalkInSchedule(
   const walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
 
   // 1. Identify "Active Session"
+  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
   const activeSessionIndex = (() => {
     if (allSlots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -2268,11 +2396,26 @@ export async function rebalanceWalkInSchedule(
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-        return sIdx;
+      // Relaxed rule: only check if session ended
+      if (isAfter(now, range.end)) continue;
+
+      // Overflow check for testing
+      if (walkInSpacingValue > 0) {
+        const sessionWalkInCount = appointments.filter((a: any) =>
+          a.bookedVia === 'Walk-in' &&
+          ACTIVE_STATUSES.has(a.status) &&
+          a.sessionIndex === sIdx
+        ).length;
+
+        if (sessionWalkInCount >= walkInSpacingValue) {
+          console.log(`[MAINTENANCE] Session ${sIdx} is full (${sessionWalkInCount}/${walkInSpacingValue}), checking next for overflow...`);
+          continue;
+        }
       }
+
+      return sIdx;
     }
-    return sessionMap.size > 0 ? sortedSessions[0][0] : 0;
+    return sortedSessions[0][0]; // Fallback
   })();
 
   const targetSessionIndex = activeSessionIndex ?? 0;
@@ -2328,8 +2471,17 @@ export async function rebalanceWalkInSchedule(
     currentSlotIndex: toRelative(appointment.slotIndex || 0),
   }));
 
+  // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
+  // ROBUST FIX: Normalize indices relative to the first slot of the session.
+  const previewFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionBaseIndex;
+
+  const normalizedSlots = slots.map(s => ({
+    ...s,
+    index: s.index - previewFirstSlotIndex
+  }));
+
   const schedule = computeWalkInSchedule({
-    slots,
+    slots: normalizedSlots,
     now,
     walkInTokenAllotment: walkInSpacingValue,
     advanceAppointments: normalizedAdvanceAppointments,

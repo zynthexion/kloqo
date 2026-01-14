@@ -402,7 +402,11 @@ function ConsultTodayContent() {
 
         if (!todaysAvailability || !todaysAvailability.timeSlots || todaysAvailability.timeSlots.length === 0) return false;
 
-        // Check if ANY session is currently "open" for walk-in
+        // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+        // Original logic: Walk-in opens 30 minutes before session starts and closes 15 minutes before end.
+        // Testing logic: Always allow if there are slots today.
+        return true;
+        /*
         return todaysAvailability.timeSlots.some((session, index) => {
             const startTime = parseTime(session.from, now);
 
@@ -416,6 +420,7 @@ function ConsultTodayContent() {
 
             return isWithinInterval(now, { start: walkInStartTime, end: walkInEndTime });
         });
+        */
     };
 
     const handleScanQR = async () => {
@@ -586,6 +591,8 @@ function ConsultTodayContent() {
                                         {t.consultToday.tryAgain}
                                     </Button>
 
+                                    {/* TODO: RESTORE AFTER TESTING */}
+                                    {/* 
                                     <Button
                                         onClick={() => router.push(clinicId ? `/clinics/${clinicId}` : '/clinics')}
                                         variant="outline"
@@ -593,6 +600,7 @@ function ConsultTodayContent() {
                                     >
                                         {t.consultToday.bookForAnotherDay}
                                     </Button>
+                                    */}
                                 </div>
                             )}
                         </CardContent>
@@ -652,6 +660,8 @@ function ConsultTodayContent() {
                                     <p className="text-sm text-muted-foreground">
                                         {t.consultToday.walkInOpens30MinutesBefore}
                                     </p>
+                                    {/* TODO: RESTORE AFTER TESTING */}
+                                    {/* 
                                     <Button
                                         onClick={() => router.push(clinicId ? `/clinics/${clinicId}` : '/clinics')}
                                         variant="outline"
@@ -659,6 +669,7 @@ function ConsultTodayContent() {
                                     >
                                         {t.consultToday.bookForAnotherDay}
                                     </Button>
+                                    */}
                                 </CardContent>
                             </Card>
                         )}

@@ -1135,7 +1135,8 @@ const prepareAdvanceShift = async ({
   existingReservations: Map<number, Date>;
 }> => {
   // 1. Identify "Active Session" for this walk-in.
-  // Rule: now <= sessionEnd AND now >= sessionStart - 30 minutes.
+  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+  // Original Rule: now <= sessionEnd AND now >= sessionStart - 30 minutes.
   const activeSessionIndex = (() => {
     if (slots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -1150,11 +1151,33 @@ const prepareAdvanceShift = async ({
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-        return sIdx;
+      // Relaxed rule: only check if session ended
+      if (isAfter(now, range.end)) continue;
+
+      // Overflow check for testing
+      if (walkInSpacingValue > 0) {
+        const sessionWalkInCount = effectiveAppointments.filter(a =>
+          a.bookedVia === 'Walk-in' &&
+          ACTIVE_STATUSES.has(a.status) &&
+          a.sessionIndex === sIdx
+        ).length;
+
+        const totalSessionAppointments = effectiveAppointments.filter(a =>
+          ACTIVE_STATUSES.has(a.status) &&
+          a.sessionIndex === sIdx
+        ).length;
+
+        const totalSessionSlots = slots.filter(s => s.sessionIndex === sIdx).length;
+
+        if (sessionWalkInCount >= walkInSpacingValue || totalSessionAppointments >= totalSessionSlots) {
+          console.log(`[BOOKING:BACKEND] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInSpacingValue}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
+          continue;
+        }
       }
+
+      return sIdx;
     }
-    return null;
+    return sortedSessions[0][0]; // Fallback
   })();
 
   if (activeSessionIndex === null && !isForceBooked) {
@@ -1719,17 +1742,39 @@ const prepareAdvanceShift = async ({
       console.warn('[Walk-in Scheduling] After blocking - blockedAdvanceAppointments count:', blockedAdvanceAppointments.length);
       console.warn('[Walk-in Scheduling] Blocked advance appointments:', blockedAdvanceAppointments.map(a => ({ id: a.id, slotIndex: a.slotIndex })));
 
+      // ROBUST NORMALIZATION for Session 1+
+      // Scheduler expects 0-based sequential slots, but sessionSlots might be 1000+
+      const slotOffset = sessionSlots.length > 0 ? sessionSlots[0].index : 0;
+
+      const normalizedSessionSlots = sessionSlots.map(s => ({ ...s, index: s.index - slotOffset }));
+
+      const normalizedAdvance = blockedAdvanceAppointments.map(a => ({
+        ...a,
+        slotIndex: a.slotIndex - slotOffset
+      }));
+
+      const allWalkInCandidates = [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate];
+      const normalizedWalkIns = allWalkInCandidates.map(c => ({
+        ...c,
+        currentSlotIndex: (c as any).currentSlotIndex !== undefined ? (c as any).currentSlotIndex - slotOffset : undefined
+      }));
+
       const schedule = computeWalkInSchedule({
         now,
         walkInTokenAllotment: walkInSpacingValue,
-        advanceAppointments: blockedAdvanceAppointments,
-        walkInCandidates: [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate],
-        slots: sessionSlots, // Pass only session slots to the scheduler
+        advanceAppointments: normalizedAdvance,
+        walkInCandidates: normalizedWalkIns,
+        slots: normalizedSessionSlots,
       });
 
-      const newAssignment = schedule.assignments.find(
+      const rawNewAssignment = schedule.assignments.find(
         assignment => assignment.id === '__new_walk_in__'
       );
+
+      const newAssignment = rawNewAssignment ? {
+        ...rawNewAssignment,
+        slotIndex: rawNewAssignment.slotIndex + slotOffset // DENORMALIZE immediately
+      } : undefined;
       if (!newAssignment) {
 
         return null;
@@ -2235,8 +2280,22 @@ const prepareAdvanceShift = async ({
     // Skip appointment shifting
   } else {
     // Normal scheduling - may need to shift advance appointments
-    // Get the walk-in's slot index
-    const walkInSlotIndex = newAssignment.slotIndex;
+
+    // CRITICAL: Convert scheduler's relative positions to segmented indices
+    // The scheduler works with relative positions (0-11), but the database expects
+    // segmented format: (SessionIndex * 1000) + RelativePosition
+    const convertToSegmentedIndex = (relativePosition: number): number => {
+      const result = (targetSessionIndex * 1000) + relativePosition;
+      console.log('[CONVERSION DEBUG] convertToSegmentedIndex:', {
+        relativePosition,
+        targetSessionIndex,
+        result
+      });
+      return result;
+    };
+
+    // Get the walk-in's slot index (convert from relative position to segmented)
+    const walkInSlotIndex = convertToSegmentedIndex(newAssignment.slotIndex);
 
     // CRITICAL: Calculate walk-in time based on previous appointment instead of scheduler time
     // Get the appointment before the walk-in slot
@@ -2493,7 +2552,17 @@ const prepareAdvanceShift = async ({
       const assignment = assignmentById.get(appointment.id);
       if (!assignment) continue;
 
-      const newSlotIndex = assignment.slotIndex;
+      // Convert scheduler's relative position to segmented index
+      console.log('[SHIFT DEBUG] Before conversion:', {
+        appointmentId: appointment.id,
+        currentSlotIndex,
+        assignmentSlotIndex: assignment.slotIndex
+      });
+      const newSlotIndex = convertToSegmentedIndex(assignment.slotIndex);
+      console.log('[SHIFT DEBUG] After conversion:', {
+        appointmentId: appointment.id,
+        newSlotIndex
+      });
       const newTimeString = getClinicTimeString(assignment.slotTime);
       const noShowTime = addMinutes(
         assignment.slotTime,
@@ -2639,21 +2708,34 @@ export async function rebalanceWalkInSchedule(
       currentSlotIndex: typeof appointment.slotIndex === 'number' ? appointment.slotIndex : undefined,
     }));
 
+    // ROBUST NORMALIZATION for rebalancer
+    const slotOffset = slots.length > 0 ? slots[0].index : 0;
+    const normalizedSlots = slots.map(s => ({ ...s, index: s.index - slotOffset }));
+
+    // Normalize Advance Appointments
+    const normalizedAdvance = [
+      ...freshAdvanceAppointments.map(entry => ({
+        id: entry.id,
+        slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex - slotOffset : -1,
+      })),
+      ...blockedIndices.map(idx => ({
+        id: `blocked-leave-${idx}`,
+        slotIndex: idx - slotOffset
+      }))
+    ];
+
+    // Normalize Walk-in Candidates
+    const normalizedWalkInCandidates = walkInCandidates.map(c => ({
+      ...c,
+      currentSlotIndex: c.currentSlotIndex !== undefined ? c.currentSlotIndex - slotOffset : undefined
+    }));
+
     const schedule = computeWalkInSchedule({
-      slots,
+      slots: normalizedSlots,
       now,
       walkInTokenAllotment: walkInSpacingValue,
-      advanceAppointments: [
-        ...freshAdvanceAppointments.map(entry => ({
-          id: entry.id,
-          slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
-        })),
-        ...blockedIndices.map(idx => ({
-          id: `blocked-leave-${idx}`,
-          slotIndex: idx
-        }))
-      ],
-      walkInCandidates,
+      advanceAppointments: normalizedAdvance,
+      walkInCandidates: normalizedWalkInCandidates,
     });
 
     if (DEBUG_BOOKING) {
@@ -2667,7 +2749,7 @@ export async function rebalanceWalkInSchedule(
       if (!assignment) continue;
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
-      const newSlotIndex = assignment.slotIndex;
+      const newSlotIndex = assignment.slotIndex + slotOffset; // DENORMALIZE
       const newTimeString = getClinicTimeString(assignment.slotTime);
 
       if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {

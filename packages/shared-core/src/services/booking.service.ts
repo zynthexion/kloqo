@@ -28,6 +28,7 @@ import {
     buildOccupiedSlotSet,
     buildCandidateSlots,
     calculatePerSessionReservedSlots,
+    fetchDayAppointments
 } from './walk-in.service';
 import { getClinicNow, getClinicDateString, getClinicTimeString } from '../utils/date-utils';
 import { parseTime } from '../utils/break-helpers';
@@ -77,10 +78,11 @@ export async function completeStaffWalkInBooking(
     const clinicRef = doc(firestore, 'clinics', clinicId);
     const patientRef = doc(firestore, 'patients', patientId);
 
-    const [clinicSnap, patientSnap, doctorDataRaw] = await Promise.all([
+    const [clinicSnap, patientSnap, doctorDataRaw, appointments] = await Promise.all([
         getDoc(clinicRef),
         getDoc(patientRef),
-        loadDoctorAndSlots(firestore, clinicId, doctor.name, date, doctor.id)
+        loadDoctorAndSlots(firestore, clinicId, doctor.name, date, doctor.id),
+        fetchDayAppointments(firestore, clinicId, doctor.name, date)
     ]);
 
     if (!clinicSnap.exists()) throw new Error('Clinic not found');
@@ -93,7 +95,9 @@ export async function completeStaffWalkInBooking(
     let activeSessionIndex: number | null = null;
 
     // Identify "Active Session" for this walk-in
-    // A session is active if current time is within the session or up to 30 minutes before it starts
+    // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+    // Original logic: Picks first session starting within 30 minutes.
+    // Testing logic: Picks first session that hasn't ended and has capacity.
     activeSessionIndex = (() => {
         if (allSlots.length === 0) return 0;
         const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -108,12 +112,35 @@ export async function completeStaffWalkInBooking(
         });
         const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
         for (const [sIdx, range] of sortedSessions) {
-            // Session is active if now is before session end AND within 30 minutes of session start
-            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-                return sIdx;
+            // Relaxed rule: only check if session ended
+            if (isAfter(now, range.end)) continue;
+
+            // Overflow check for testing
+            if (walkInTokenAllotment > 0) {
+                const sessionWalkInCount = appointments.filter(a =>
+                    a.bookedVia === 'Walk-in' &&
+                    ACTIVE_STATUS_SET.has(a.status) &&
+                    a.sessionIndex === sIdx
+                ).length;
+
+                const totalSessionAppointments = appointments.filter(a =>
+                    ACTIVE_STATUS_SET.has(a.status) &&
+                    a.sessionIndex === sIdx
+                ).length;
+
+                const totalSessionSlots = allSlots.filter((s) => s.sessionIndex === sIdx).length;
+
+
+
+                if (sessionWalkInCount >= walkInTokenAllotment || totalSessionAppointments >= totalSessionSlots) {
+                    console.log(`[BOOKING:STAFF] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInTokenAllotment}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
+                    continue;
+                }
             }
+
+            return sIdx;
         }
-        return null;
+        return sortedSessions[0][0]; // Fallback
     })();
 
     if (activeSessionIndex === null) {
@@ -375,10 +402,11 @@ export async function completePatientWalkInBooking(
     const clinicRef = doc(firestore, 'clinics', clinicId);
     const patientRef = doc(firestore, 'patients', patientId);
 
-    const [clinicSnap, patientSnap, doctorDataRaw] = await Promise.all([
+    const [clinicSnap, patientSnap, doctorDataRaw, appointments] = await Promise.all([
         getDoc(clinicRef),
         getDoc(patientRef),
-        loadDoctorAndSlots(firestore, clinicId, doctor.name, date, doctor.id)
+        loadDoctorAndSlots(firestore, clinicId, doctor.name, date, doctor.id),
+        fetchDayAppointments(firestore, clinicId, doctor.name, date)
     ]);
 
     if (!clinicSnap.exists()) throw new Error('Clinic not found');
@@ -391,7 +419,9 @@ export async function completePatientWalkInBooking(
     let activeSessionIndex: number | null = null;
 
     // Identify "Active Session" for this walk-in
-    // A session is active if current time is within the session or up to 30 minutes before it starts
+    // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+    // Original logic: Picks first session starting within 30 minutes.
+    // Testing logic: Picks first session that hasn't ended and has capacity.
     activeSessionIndex = (() => {
         if (allSlots.length === 0) return 0;
         const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -406,12 +436,33 @@ export async function completePatientWalkInBooking(
         });
         const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
         for (const [sIdx, range] of sortedSessions) {
-            // Session is active if now is before session end AND within 30 minutes of session start
-            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-                return sIdx;
+            // Relaxed rule: only check if session ended
+            if (isAfter(now, range.end)) continue;
+
+            // Overflow check for testing
+            if (walkInTokenAllotment > 0) {
+                const sessionWalkInCount = appointments.filter(a =>
+                    a.bookedVia === 'Walk-in' &&
+                    ACTIVE_STATUS_SET.has(a.status) &&
+                    a.sessionIndex === sIdx
+                ).length;
+
+                const totalSessionAppointments = appointments.filter(a =>
+                    ACTIVE_STATUS_SET.has(a.status) &&
+                    a.sessionIndex === sIdx
+                ).length;
+
+                const totalSessionSlots = allSlots.filter((s) => s.sessionIndex === sIdx).length;
+
+                if (sessionWalkInCount >= walkInTokenAllotment || totalSessionAppointments >= totalSessionSlots) {
+                    console.log(`[BOOKING:PATIENT] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInTokenAllotment}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
+                    continue;
+                }
             }
+
+            return sIdx;
         }
-        return null;
+        return sortedSessions[0][0]; // Fallback
     })();
 
     if (activeSessionIndex === null) {
@@ -429,13 +480,15 @@ export async function completePatientWalkInBooking(
         where('patientId', '==', patientId),
         where('doctor', '==', doctor.name),
         where('date', '==', dateStr),
-        where('status', 'in', ACTIVE_STATUSES)
+        where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
     );
     const duplicateSnapshot = await getDocs(duplicateCheckQuery);
     // Filter out "ghost" appointments from the duplicate check
     const activeDuplicates = duplicateSnapshot.docs.filter(docSnap => {
         const data = docSnap.data();
-        return !data.cancelledByBreak || data.status === 'Completed' || data.status === 'Skipped';
+        // Completed/Skipped are already excluded from the query above if needed
+        // But we double check the cancelledByBreak logic
+        return !data.cancelledByBreak || data.status === 'Skipped';
     });
 
     if (activeDuplicates.length > 0) {
@@ -546,25 +599,24 @@ export async function completePatientWalkInBooking(
             throw new Error('No walk-in slots are available.');
         }
 
-        // CRITICAL FIX: Convert absolute slot indices to segmented DB format
-        // The scheduler returns absolute indices (0-N), but DB expects segmented (Session * 1000 + Relative)
-        const sessionStartSlotIndex = doctorData.slots.length > 0 ? doctorData.slots[0].index : 0;
-        const convertToSegmentedIndex = (absoluteIndex: number, sessionIndex: number): number => {
-            const relativeIndex = absoluteIndex - sessionStartSlotIndex;
-            return (sessionIndex * 1000) + relativeIndex;
-        };
+        // CRITICAL: prepareAdvanceShift (attemptSchedule) already returns SEGMENTED indices
+        // (e.g., 1005 for Session 1, position 5), NOT relative positions.
+        // We should use them directly without further conversion.
+        console.log('[BOOKING:ASSIGNMENT] Walk-in assignment from prepareAdvanceShift:', {
+            slotIndex: shiftPlan.newAssignment.slotIndex,
+            sessionIndex: shiftPlan.newAssignment.sessionIndex
+        });
+        const segmentedSlotIndex = shiftPlan.newAssignment.slotIndex;
 
-        // Convert new assignment slot index
-        const segmentedSlotIndex = convertToSegmentedIndex(
-            shiftPlan.newAssignment.slotIndex,
-            shiftPlan.newAssignment.sessionIndex
-        );
-
-        // Convert all shifted appointment indices
-        const segmentedUpdates = shiftPlan.appointmentUpdates.map(update => ({
-            ...update,
-            slotIndex: convertToSegmentedIndex(update.slotIndex, update.sessionIndex)
-        }));
+        // Appointment updates also already have segmented indices
+        const segmentedUpdates = shiftPlan.appointmentUpdates.map(update => {
+            console.log('[BOOKING:ASSIGNMENT] Shift update from prepareAdvanceShift:', {
+                appointmentId: update.appointmentId,
+                slotIndex: update.slotIndex,
+                sessionIndex: update.sessionIndex
+            });
+            return update;
+        });
 
         const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;
         const newDocRef = doc(collection(firestore, 'appointments'));

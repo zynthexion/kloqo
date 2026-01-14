@@ -1684,6 +1684,10 @@ export async function prepareAdvanceShift({
   let newAssignment: SchedulerAssignment | null = null;
   let schedule: ReturnType<typeof computeWalkInSchedule> | null = null;
 
+  // NORMALIZE SLOTS: Calculate the base index for normalization/denormalization
+  // This must be done BEFORE the forceBook check so it's available for shift processing
+  const outputFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionStartSlotIndex;
+
   if (forceBook) {
     // Finding max occupies slot in THIS session
     const allOccupiedSlots = effectiveAppointments
@@ -1731,8 +1735,6 @@ export async function prepareAdvanceShift({
     // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
     // ROBUST FIX: Normalize indices relative to the first slot of the session.
     // This handles both Segmented (1000+) and Continuous (18+) runtime indexing.
-    const outputFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionStartSlotIndex;
-
     console.log('[Walk-in Scheduling] Normalizing slots relative to:', outputFirstSlotIndex);
 
     const normalizedSlots = slots.map(s => ({
@@ -1773,7 +1775,9 @@ export async function prepareAdvanceShift({
       if (!originalAppt) continue;
 
       // DENORMALIZE: relative -> absolute
-      const finalSlotIndex = assign.slotIndex + sessionStartSlotIndex;
+      // CRITICAL FIX: Use the SAME base as normalization (outputFirstSlotIndex) to ensure consistency
+      // Previously used sessionStartSlotIndex which caused incorrect slot indices for shifted appointments
+      const finalSlotIndex = assign.slotIndex + outputFirstSlotIndex;
 
       // Check if changed
       if (originalAppt.slotIndex === finalSlotIndex && originalAppt.time === getClinicTimeString(assign.slotTime)) {

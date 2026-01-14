@@ -359,23 +359,25 @@ export function computeWalkInSchedule({
       const occupant = occupancy[pos];
       if (occupant === null) {
         console.log('[SCHEDULER] makeSpace loop found null at:', pos);
-        break;
+        break; // Stop at first empty slot - this is where we can place shifted appointments
       }
       if (occupant.type === 'W') {
         console.log('[SCHEDULER] makeSpace loop found W at:', pos);
-        break;
+        break; // Stop at walk-ins - they don't shift
       }
       if (occupant.type === 'A') {
-        // CRITICAL FIX: If we hit a blocked appointment, we CANNOT shift this block.
-        // We must skip this entire block and try finding space AFTER it.
-        if (occupant.id.startsWith('__blocked_') || occupant.id.startsWith('__reserved_')) {
-          console.log('[SCHEDULER] makeSpace loop found blocked at:', pos, occupant.id);
+        // CRITICAL FIX: If we hit a blocked appointment, SKIP it but CONTINUE scanning
+        // Blocked appointments (Completed/Skipped/Breaks) stay in place, but we need to
+        // collect ALL shiftable appointments after them too
+        if (occupant.id.startsWith('__blocked_') || occupant.id.startsWith('__break_')) {
+          console.log('[SCHEDULER] makeSpace loop found blocked at:', pos, occupant.id, '- skipping but continuing scan');
           if (blockPositions.length === 0) {
+            // If the candidate position itself is blocked, recurse to find space after it
             console.log('[SCHEDULER] Candidate pos is blocked, recursing to:', pos + 1);
             return makeSpaceForWalkIn(pos + 1, isExistingWalkIn);
           }
-          console.log('[SCHEDULER] Found block after shiftable items, breaking loop to execute shift.');
-          break;
+          // Don't break! Continue scanning for more shiftable appointments
+          continue;
         }
         blockPositions.push(pos);
       }

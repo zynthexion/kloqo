@@ -20,16 +20,33 @@ const db = getFirestore(app);
 
 async function fetchDoctors() {
     try {
+        // Fetch specific doctor: Dr. Jino Devasia
+        const doctorId = 'doc-1766066333627-yjug38zsr';
         const doctorsRef = collection(db, 'doctors');
         const snapshot = await getDocs(doctorsRef);
-        const doctors = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+
+        // Filter for the specific doctor
+        const doctors = snapshot.docs
+            .filter(doc => doc.id === doctorId)
+            .map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+
+        if (doctors.length === 0) {
+            console.warn(`Doctor with ID ${doctorId} not found`);
+        }
 
         const outputPath = path.resolve(process.cwd(), 'doctors.json');
         fs.writeFileSync(outputPath, JSON.stringify(doctors, null, 2));
-        console.log(`Successfully saved ${doctors.length} doctors to ${outputPath}`);
+        console.log(`Successfully saved ${doctors.length} doctor(s) to ${outputPath}`);
+
+        if (doctors.length > 0) {
+            console.log('Doctor details:', {
+                id: doctors[0].id,
+                name: doctors[0].name || 'N/A'
+            });
+        }
     } catch (error) {
         console.error('Error fetching doctors:', error);
         process.exit(1);

@@ -19,6 +19,17 @@ import { buildReservationDocId } from '../utils/reservation-utils';
 import { sendBreakUpdateNotification } from './notification-service';
 
 /**
+ * Generate an online appointment token number with session index
+ * Format: A{sessionIndex+1}-{numericToken:003}
+ * Examples: A1-001 (Session 0), A2-001 (Session 1), A3-015 (Session 2)
+ */
+function generateOnlineTokenNumber(numericToken: number, sessionIndex: number): string {
+    const sessionLabel = sessionIndex + 1;
+    const tokenPart = String(numericToken).padStart(3, '0');
+    return `A${sessionLabel}-${tokenPart}`;
+}
+
+/**
  * Shifts appointments physically (updates slotIndex and time) to accommodate a new break.
  * This ensures that if the break is later cancelled, the original slots appear as "gaps" (empty).
  */
@@ -562,7 +573,7 @@ export async function shiftAppointmentsForNewBreak(
                     if (appt.cancelledByBreak && appt.tokenNumber === 'Break') return;
 
                     const newNumericToken = appt.slotIndex + 1;
-                    const newTokenNumber = `A${String(newNumericToken).padStart(3, '0')}`;
+                    const newTokenNumber = generateOnlineTokenNumber(newNumericToken, appt.sessionIndex || 0);
 
                     // Only update if the token has changed
                     if (appt.numericToken !== newNumericToken || appt.tokenNumber !== newTokenNumber) {

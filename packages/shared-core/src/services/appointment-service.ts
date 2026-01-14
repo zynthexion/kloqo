@@ -46,6 +46,17 @@ function isReservationConflict(error: unknown): boolean {
   );
 }
 
+/**
+ * Generate an online appointment token number with session index
+ * Format: A{sessionIndex+1}-{numericToken:003}
+ * Examples: A1-001 (Session 0), A2-001 (Session 1), A3-015 (Session 2)
+ */
+function generateOnlineTokenNumber(numericToken: number, sessionIndex: number): string {
+  const sessionLabel = sessionIndex + 1;
+  const tokenPart = String(numericToken).padStart(3, '0');
+  return `A${sessionLabel}-${tokenPart}`;
+}
+
 interface DailySlot {
   index: number;
   time: Date;
@@ -977,7 +988,7 @@ export async function generateNextTokenAndReserveSlot(
             // DO NOT use counterState.nextNumber - always use slotIndex + 1
             // Calculate token IMMEDIATELY after reserving slot to ensure atomicity
             const calculatedNumericToken = chosenSlotIndex + 1;
-            const calculatedTokenNumber = `A${String(calculatedNumericToken).padStart(3, '0')}`;
+            const calculatedTokenNumber = generateOnlineTokenNumber(calculatedNumericToken, sessionIndexForNew);
 
             // Force assignment - don't allow any other value
             numericToken = calculatedNumericToken;
@@ -1003,7 +1014,7 @@ export async function generateNextTokenAndReserveSlot(
         // This is a safety check in case the token wasn't assigned in the loop
         if (type === 'A' && chosenSlotIndex >= 0) {
           const expectedNumericToken = chosenSlotIndex + 1;
-          const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
+          const expectedTokenNumber = generateOnlineTokenNumber(expectedNumericToken, sessionIndexForNew);
 
           if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
             numericToken = expectedNumericToken;
@@ -1052,7 +1063,7 @@ export async function generateNextTokenAndReserveSlot(
         // This is a final safety check to prevent token/slotIndex mismatches
         if (type === 'A' && chosenSlotIndex >= 0) {
           const expectedNumericToken = chosenSlotIndex + 1;
-          const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
+          const expectedTokenNumber = generateOnlineTokenNumber(expectedNumericToken, sessionIndexForNew);
 
           if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
 

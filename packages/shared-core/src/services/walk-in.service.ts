@@ -25,6 +25,17 @@ const toRelativeIndex = (idx: number, sessionBase: number) => {
   return relative >= sessionBase ? relative - sessionBase : relative;
 };
 
+/**
+ * Generate an online appointment token number with session index
+ * Format: A{sessionIndex+1}-{numericToken:003}
+ * Examples: A1-001 (Session 0), A2-001 (Session 1), A3-015 (Session 2)
+ */
+const generateOnlineTokenNumber = (numericToken: number, sessionIndex: number): string => {
+  const sessionLabel = sessionIndex + 1;
+  const tokenPart = String(numericToken).padStart(3, '0');
+  return `A${sessionLabel}-${tokenPart}`;
+};
+
 export interface DailySlot {
   index: number;
   time: Date;
@@ -1294,7 +1305,7 @@ export async function generateNextTokenAndReserveSlot(
             // This makes token numbers correspond to slot positions, not sequential booking order
             // DO NOT use counterState.nextNumber - always use slotIndex + 1
             const calculatedNumericToken = chosenSlotIndex + 1;
-            const calculatedTokenNumber = `A${String(calculatedNumericToken).padStart(3, '0')}`;
+            const calculatedTokenNumber = generateOnlineTokenNumber(calculatedNumericToken, sessionIndexForNew);
 
             // Force assignment - don't allow any other value
             numericToken = calculatedNumericToken;
@@ -1369,7 +1380,7 @@ export async function generateNextTokenAndReserveSlot(
           // This is a safety check in case the token wasn't assigned in the loop
           if (type === 'A' && chosenSlotIndex >= 0) {
             const expectedNumericToken = chosenSlotIndex + 1;
-            const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
+            const expectedTokenNumber = generateOnlineTokenNumber(expectedNumericToken, sessionIndexForNew);
 
             if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
               console.warn(`[BOOKING DEBUG] Request ${requestId}: Token not properly assigned in loop - fixing now`, {
@@ -1436,7 +1447,7 @@ export async function generateNextTokenAndReserveSlot(
         // This is a final safety check to prevent token/slotIndex mismatches
         if (type === 'A' && chosenSlotIndex >= 0) {
           const expectedNumericToken = chosenSlotIndex + 1;
-          const expectedTokenNumber = `A${String(expectedNumericToken).padStart(3, '0')}`;
+          const expectedTokenNumber = generateOnlineTokenNumber(expectedNumericToken, sessionIndexForNew);
 
           if (numericToken !== expectedNumericToken || tokenNumber !== expectedTokenNumber) {
             console.error(`[BOOKING DEBUG] Request ${requestId}: ⚠️ TOKEN MISMATCH DETECTED - Correcting`, {

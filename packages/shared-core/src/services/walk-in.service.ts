@@ -1646,6 +1646,29 @@ export async function prepareAdvanceShift({
   const allWalkInCandidates = [...normalizedWalkIns, newWalkInCandidate];
   const normalizedSlots = slots.map(s => ({ ...s, index: s.index - memoryBase }));
 
+  // 3b. Bucket Logic: Identify cancelled slots that should be blocked
+  // A cancelled slot is "bucketed" if there are active walk-ins scheduled AFTER it.
+  const bucketSlots = effectiveAppointments.filter(appt => {
+    return (
+      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
+      typeof appt.slotIndex === 'number' &&
+      appt.sessionIndex === targetSessionIndex
+    );
+  }).filter(cancelledAppt => {
+    // Check if any active walk-in exists after this cancelled slot
+    return activeWalkIns.some(w => (w.slotIndex || 0) > (cancelledAppt.slotIndex || 0));
+  });
+
+  if (bucketSlots.length > 0) {
+    console.log(`[Walk-in Scheduling] Blocking ${bucketSlots.length} bucket slots to prevent reverse shifting:`, bucketSlots.map(s => s.slotIndex));
+    bucketSlots.forEach(slot => {
+      blockedAdvanceAppointments.push({
+        id: `__blocked_bucket_${slot.id}`,
+        slotIndex: (slot.slotIndex || 0) - segmentedBase
+      });
+    });
+  }
+
   let newAssignment: SchedulerAssignment | null = null;
   let schedule: ReturnType<typeof computeWalkInSchedule> | null = null;
 
@@ -2391,6 +2414,25 @@ export async function rebalanceWalkInSchedule(
     id: getTaggedId(entry),
     slotIndex: toRelative(entry.slotIndex || 0),
   }));
+
+  // 3b. Bucket Logic for Rebalance
+  const bucketSlots = sessionAppointments.filter(appt => {
+    return (
+      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
+      typeof appt.slotIndex === 'number'
+    );
+  }).filter(cancelledAppt => {
+    return activeWalkIns.some(w => (w.slotIndex || 0) > (cancelledAppt.slotIndex || 0));
+  });
+
+  if (bucketSlots.length > 0) {
+    bucketSlots.forEach(slot => {
+      normalizedAdvanceAppointments.push({
+        id: `__blocked_bucket_${slot.id}`,
+        slotIndex: toRelative(slot.slotIndex || 0)
+      });
+    });
+  }
 
   const walkInCandidates = activeWalkIns.map(appointment => ({
     id: getTaggedId(appointment),

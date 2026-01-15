@@ -17,23 +17,30 @@ async function updateJson() {
             if (!appt.time || !appt.date) return appt;
 
             try {
-                const baseDate = new Date();
-                const ADD_MINUTES = 60;
+                const ADD_HOURS = 16;
+                const ADD_MINUTES = ADD_HOURS * 60;
                 const ADD_SECONDS = ADD_MINUTES * 60;
 
-                // 1. Add 180m (3h) to 'time'
-                const apptTime = parse(appt.time, 'hh:mm a', baseDate);
-                const newApptTime = addMinutes(apptTime, ADD_MINUTES);
-                appt.time = format(newApptTime, 'hh:mm a');
+                // Combine date and time to handle date rollover correctly
+                // Date format: "14 January 2026", Time format: "10:00 PM"
+                const combinedStr = `${appt.date} ${appt.time}`;
+                const apptDateTime = parse(combinedStr, 'd MMMM yyyy hh:mm a', new Date());
 
-                // 2. Add 180m (3h) to 'arriveByTime'
+                const newApptDateTime = addMinutes(apptDateTime, ADD_MINUTES);
+
+                // Update time and date
+                appt.time = format(newApptDateTime, 'hh:mm a');
+                appt.date = format(newApptDateTime, 'd MMMM yyyy');
+
+                // 2. Update 'arriveByTime'
                 if (appt.arriveByTime) {
-                    const arriveTime = parse(appt.arriveByTime, 'hh:mm a', baseDate);
-                    const newArriveTime = addMinutes(arriveTime, ADD_MINUTES);
-                    appt.arriveByTime = format(newArriveTime, 'hh:mm a');
+                    const arriveCombinedStr = `${format(apptDateTime, 'd MMMM yyyy')} ${appt.arriveByTime}`;
+                    const arriveDateTime = parse(arriveCombinedStr, 'd MMMM yyyy hh:mm a', new Date());
+                    const newArriveDateTime = addMinutes(arriveDateTime, ADD_MINUTES);
+                    appt.arriveByTime = format(newArriveDateTime, 'hh:mm a');
                 }
 
-                // 3. Add 180m (10800s) to Firestore Timestamps
+                // 3. Add seconds to Firestore Timestamps
                 if (appt.noShowTime && typeof appt.noShowTime.seconds === 'number') {
                     appt.noShowTime.seconds += ADD_SECONDS;
                 }
@@ -42,7 +49,7 @@ async function updateJson() {
                     appt.cutOffTime.seconds += ADD_SECONDS;
                 }
 
-                console.log(`Updated ${appt.patientName}: ${appt.time} (Shifted +3h)`);
+                console.log(`Updated ${appt.patientName}: ${appt.date} ${appt.time} (Shifted +16h)`);
             } catch (e) {
                 console.warn(`Error processing appointment ${appt.id}:`, e);
             }
@@ -51,7 +58,7 @@ async function updateJson() {
         });
 
         fs.writeFileSync(filePath, JSON.stringify(updatedAppointments, null, 2));
-        console.log('Successfully updated appointments.json: Added 3 hours to all fields');
+        console.log('Successfully updated appointments.json: Added 16 hours to all fields across dates');
     } catch (error) {
         console.error('Error updating JSON:', error);
     }

@@ -319,7 +319,8 @@ export function computeWalkInSchedule({
         occupancy[candidatePosition]?.type === 'W' ||
         (occupancy[candidatePosition]?.type === 'A' &&
           (occupancy[candidatePosition]?.id.startsWith('__reserved_') ||
-            occupancy[candidatePosition]?.id.startsWith('__blocked_')))
+            occupancy[candidatePosition]?.id.startsWith('__blocked_') ||
+            occupancy[candidatePosition]?.id.startsWith('__break_')))
       )
     ) {
       candidatePosition += 1;

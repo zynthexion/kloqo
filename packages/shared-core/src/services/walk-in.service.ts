@@ -27,6 +27,13 @@ const toRelativeIndex = (idx: number, sessionBase: number) => {
 
 import { generateOnlineTokenNumber, generateWalkInTokenNumber } from '../utils/token-utils';
 
+function getTaggedId(appt: any): string {
+  if (appt.id === '__new_walk_in__') return appt.id;
+  if (appt.cancelledByBreak || appt.bookedVia === 'BreakBlock') return `__break_${appt.id}`;
+  if (appt.status === 'Completed' || appt.status === 'No-show') return `__blocked_${appt.id}`;
+  return `__shiftable_${appt.id}`;
+}
+
 export interface DailySlot {
   index: number;
   time: Date;
@@ -150,7 +157,7 @@ export async function fetchDayAppointments(
     where('date', '==', dateStr)
   );
   const snapshot = await getDocs(appointmentsQuery);
-  return snapshot.docs.map(d => ({ id: d.id, docRef: d.ref, ...d.data() } as Appointment));
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any as Appointment));
 }
 
 export function buildOccupiedSlotSet(appointments: Appointment[]): Set<number> {
@@ -931,16 +938,14 @@ export async function generateNextTokenAndReserveSlot(
             forceBook: !!appointmentData.isForceBooked,
           });
 
-          numericToken = nextWalkInNumericToken;
-          // Use currentSessionIndex for initial token generation before shift plan is applied
-          // Shift plan uses newAssignment.sessionIndex which is more accurate if it changes
-          tokenNumber = generateWalkInTokenNumber(numericToken, currentSessionIndex);
-
           const { newAssignment, reservationDeletes, appointmentUpdates, usedBucketSlotIndex, existingReservations } = shiftPlan;
 
           if (!newAssignment) {
             throw new Error('Unable to schedule walk-in token.');
           }
+
+          numericToken = nextWalkInNumericToken;
+          tokenNumber = generateWalkInTokenNumber(numericToken, newAssignment.sessionIndex);
 
           // If we used a bucket slot, assign a NEW slotIndex at the end (don't reuse cancelled slot's index)
           let finalSlotIndex = newAssignment.slotIndex;
@@ -1588,30 +1593,23 @@ export async function prepareAdvanceShift({
   newAssignment: SchedulerAssignment | null;
   reservationDeletes: DocumentReference[];
   appointmentUpdates: any[];
-  reservationWrites?: any[]; // Keep for compatibility if needed, though we won't populate complex ones
   usedBucketSlotIndex: number | null;
-  existingReservations: Map<number, any>; // Return this for use by caller
+  existingReservations: Map<number, any>;
 }> {
-
   // 1. Determine Target Session & Session Start Index
-  // We use the first slot to identify which session we are in.
   const targetSessionIndex = slots.length > 0 ? slots[0].sessionIndex : 0;
-  // Calculate the "base" index for this session (e.g. 0, 1000, 2000)
-  // This assumes standard 1000-slot padding per session.
-  const sessionStartSlotIndex = targetSessionIndex * 1000;
+  const segmentedBase = targetSessionIndex * 1000;
+  const memoryBase = slots.length > 0 ? slots[0].index : segmentedBase;
 
-  console.log(`[Walk-in Scheduling] Preparing shift for Session ${targetSessionIndex} (Start Index: ${sessionStartSlotIndex})`);
-
+  console.log(`[Walk-in Scheduling] Preparing shift for Session ${targetSessionIndex} (Segment Base: ${segmentedBase}, Memory Base: ${memoryBase})`);
 
   // 2. Filter Appointments for this Session
-  // We strictly ignore appointments from other sessions to prevent "bleeding".
   const activeAdvanceAppointments = effectiveAppointments.filter(appointment => {
     return (
       (appointment.bookedVia !== 'Walk-in' || (appointment.bookedVia as string) === 'BreakBlock') &&
       typeof appointment.slotIndex === 'number' &&
       ACTIVE_STATUSES.has(appointment.status) &&
-      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped') &&
-      appointment.sessionIndex === targetSessionIndex // Session Filter
+      appointment.sessionIndex === targetSessionIndex
     );
   });
 
@@ -1620,47 +1618,22 @@ export async function prepareAdvanceShift({
       appointment.bookedVia === 'Walk-in' &&
       typeof appointment.slotIndex === 'number' &&
       ACTIVE_STATUSES.has(appointment.status) &&
-      (!appointment.cancelledByBreak || appointment.status === 'Completed' || appointment.status === 'Skipped') &&
-      appointment.sessionIndex === targetSessionIndex // Session Filter
+      appointment.sessionIndex === targetSessionIndex
     );
   });
 
-
   // 3. Normalize Indices for Scheduler
-  // The scheduler is "dumb" and expects 0-based sequential tokens.
-  // We subtract sessionStartSlotIndex from everything before passing to scheduler.
+  const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
+    id: getTaggedId(entry),
+    slotIndex: (entry.slotIndex || 0) - segmentedBase,
+  })).filter(a => a.slotIndex >= 0);
 
-  const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
-    const isBreakBlock = (entry.bookedVia as string) === 'BreakBlock';
-    const isStrictlyImmovable = entry.status === 'Completed';
-
-    let idPrefix = '__shiftable_';
-    if (isBreakBlock) {
-      idPrefix = '__break_';
-    } else if (isStrictlyImmovable) {
-      idPrefix = '__blocked_';
-    }
-
-    // NORMALIZE: absolute -> relative
-    let relativeIndex = -1;
-    if (typeof entry.slotIndex === 'number') {
-      relativeIndex = entry.slotIndex - sessionStartSlotIndex;
-    }
-
-    return {
-      id: `${idPrefix}${entry.id}`,
-      slotIndex: relativeIndex,
-    };
-  }).filter(a => a.slotIndex >= 0); // Safety filter
-
-
-  // Also normalize walk-in candidates
-  const hasExistingWalkIns = activeWalkIns.length > 0;
-  const baseWalkInCandidates = activeWalkIns.map(appt => ({
-    id: appt.id,
+  const normalizedWalkIns = activeWalkIns.map(appt => ({
+    ...appt,
+    id: getTaggedId(appt),
     numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
     createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
-    currentSlotIndex: (appt.slotIndex || 0) - sessionStartSlotIndex, // NORMALIZE
+    currentSlotIndex: (appt.slotIndex || 0) - segmentedBase,
   }));
 
   const newWalkInCandidate = {
@@ -1670,159 +1643,106 @@ export async function prepareAdvanceShift({
     currentSlotIndex: undefined
   };
 
-  const allWalkInCandidates = [...baseWalkInCandidates, newWalkInCandidate];
+  const allWalkInCandidates = [...normalizedWalkIns, newWalkInCandidate];
+  const normalizedSlots = slots.map(s => ({ ...s, index: s.index - memoryBase }));
 
-
-  // 4. Force Booking Logic (Simplified)
   let newAssignment: SchedulerAssignment | null = null;
   let schedule: ReturnType<typeof computeWalkInSchedule> | null = null;
 
-  // NORMALIZE SLOTS: Calculate the base index for normalization/denormalization
-  // This must be done BEFORE the forceBook check so it's available for shift processing
-  const outputFirstSlotIndex = slots.length > 0 ? slots[0].index : sessionStartSlotIndex;
-
+  // 4. Booking Logic
   if (forceBook) {
-    // Finding max occupies slot in THIS session
     const allOccupiedSlots = effectiveAppointments
-      .filter(apt =>
-        ACTIVE_STATUSES.has(apt.status) &&
-        typeof apt.slotIndex === 'number' &&
-        apt.sessionIndex === targetSessionIndex
-      )
+      .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number' && apt.sessionIndex === targetSessionIndex)
       .map(apt => apt.slotIndex as number);
 
-    const maxOccupiedSlot = allOccupiedSlots.length > 0
-      ? Math.max(...allOccupiedSlots)
-      : (sessionStartSlotIndex - 1);
-
+    const maxOccupiedSlot = allOccupiedSlots.length > 0 ? Math.max(...allOccupiedSlots) : (segmentedBase - 1);
     const forceBookSlotIndex = maxOccupiedSlot + 1;
 
-    // Time calculation
-    const slotDuration = doctor.averageConsultingTime || 15;
+    const relativeSlot = forceBookSlotIndex - segmentedBase;
     let forceBookTime: Date;
-    // Map absolute slot back to relative for time lookup
-    const relativeSlot = toRelativeIndex(forceBookSlotIndex, sessionStartSlotIndex);
+    const slotDuration = doctor.averageConsultingTime || 15;
 
-    if (relativeSlot < slots.length) {
+    if (relativeSlot >= 0 && relativeSlot < slots.length) {
       forceBookTime = slots[relativeSlot].time;
     } else {
       const lastSlot = slots[slots.length - 1];
-      const diff = relativeSlot - (slots.length - 1);
-      forceBookTime = addMinutes(lastSlot.time, diff * slotDuration);
+      const diff = relativeSlot - (slots.length > 0 ? slots.length - 1 : 0);
+      forceBookTime = addMinutes(lastSlot ? lastSlot.time : now, diff * slotDuration);
     }
 
     newAssignment = {
       id: '__new_walk_in__',
-      slotIndex: forceBookSlotIndex, // Keep absolute for force book as we don't use scheduler
+      slotIndex: forceBookSlotIndex,
       sessionIndex: targetSessionIndex,
       slotTime: forceBookTime,
     };
     schedule = { assignments: [] };
   } else {
-    // 5. Call Scheduler
-    console.log('[Walk-in Scheduling] Calling scheduler with normalized inputs:', {
-      blockedCount: blockedAdvanceAppointments.length,
-      walkInCount: allWalkInCandidates.length
-    });
-
-    // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
-    // ROBUST FIX: Normalize indices relative to the first slot of the session.
-    // This handles both Segmented (1000+) and Continuous (18+) runtime indexing.
-    console.log('[Walk-in Scheduling] Normalizing slots relative to:', outputFirstSlotIndex);
-
-    const normalizedSlots = slots.map(s => ({
-      ...s,
-      index: s.index - outputFirstSlotIndex
-    }));
-
     schedule = computeWalkInSchedule({
-      slots: normalizedSlots,
       now,
       walkInTokenAllotment: walkInSpacingValue,
       advanceAppointments: blockedAdvanceAppointments,
       walkInCandidates: allWalkInCandidates,
+      slots: normalizedSlots,
     });
 
-    // Extract result
-    const rawAssignment = schedule.assignments.find(a => a.id === '__new_walk_in__');
-    if (rawAssignment) {
-      // DENORMALIZE: relative -> absolute
+    const rawAssigned = schedule.assignments.find(a => a.id === '__new_walk_in__');
+    if (rawAssigned) {
       newAssignment = {
-        ...rawAssignment,
-        slotIndex: rawAssignment.slotIndex + sessionStartSlotIndex
+        ...rawAssigned,
+        slotIndex: rawAssigned.slotIndex + segmentedBase,
       };
     }
   }
 
-  // 6. Process Shift Updates
+  // 5. Process Shift Updates
   const appointmentUpdates: any[] = [];
-
   if (schedule && schedule.assignments) {
     for (const assign of schedule.assignments) {
-      if (assign.id === '__new_walk_in__') continue;
-      if (assign.id.startsWith('__blocked_')) continue; // Don't update immovable blocked ones
+      if (assign.id === '__new_walk_in__' || assign.id.startsWith('__blocked_')) continue;
 
       const originalId = assign.id.replace(/^__shiftable_/, '').replace(/^__break_/, '');
       const originalAppt = effectiveAppointments.find(a => a.id === originalId);
-
       if (!originalAppt) continue;
 
-      // DENORMALIZE: relative -> absolute
-      // CRITICAL FIX: Use the SAME base as normalization (outputFirstSlotIndex) to ensure consistency
-      // Previously used sessionStartSlotIndex which caused incorrect slot indices for shifted appointments
-      const finalSlotIndex = assign.slotIndex + outputFirstSlotIndex;
+      const finalSlotIndex = assign.slotIndex + segmentedBase;
+      const newTimeString = getClinicTimeString(assign.slotTime);
 
-      // Check if changed
-      if (originalAppt.slotIndex === finalSlotIndex && originalAppt.time === getClinicTimeString(assign.slotTime)) {
+      if (originalAppt.slotIndex === finalSlotIndex && originalAppt.time === newTimeString) {
         continue;
       }
 
-      // Calculate Metadata
-      const newTime = assign.slotTime; // Scheduler returns Date object?
-      // Wait, computeWalkInSchedule returns assignments with `slotIndex`, but maybe not `slotTime` directly populated for all?
-      // Let's re-calculate time to be safe using the same logic as forceBook
+      // Metadata calculation
       let calculatedTime: Date;
-      let calculatedTimeString: string;
-
-      const relativeIdx = assign.slotIndex; // 0-based from scheduler
+      const relativeIdx = assign.slotIndex;
       if (relativeIdx < slots.length) {
         calculatedTime = slots[relativeIdx].time;
-        calculatedTimeString = getClinicTimeString(calculatedTime);
       } else {
         const lastSlot = slots[slots.length - 1];
-        const diff = relativeIdx - (slots.length - 1);
-        calculatedTime = addMinutes(lastSlot.time, diff * (doctor.averageConsultingTime || 15));
-        calculatedTimeString = getClinicTimeString(calculatedTime);
+        const diff = relativeIdx - (slots.length > 0 ? slots.length - 1 : 0);
+        calculatedTime = addMinutes(lastSlot ? lastSlot.time : now, diff * (doctor.averageConsultingTime || 15));
       }
-
-      const cutOffTime = subMinutes(calculatedTime, 15);
-      const noShowTime = addMinutes(calculatedTime, (doctor.averageConsultingTime || 15));
+      const finalTimeString = getClinicTimeString(calculatedTime);
 
       appointmentUpdates.push({
-        docRef: doc(firestore, 'appointments', originalId),
+        appointmentId: originalAppt.id,
+        docRef: doc(firestore, 'appointments', originalAppt.id),
         slotIndex: finalSlotIndex,
         sessionIndex: targetSessionIndex,
-        timeString: calculatedTimeString,
-        arriveByTime: calculatedTimeString,
-        cutOffTime: cutOffTime,
-        noShowTime: noShowTime
+        timeString: finalTimeString,
+        arriveByTime: finalTimeString,
+        cutOffTime: subMinutes(calculatedTime, 15),
+        noShowTime: addMinutes(calculatedTime, (doctor.averageConsultingTime || 15))
       });
     }
   }
 
-  // 7. Handle Reservations (Simplified - minimal deletes)
-  // Just delete reservations for the slots we are taking?
-  // The old logic had complex reservation handling. For now, we return empty unless we need to clear specific collision.
-  // Actually, let's keep it empty and rely on the UI/Booking service to handle the main reservation write.
-  const reservationDeletes: DocumentReference[] = [];
-
-  // Return standard object
   return {
     newAssignment,
     appointmentUpdates,
-    reservationDeletes,
-    usedBucketSlotIndex: null, // Restoring bucket logic would be complex, assume not needed for this user request ("only slotIndex numbers")
-    existingReservations: new Map(), // Placeholder
+    reservationDeletes: [],
+    usedBucketSlotIndex: null,
+    existingReservations: new Map(),
   };
 }
 export async function calculateWalkInDetails(
@@ -2468,12 +2388,12 @@ export async function rebalanceWalkInSchedule(
   const toGlobal = (idx: number) => idx + sessionBaseIndex;
 
   const normalizedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
-    id: entry.id,
+    id: getTaggedId(entry),
     slotIndex: toRelative(entry.slotIndex || 0),
   }));
 
   const walkInCandidates = activeWalkIns.map(appointment => ({
-    id: appointment.id,
+    id: getTaggedId(appointment),
     numericToken: typeof appointment.numericToken === 'number' ? appointment.numericToken : 0,
     createdAt: toDate(appointment.createdAt),
     currentSlotIndex: toRelative(appointment.slotIndex || 0),
@@ -2487,7 +2407,6 @@ export async function rebalanceWalkInSchedule(
     ...s,
     index: s.index - previewFirstSlotIndex
   }));
-
   const schedule = computeWalkInSchedule({
     slots: normalizedSlots,
     now,
@@ -2503,25 +2422,47 @@ export async function rebalanceWalkInSchedule(
   await runTransaction(firestore, async transaction => {
     const assignmentById = new Map(schedule.assignments.map(assignment => [assignment.id, assignment]));
 
-    // Only update those that changed
-    for (const appointment of [...activeAdvanceAppointments, ...activeWalkIns]) {
-      const assignment = assignmentById.get(appointment.id);
+    for (const appointment of activeAdvanceAppointments) {
+      const taggedId = getTaggedId(appointment);
+      const assignment = assignmentById.get(taggedId);
       if (!assignment) continue;
 
-      // Denormalize
-      const newGlobalIndex = toGlobal(assignment.slotIndex);
-      const currentGlobalIndex = appointment.slotIndex;
+      const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
+      const newSlotIndex = toGlobal(assignment.slotIndex);
+      const newTimeString = getClinicTimeString(assignment.slotTime);
 
-      // Time check logic adjusted for date-fns parsing if needed, but getClinicTimeString matches DB string usually
-      if (currentGlobalIndex === newGlobalIndex && appointment.time === getClinicTimeString(assignment.slotTime)) {
+      if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
         continue;
       }
 
-      const ref = doc(firestore, 'appointments', appointment.id);
-      transaction.update(ref, {
-        slotIndex: newGlobalIndex,
+      const appointmentRef = doc(firestore, 'appointments', appointment.id);
+      transaction.update(appointmentRef, {
+        slotIndex: newSlotIndex,
         sessionIndex: targetSessionIndex,
-        time: getClinicTimeString(assignment.slotTime),
+        time: newTimeString,
+        cutOffTime: subMinutes(assignment.slotTime, averageConsultingTime),
+        noShowTime: addMinutes(assignment.slotTime, averageConsultingTime),
+      });
+    }
+
+    for (const appointment of activeWalkIns) {
+      const taggedId = getTaggedId(appointment);
+      const assignment = assignmentById.get(taggedId);
+      if (!assignment) continue;
+
+      const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
+      const newSlotIndex = toGlobal(assignment.slotIndex);
+      const newTimeString = getClinicTimeString(assignment.slotTime);
+
+      if (currentSlotIndex === newSlotIndex && appointment.time === newTimeString) {
+        continue;
+      }
+
+      const appointmentRef = doc(firestore, 'appointments', appointment.id);
+      transaction.update(appointmentRef, {
+        slotIndex: newSlotIndex,
+        sessionIndex: targetSessionIndex,
+        time: newTimeString,
         cutOffTime: subMinutes(assignment.slotTime, averageConsultingTime),
         noShowTime: addMinutes(assignment.slotTime, averageConsultingTime),
       });

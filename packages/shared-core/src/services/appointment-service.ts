@@ -1099,7 +1099,14 @@ export async function generateNextTokenAndReserveSlot(
   throw new Error('No available slots match the booking rules.');
 }
 
-const prepareAdvanceShift = async ({
+function getTaggedId(appt: any): string {
+  if (appt.id === '__new_walk_in__') return appt.id;
+  if (appt.cancelledByBreak || appt.bookedVia === 'BreakBlock') return `__break_${appt.id}`;
+  if (appt.status === 'Completed' || appt.status === 'No-show') return `__blocked_${appt.id}`;
+  return `__shiftable_${appt.id}`;
+}
+
+export const prepareAdvanceShift = async ({
   firestore,
   transaction,
   clinicId,
@@ -1136,7 +1143,7 @@ const prepareAdvanceShift = async ({
     slotIndex: number;
     sessionIndex: number;
     timeString: string;
-    arriveByTime: string; // Added this
+    arriveByTime: string;
     noShowTime: Date;
   }>;
   updatedAdvanceAppointments: Appointment[];
@@ -1723,7 +1730,7 @@ const prepareAdvanceShift = async ({
       // Include cancelled slots in bucket as "blocked" advance appointments
       // so the scheduler treats them as occupied and doesn't assign walk-ins to them
       const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
-        id: entry.id,
+        id: getTaggedId(entry),
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex : -1,
       }));
 
@@ -1765,6 +1772,7 @@ const prepareAdvanceShift = async ({
       const allWalkInCandidates = [...baseWalkInCandidates, ...reservedWalkInCandidates, newWalkInCandidate];
       const normalizedWalkIns = allWalkInCandidates.map(c => ({
         ...c,
+        id: getTaggedId(c), // TAG IT
         currentSlotIndex: (c as any).currentSlotIndex !== undefined ? (c as any).currentSlotIndex - slotOffset : undefined
       }));
 
@@ -2558,7 +2566,8 @@ const prepareAdvanceShift = async ({
         continue; // Already handled above
       }
 
-      const assignment = assignmentById.get(appointment.id);
+      const taggedId = getTaggedId(appointment);
+      const assignment = assignmentById.get(taggedId);
       if (!assignment) continue;
 
       // Convert scheduler's relative position to segmented index
@@ -2724,7 +2733,7 @@ export async function rebalanceWalkInSchedule(
     // Normalize Advance Appointments
     const normalizedAdvance = [
       ...freshAdvanceAppointments.map(entry => ({
-        id: entry.id,
+        id: getTaggedId(entry),
         slotIndex: typeof entry.slotIndex === 'number' ? entry.slotIndex - slotOffset : -1,
       })),
       ...blockedIndices.map(idx => ({
@@ -2754,7 +2763,8 @@ export async function rebalanceWalkInSchedule(
     const assignmentById = new Map(schedule.assignments.map(assignment => [assignment.id, assignment]));
 
     for (const appointment of freshAdvanceAppointments) {
-      const assignment = assignmentById.get(appointment.id);
+      const taggedId = getTaggedId(appointment);
+      const assignment = assignmentById.get(taggedId);
       if (!assignment) continue;
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;
@@ -2776,7 +2786,8 @@ export async function rebalanceWalkInSchedule(
     }
 
     for (const appointment of freshWalkIns) {
-      const assignment = assignmentById.get(appointment.id);
+      const taggedId = getTaggedId(appointment);
+      const assignment = assignmentById.get(taggedId);
       if (!assignment) continue;
 
       const currentSlotIndex = typeof appointment.slotIndex === 'number' ? appointment.slotIndex : -1;

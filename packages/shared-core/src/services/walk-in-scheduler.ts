@@ -132,14 +132,13 @@ export function computeWalkInSchedule({
     if (typeof position === 'number') {
       if (occupancy[position] === null) {
         occupancy[position] = { type: 'A', id: entry.id };
-        console.log(`[SCHEDULER] ✅ Assigned ${entry.id} to position ${position}`);
+        if (DEBUG) console.log(`[SCHEDULER DEBUG] ✅ Assigned ${entry.id} to position ${position}`);
       } else {
         overflowAdvance.push({ id: entry.id, sourcePosition: position });
-        console.log(`[SCHEDULER] ⚠️ Collision: ${entry.id} at position ${position} (occupied by ${occupancy[position]?.id})`);
+        console.warn(`[SCHEDULER] ⚠️ Collision: ${entry.id} at position ${position} (occupied by ${occupancy[position]?.id})`);
       }
     } else {
-      if (DEBUG) console.log(`[SCHEDULER DEBUG] Advance app ${entry.id} with slotIndex ${entry.slotIndex} has NO MATCHING POSITION in slots.`);
-      console.log(`[SCHEDULER] ❌ DROPPED: ${entry.id} with slotIndex ${slotIndex} - NO MATCHING POSITION`);
+      console.warn(`[SCHEDULER] ❌ DROPPED: ${entry.id} with slotIndex ${slotIndex} - NO MATCHING POSITION`);
       overflowAdvance.push({ id: entry.id, sourcePosition: -1 });
     }
   });
@@ -565,22 +564,23 @@ export function computeWalkInSchedule({
       if (spacingTargetPosition !== -1 && pos > spacingTargetPosition) {
         // If we passed the spacing target, stop looking for empty slots.
         // We should enforce insertion at the spacing target instead.
-        console.log(`[SCHEDULER] Stopped empty slot search at ${pos} (target: ${spacingTargetPosition})`);
+        if (DEBUG) console.log(`[SCHEDULER DEBUG] Stopped empty slot search at ${pos} (target: ${spacingTargetPosition})`);
         break;
       }
 
       const slotMeta = orderedSlots[pos];
-      if (isAfter(slotMeta.time, oneHourFromNow)) {
-        break;
-      }
       if (isBefore(slotMeta.time, now)) {
-        console.log(`[SCHEDULER] Skipping past slot ${pos}: ${slotMeta.time.toISOString()} vs Now: ${now.toISOString()}`);
+        if (DEBUG) console.log(`[SCHEDULER DEBUG] Filtering slot ${pos} (${slotMeta.time.toISOString()}) - before now`);
         continue;
       }
+
+      // REMOVED 1-hour window limit here to ensure we find all gaps in the session
       if (occupancy[pos] === null) {
         assignedPosition = pos;
-        console.log('[SCHEDULER] Found acceptable empty slot:', assignedPosition);
+        console.log('[SCHEDULER] Found acceptable empty slot:', assignedPosition, 'at', slotMeta.time.toISOString());
         break;
+      } else {
+        if (DEBUG) console.log(`[SCHEDULER DEBUG] Filtering slot ${pos} (${slotMeta.time.toISOString()}) - occupied by ${occupancy[pos]?.id}`);
       }
     }
 
@@ -708,5 +708,16 @@ export function computeWalkInSchedule({
       assignments: Array.from(assignments.values()),
     });
   }
-  return { assignments: Array.from(assignments.values()) };
+  if (DEBUG) {
+    console.log('[SCHEDULER DEBUG] Final Occupancy Map State:', occupancy.map((o, idx) => ({
+      pos: idx,
+      id: o?.id,
+      type: o?.type,
+      time: orderedSlots[idx]?.time
+    })));
+  }
+
+  return {
+    assignments: Array.from(assignments.values()),
+  };
 }

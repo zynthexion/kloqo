@@ -1925,6 +1925,22 @@ export async function calculateWalkInDetails(
     );
   });
 
+  console.log('[WALK-IN:ESTIMATE] Filtering Breakdown:', {
+    total: sessionAppointments.length,
+    activeAdvance: activeAdvanceAppointments.length,
+    activeWalkIns: activeWalkIns.length,
+    cancelledByBreak: sessionAppointments.filter(a => a.cancelledByBreak).map(a => ({ id: a.id, slot: a.slotIndex, time: a.time, status: a.status })),
+    inactive: sessionAppointments.filter(a => !ACTIVE_STATUSES.has(a.status)).map(a => ({ id: a.id, status: a.status }))
+  });
+
+  console.log('[WALK-IN:ESTIMATE] Filtering Breakdown:', {
+    totalCount: sessionAppointments.length,
+    activeAdvanceCount: activeAdvanceAppointments.length,
+    activeWalkInCount: activeWalkIns.length,
+    filteredCancelledByBreak: sessionAppointments.filter(a => a.cancelledByBreak).map(a => ({ id: a.id, slot: a.slotIndex, status: a.status })),
+    filteredInactive: sessionAppointments.filter(a => !ACTIVE_STATUSES.has(a.status)).map(a => ({ id: a.id, slot: a.slotIndex, status: a.status }))
+  });
+
   // PREPARE SCHEDULER INPUTS (NORMALIZED)
   const toRelative = (idx: number) => idx >= sessionBaseIndex ? idx - sessionBaseIndex : idx;
   const toGlobal = (idx: number) => idx + sessionBaseIndex;

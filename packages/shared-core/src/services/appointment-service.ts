@@ -1151,8 +1151,6 @@ export const prepareAdvanceShift = async ({
   existingReservations: Map<number, Date>;
 }> => {
   // 1. Identify "Active Session" for this walk-in.
-  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
-  // Original Rule: now <= sessionEnd AND now >= sessionStart - 30 minutes.
   const activeSessionIndex = (() => {
     if (slots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -1167,33 +1165,11 @@ export const prepareAdvanceShift = async ({
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      // Relaxed rule: only check if session ended
-      if (isAfter(now, range.end)) continue;
-
-      // Overflow check for testing
-      if (walkInSpacingValue > 0) {
-        const sessionWalkInCount = effectiveAppointments.filter(a =>
-          a.bookedVia === 'Walk-in' &&
-          ACTIVE_STATUSES.has(a.status) &&
-          a.sessionIndex === sIdx
-        ).length;
-
-        const totalSessionAppointments = effectiveAppointments.filter(a =>
-          ACTIVE_STATUSES.has(a.status) &&
-          a.sessionIndex === sIdx
-        ).length;
-
-        const totalSessionSlots = slots.filter(s => s.sessionIndex === sIdx).length;
-
-        if (sessionWalkInCount >= walkInSpacingValue || totalSessionAppointments >= totalSessionSlots) {
-          console.log(`[BOOKING:BACKEND] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInSpacingValue}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
-          continue;
-        }
+      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+        return sIdx;
       }
-
-      return sIdx;
     }
-    return sortedSessions[0][0]; // Fallback
+    return null;
   })();
 
   if (activeSessionIndex === null && !isForceBooked) {

@@ -112,35 +112,11 @@ export async function completeStaffWalkInBooking(
         });
         const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
         for (const [sIdx, range] of sortedSessions) {
-            // Relaxed rule: only check if session ended
-            if (isAfter(now, range.end)) continue;
-
-            // Overflow check for testing
-            if (walkInTokenAllotment > 0) {
-                const sessionWalkInCount = appointments.filter(a =>
-                    a.bookedVia === 'Walk-in' &&
-                    ACTIVE_STATUS_SET.has(a.status) &&
-                    a.sessionIndex === sIdx
-                ).length;
-
-                const totalSessionAppointments = appointments.filter(a =>
-                    ACTIVE_STATUS_SET.has(a.status) &&
-                    a.sessionIndex === sIdx
-                ).length;
-
-                const totalSessionSlots = allSlots.filter((s) => s.sessionIndex === sIdx).length;
-
-
-
-                if (sessionWalkInCount >= walkInTokenAllotment || totalSessionAppointments >= totalSessionSlots) {
-                    console.log(`[BOOKING:STAFF] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInTokenAllotment}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
-                    continue;
-                }
+            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+                return sIdx;
             }
-
-            return sIdx;
         }
-        return sortedSessions[0][0]; // Fallback
+        return null;
     })();
 
     if (activeSessionIndex === null) {
@@ -436,33 +412,11 @@ export async function completePatientWalkInBooking(
         });
         const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
         for (const [sIdx, range] of sortedSessions) {
-            // Relaxed rule: only check if session ended
-            if (isAfter(now, range.end)) continue;
-
-            // Overflow check for testing
-            if (walkInTokenAllotment > 0) {
-                const sessionWalkInCount = appointments.filter(a =>
-                    a.bookedVia === 'Walk-in' &&
-                    ACTIVE_STATUS_SET.has(a.status) &&
-                    a.sessionIndex === sIdx
-                ).length;
-
-                const totalSessionAppointments = appointments.filter(a =>
-                    ACTIVE_STATUS_SET.has(a.status) &&
-                    a.sessionIndex === sIdx
-                ).length;
-
-                const totalSessionSlots = allSlots.filter((s) => s.sessionIndex === sIdx).length;
-
-                if (sessionWalkInCount >= walkInTokenAllotment || totalSessionAppointments >= totalSessionSlots) {
-                    console.log(`[BOOKING:PATIENT] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInTokenAllotment}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
-                    continue;
-                }
+            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+                return sIdx;
             }
-
-            return sIdx;
         }
-        return sortedSessions[0][0]; // Fallback
+        return null;
     })();
 
     if (activeSessionIndex === null) {

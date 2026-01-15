@@ -612,33 +612,12 @@ export async function generateNextTokenAndReserveSlot(
       });
       const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
       for (const [sIdx, range] of sortedSessions) {
-        // Relaxed rule: only check if session ended
-        if (isAfter(now, range.end)) continue;
-
-        // Overflow check: If this session is full, skip to next
-        if (walkInSpacingValue > 0) {
-          const sessionWalkInCount = preFetchAppointments.filter((a: any) =>
-            a.bookedVia === 'Walk-in' &&
-            ACTIVE_STATUSES.has(a.status) &&
-            a.sessionIndex === sIdx
-          ).length;
-
-          const totalSessionAppointments = preFetchAppointments.filter((a: any) =>
-            ACTIVE_STATUSES.has(a.status) &&
-            a.sessionIndex === sIdx
-          ).length;
-
-          const totalSessionSlots = allSlots.filter((s: any) => s.sessionIndex === sIdx).length;
-
-          if (sessionWalkInCount >= walkInSpacingValue || totalSessionAppointments >= totalSessionSlots) {
-            console.log(`[BOOKING DEBUG] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${walkInSpacingValue}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
-            continue;
-          }
+        // Session is active if now is before session end AND within 30 minutes of session start
+        if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+          return sIdx;
         }
-
-        return sIdx;
       }
-      return sortedSessions[0][0]; // Fallback to first if all full or none started
+      return null;
     })();
 
     if (activeSessionIndex === null) {
@@ -1595,6 +1574,7 @@ export async function prepareAdvanceShift({
   appointmentUpdates: any[];
   usedBucketSlotIndex: number | null;
   existingReservations: Map<number, any>;
+  reservationWrites?: Array<{ ref: DocumentReference; data: any }>;
 }> {
   // 1. Determine Target Session & Session Start Index
   const targetSessionIndex = slots.length > 0 ? slots[0].sessionIndex : 0;
@@ -1766,6 +1746,7 @@ export async function prepareAdvanceShift({
     reservationDeletes: [],
     usedBucketSlotIndex: null,
     existingReservations: new Map(),
+    reservationWrites: [], // Initialize to empty array if no writes are needed
   };
 }
 export async function calculateWalkInDetails(
@@ -1818,8 +1799,6 @@ export async function calculateWalkInDetails(
   }
 
   // 1. Identify "Active Session" for this walk-in.
-  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
-  // Testing logic: Allows overflow to Session 1 if Session 0 is full.
   const activeSessionIndex = (() => {
     if (allSlots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -1834,32 +1813,11 @@ export async function calculateWalkInDetails(
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      if (isAfter(now, range.end)) continue;
-
-      // Overflow check for testing
-      if (spacingValue > 0) {
-        const sessionWalkInCount = appointments.filter((a: any) =>
-          a.bookedVia === 'Walk-in' &&
-          ACTIVE_STATUSES.has(a.status) &&
-          a.sessionIndex === sIdx
-        ).length;
-
-        const totalSessionAppointments = appointments.filter((a: any) =>
-          ACTIVE_STATUSES.has(a.status) &&
-          a.sessionIndex === sIdx
-        ).length;
-
-        const totalSessionSlots = allSlots.filter((s: any) => s.sessionIndex === sIdx).length;
-
-        if (sessionWalkInCount >= spacingValue || totalSessionAppointments >= totalSessionSlots) {
-          console.log(`[WALK-IN:ESTIMATE] Session ${sIdx} is full (Walk-ins: ${sessionWalkInCount}/${spacingValue}, Total: ${totalSessionAppointments}/${totalSessionSlots}), checking next for overflow...`);
-          continue;
-        }
+      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+        return sIdx;
       }
-
-      return sIdx;
     }
-    return sortedSessions[0][0]; // Fallback
+    return null;
   })();
 
   const targetSessionIndex = activeSessionIndex ?? 0;
@@ -2148,7 +2106,6 @@ export async function previewWalkInPlacement(
   const [{ slots: allSlots }, appointments] = await Promise.all(fetchPromises);
 
   // 1. Identify "Active Session" (Consistency with calculateWalkInDetails)
-  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
   const activeSessionIndex = (() => {
     if (allSlots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -2163,15 +2120,11 @@ export async function previewWalkInPlacement(
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      // Relaxed rule: only check if session ended
-      if (isAfter(now, range.end)) continue;
-
-      // Overflow check for testing
-      // Note: previewWalkInPlacement uses clinicSnap.data().walkInTokenAllotment implicitly or from args?
-      // Wait, let me check where walkInSpacingValue comes from in this function.
-      return sIdx;
+      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+        return sIdx;
+      }
     }
-    return sortedSessions[0][0]; // Fallback
+    return null;
   })();
 
   const targetSessionIndex = activeSessionIndex ?? 0;
@@ -2347,8 +2300,7 @@ export async function rebalanceWalkInSchedule(
   const rawSpacing = clinicSnap.exists() ? Number(clinicSnap.data()?.walkInTokenAllotment ?? 0) : 0;
   const walkInSpacingValue = Number.isFinite(rawSpacing) && rawSpacing > 0 ? Math.floor(rawSpacing) : 0;
 
-  // 1. Identify "Active Session"
-  // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
+  // Identify "Active Session" (Consistency with calculateWalkInDetails)
   const activeSessionIndex = (() => {
     if (allSlots.length === 0) return 0;
     const sessionMap = new Map<number, { start: Date; end: Date }>();
@@ -2363,26 +2315,11 @@ export async function rebalanceWalkInSchedule(
     });
     const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
     for (const [sIdx, range] of sortedSessions) {
-      // Relaxed rule: only check if session ended
-      if (isAfter(now, range.end)) continue;
-
-      // Overflow check for testing
-      if (walkInSpacingValue > 0) {
-        const sessionWalkInCount = appointments.filter((a: any) =>
-          a.bookedVia === 'Walk-in' &&
-          ACTIVE_STATUSES.has(a.status) &&
-          a.sessionIndex === sIdx
-        ).length;
-
-        if (sessionWalkInCount >= walkInSpacingValue) {
-          console.log(`[MAINTENANCE] Session ${sIdx} is full (${sessionWalkInCount}/${walkInSpacingValue}), checking next for overflow...`);
-          continue;
-        }
+      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
+        return sIdx;
       }
-
-      return sIdx;
     }
-    return sortedSessions[0][0]; // Fallback
+    return null;
   })();
 
   const targetSessionIndex = activeSessionIndex ?? 0;

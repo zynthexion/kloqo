@@ -605,9 +605,6 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     return;
                 }
 
-                // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
-                // Original logic: Prevents submission if not within doctor's consultation hours window.
-                /*
                 if (!isWithinBookingWindow(selectedDoctor)) {
                     console.log('[PF:SUBMIT] Not within booking window', { selectedDoctor });
                     toast({
@@ -618,7 +615,6 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     setIsSubmitting(false);
                     return;
                 }
-                */
 
                 console.log(`[WALK-IN DEBUG] [onSubmit] Starting walk-in form submission`, {
                     hasPrimaryPatient: !!primaryPatient,
@@ -890,11 +886,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         canProceed
                     });
 
-                    // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
-                    // Original logic: Blocks if estimated time is outside doctor's nominal availability.
-                    /*
                     if (!canProceed) {
-                        // This block is now effectively disabled for walk-ins but kept for structural clarity
                         console.warn('[PF:ESTIMATE] ⚠️ BLOCKING: Estimated time is outside availability', {
                             estimated: getClinicTimeString(adjustedEstimatedTime),
                             availabilityEnd: availabilityEndLabel
@@ -907,7 +899,6 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         setIsSubmitting(false);
                         return;
                     }
-                    */
 
                     setWalkInData({ patientId: patientForAppointmentId, formData: data, estimatedDetails });
                     setPatientsAhead(estimatedDetails.patientsAhead);

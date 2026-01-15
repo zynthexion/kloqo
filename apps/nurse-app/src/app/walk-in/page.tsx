@@ -338,11 +338,6 @@ function WalkInRegistrationContent() {
 
     if (!todaysAvailability || !todaysAvailability.timeSlots) return false;
 
-    // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
-    // Original logic: Walk-in opens 30 minutes before session starts and stays open during consultation hours.
-    // Testing logic: Always allow if there are slots today.
-    return true;
-    /*
     return todaysAvailability.timeSlots.some((session, index) => {
       const startTime = parseTime(session.from, currentTime);
 
@@ -364,7 +359,6 @@ function WalkInRegistrationContent() {
 
       return false; // Ended and empty
     });
-    */
   }, [doctor, currentTime, activeAppointmentsCount]);
 
   useEffect(() => {

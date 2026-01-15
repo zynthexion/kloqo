@@ -366,7 +366,13 @@ export default function LiveDashboard() {
       try {
         const updateData: any = { status: 'Confirmed' };
         if (consultationStatus === 'In') {
-          const currentBuffered = confirmedAppointments.filter(a => a.isInBuffer);
+          // Re-derive confirmed list from appointments state to avoid stale closure issues
+          const currentConfirmed = appointments
+            .filter(a => a.status === 'Confirmed' && a.id !== appointmentToAddToQueue.id)
+            .sort(compareAppointments);
+
+          const currentBuffered = currentConfirmed.filter(a => a.isInBuffer);
+
           if (currentBuffered.length < 2) {
             updateData.isInBuffer = true;
           }
@@ -429,7 +435,13 @@ export default function LiveDashboard() {
         };
 
         if (consultationStatus === 'In') {
-          const currentBuffered = confirmedAppointments.filter(a => a.id !== appointment.id && a.isInBuffer);
+          // Re-derive confirmed list from appointments state
+          const currentConfirmed = appointments
+            .filter(a => a.status === 'Confirmed' && a.id !== appointment.id)
+            .sort(compareAppointments);
+
+          const currentBuffered = currentConfirmed.filter(a => a.isInBuffer);
+
           if (currentBuffered.length < 2) {
             updateData.isInBuffer = true;
           }

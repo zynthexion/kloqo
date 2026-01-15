@@ -2437,8 +2437,12 @@ export default function AppointmentsPage() {
         // Refill buffer if doctor is 'In'
         const doctor = doctors.find(d => d.name === appointment.doctor);
         if (doctor?.consultationStatus === 'In') {
-          const confirmed = todaysAppointments.filter(a => a.status === 'Confirmed' && a.doctor === appointment.doctor);
-          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+          // Re-derive confirmed list from appointments state
+          const latestConfirmed = appointments
+            .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor)
+            .sort(compareAppointments);
+
+          const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
           if (currentBuffered.length < 2) {
             updateData.isInBuffer = true;
           }
@@ -2513,8 +2517,12 @@ export default function AppointmentsPage() {
         // Refill buffer if doctor is 'In'
         const doctor = doctors.find(d => d.name === appointment.doctor);
         if (doctor?.consultationStatus === 'In') {
-          const confirmed = todaysAppointments.filter(a => a.id !== appointment.id && a.status === 'Confirmed' && a.doctor === appointment.doctor);
-          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+          // Re-derive confirmed list from appointments state
+          const latestConfirmed = appointments
+            .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor && a.id !== appointment.id)
+            .sort(compareAppointments);
+
+          const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
           if (currentBuffered.length < 2) {
             updateData.isInBuffer = true;
           }

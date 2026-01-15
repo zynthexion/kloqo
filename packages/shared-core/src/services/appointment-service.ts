@@ -2835,6 +2835,10 @@ export async function calculateSkippedTokenRejoinSlot(
  * Tertiary sort: numericToken (ascending)
  */
 export function compareAppointments(a: Appointment, b: Appointment): number {
+  // 1. Buffer priority
+  if (a.isInBuffer && !b.isInBuffer) return -1;
+  if (!a.isInBuffer && b.isInBuffer) return 1;
+
   try {
     const parseRes = (apt: Appointment) => {
       // Appointments can have different date formats, but 'd MMMM yyyy' is the standard in Kloqo

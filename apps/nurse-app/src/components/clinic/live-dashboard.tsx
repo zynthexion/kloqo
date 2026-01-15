@@ -152,6 +152,20 @@ export default function LiveDashboard() {
   }, [selectedDate, toast, isOnline, selectedDoctor, doctors, clinicId]);
 
 
+  const filteredAppointments = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return appointments;
+    }
+    return appointments.filter((appointment) =>
+      appointment.patientName?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [appointments, searchTerm]);
+
+  const confirmedAppointments = useMemo(() => {
+    const confirmed = filteredAppointments.filter(a => a.status === 'Confirmed');
+    return confirmed.sort(compareAppointments);
+  }, [filteredAppointments]);
+
   const handleStatusChange = useCallback(async (newStatus: 'In' | 'Out') => {
     if (!selectedDoctor) return;
 
@@ -160,6 +174,20 @@ export default function LiveDashboard() {
         consultationStatus: newStatus,
         updatedAt: serverTimestamp(),
       });
+
+      // When doctor starts consultation, initialize the persistent buffer
+      if (newStatus === 'In') {
+        const top2 = confirmedAppointments.slice(0, 2);
+        for (const apt of top2) {
+          if (!apt.isInBuffer) {
+            await updateDoc(doc(db, 'appointments', apt.id), {
+              isInBuffer: true,
+              updatedAt: serverTimestamp()
+            });
+          }
+        }
+      }
+
       toast({
         title: "Status Updated",
         description: `Doctor status manually set to ${newStatus}.`
@@ -172,7 +200,7 @@ export default function LiveDashboard() {
         description: "Failed to update doctor status."
       });
     }
-  }, [selectedDoctor, toast]);
+  }, [selectedDoctor, toast, confirmedAppointments]);
 
   const handleUpdateStatus = useCallback((id: string, status: 'completed' | 'Cancelled' | 'No-show' | 'Skipped') => {
     startTransition(async () => {
@@ -181,7 +209,10 @@ export default function LiveDashboard() {
         const appointment = appointments.find(a => a.id === id);
         const now = new Date();
 
-        let updateData: any = { status: status.charAt(0).toUpperCase() + status.slice(1) };
+        let updateData: any = {
+          status: status.charAt(0).toUpperCase() + status.slice(1),
+          isInBuffer: false // Always clear buffer flag when moving out of Confirmed/Pending
+        };
         if (status === 'completed') {
           updateData.completedAt = serverTimestamp();
 
@@ -275,6 +306,28 @@ export default function LiveDashboard() {
           });
         }
 
+        // Refill buffer if doctor is 'In'
+        if (consultationStatus === 'In') {
+          // Find currently buffered appointments (excluding the one we just updated)
+          const currentBuffered = confirmedAppointments.filter(a => a.id !== id && a.isInBuffer);
+
+          if (currentBuffered.length < 2) {
+            // Find the next best candidate: Confirmed, not currently buffered, and not the one we just updated
+            const nextCandidate = confirmedAppointments.find(a =>
+              a.id !== id &&
+              a.status === 'Confirmed' &&
+              !a.isInBuffer
+            );
+
+            if (nextCandidate) {
+              await updateDoc(doc(db, 'appointments', nextCandidate.id), {
+                isInBuffer: true,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }
+        }
+
         toast({
           title: "Status Updated",
           description: `Appointment marked as ${status}.`
@@ -289,7 +342,7 @@ export default function LiveDashboard() {
         errorEmitter.emit('permission-error', permissionError);
       }
     });
-  }, [selectedDoctor, appointments, toast]);
+  }, [selectedDoctor, appointments, toast, confirmedAppointments, consultationStatus]);
 
   const handleAddToQueue = (appointment: Appointment) => {
     setAppointmentToAddToQueue(appointment);
@@ -311,9 +364,14 @@ export default function LiveDashboard() {
 
     startTransition(async () => {
       try {
-        await updateDoc(doc(db, 'appointments', appointmentToAddToQueue.id), {
-          status: 'Confirmed',
-        });
+        const updateData: any = { status: 'Confirmed' };
+        if (consultationStatus === 'In') {
+          const currentBuffered = confirmedAppointments.filter(a => a.isInBuffer);
+          if (currentBuffered.length < 2) {
+            updateData.isInBuffer = true;
+          }
+        }
+        await updateDoc(doc(db, 'appointments', appointmentToAddToQueue.id), updateData);
 
         toast({
           title: "Patient Added to Queue",
@@ -364,11 +422,20 @@ export default function LiveDashboard() {
           }
         }
 
-        await updateDoc(appointmentRef, {
+        const updateData: any = {
           status: 'Confirmed',
           time: newTimeStr,
           updatedAt: serverTimestamp()
-        });
+        };
+
+        if (consultationStatus === 'In') {
+          const currentBuffered = confirmedAppointments.filter(a => a.id !== appointment.id && a.isInBuffer);
+          if (currentBuffered.length < 2) {
+            updateData.isInBuffer = true;
+          }
+        }
+
+        await updateDoc(appointmentRef, updateData);
 
         // Update local state
         setAppointments(prev => prev.map(a =>
@@ -390,14 +457,6 @@ export default function LiveDashboard() {
     });
   };
 
-  const filteredAppointments = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return appointments;
-    }
-    return appointments.filter((appointment) =>
-      appointment.patientName?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [appointments, searchTerm]);
 
   // Compute queues for each doctor/session combination
   const [queuesByDoctor, setQueuesByDoctor] = useState<Record<string, QueueState>>({});
@@ -470,10 +529,6 @@ export default function LiveDashboard() {
     return bufferQueue.some(apt => apt.id === appointment.id);
   };
 
-  const confirmedAppointments = useMemo(() => {
-    const confirmed = filteredAppointments.filter(a => a.status === 'Confirmed');
-    return confirmed.sort(compareAppointments);
-  }, [filteredAppointments]);
 
   // Calculate next sessionIndex for current doctor
   const nextSessionIndex = useMemo(() => {

@@ -131,13 +131,12 @@ export async function computeQueues(
         }
     };
 
-    // Arrived Queue: Confirmed appointments sorted by shared logic
     const arrivedQueue = relevantAppointments
         .filter(apt => apt.status === 'Confirmed')
         .sort(compareAppointments);
 
-    // Buffer Queue: Top 2 from Arrived Queue (max 2)
-    const bufferQueue = arrivedQueue.slice(0, 2);
+    // Buffer Queue: Appointments explicitly marked as being in the buffer
+    const bufferQueue = arrivedQueue.filter(apt => apt.isInBuffer);
 
     // Skipped Queue: Skipped appointments sorted by shared logic
     const skippedQueue = relevantAppointments

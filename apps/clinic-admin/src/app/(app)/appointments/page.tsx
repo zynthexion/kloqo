@@ -2187,7 +2187,31 @@ export default function AppointmentsPage() {
     startTransition(async () => {
       try {
         const appointmentRef = doc(db, "appointments", appointment.id);
-        await updateDoc(appointmentRef, { status: 'Cancelled' });
+        await updateDoc(appointmentRef, {
+          status: 'Cancelled',
+          isInBuffer: false
+        });
+
+        // Refill buffer if doctor is 'In'
+        const doctor = doctors.find(d => d.name === appointment.doctor);
+        if (doctor?.consultationStatus === 'In') {
+          const confirmed = todaysAppointments.filter(a =>
+            a.status === 'Confirmed' &&
+            a.doctor === appointment.doctor &&
+            a.id !== appointment.id
+          );
+          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+
+          if (currentBuffered.length < 2) {
+            const nextCandidate = confirmed.find(a => !a.isInBuffer);
+            if (nextCandidate) {
+              await updateDoc(doc(db, 'appointments', nextCandidate.id), {
+                isInBuffer: true,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }
+        }
 
         // Note: Bucket count is now calculated on-the-fly from appointments
         // No need to update Firestore - the bucket count will be automatically recalculated
@@ -2254,8 +2278,29 @@ export default function AppointmentsPage() {
 
         await updateDoc(appointmentRef, {
           status: 'Completed',
-          completedAt: serverTimestamp()
+          completedAt: serverTimestamp(),
+          isInBuffer: false
         });
+
+        // Refill buffer if doctor is 'In'
+        if (appointmentDoctor?.consultationStatus === 'In') {
+          const confirmed = todaysAppointments.filter(a =>
+            a.status === 'Confirmed' &&
+            a.doctor === appointment.doctor &&
+            a.id !== appointment.id
+          );
+          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+
+          if (currentBuffered.length < 2) {
+            const nextCandidate = confirmed.find(a => !a.isInBuffer);
+            if (nextCandidate) {
+              await updateDoc(doc(db, 'appointments', nextCandidate.id), {
+                isInBuffer: true,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }
+        }
 
         // Increment consultation counter
         try {
@@ -2327,8 +2372,30 @@ export default function AppointmentsPage() {
         // Step 1: Mark as skipped with timestamp
         await updateDoc(appointmentRef, {
           status: 'Skipped',
-          skippedAt: serverTimestamp()
+          skippedAt: serverTimestamp(),
+          isInBuffer: false
         });
+
+        // Refill buffer if doctor is 'In'
+        const doctor = doctors.find(d => d.name === appointment.doctor);
+        if (doctor?.consultationStatus === 'In') {
+          const confirmed = todaysAppointments.filter(a =>
+            a.status === 'Confirmed' &&
+            a.doctor === appointment.doctor &&
+            a.id !== appointment.id
+          );
+          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+
+          if (currentBuffered.length < 2) {
+            const nextCandidate = confirmed.find(a => !a.isInBuffer);
+            if (nextCandidate) {
+              await updateDoc(doc(db, 'appointments', nextCandidate.id), {
+                isInBuffer: true,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }
+        }
 
         // Step 2: Shift subsequent appointments backwards (slotIndex - 1) using batch
         if (appointmentsToShift.length > 0) {
@@ -2365,9 +2432,19 @@ export default function AppointmentsPage() {
     startTransition(async () => {
       try {
         const appointmentRef = doc(db, 'appointments', appointment.id);
-        await updateDoc(appointmentRef, {
-          status: 'Confirmed'
-        });
+        const updateData: any = { status: 'Confirmed' };
+
+        // Refill buffer if doctor is 'In'
+        const doctor = doctors.find(d => d.name === appointment.doctor);
+        if (doctor?.consultationStatus === 'In') {
+          const confirmed = todaysAppointments.filter(a => a.status === 'Confirmed' && a.doctor === appointment.doctor);
+          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+          if (currentBuffered.length < 2) {
+            updateData.isInBuffer = true;
+          }
+        }
+
+        await updateDoc(appointmentRef, updateData);
 
         toast({
           title: "Patient Added to Queue",
@@ -2427,11 +2504,23 @@ export default function AppointmentsPage() {
           newTimeString = format(newTimeDate, 'hh:mm a');
         }
 
-        await updateDoc(appointmentRef, {
+        const updateData: any = {
           status: 'Confirmed',
           time: newTimeString,
           updatedAt: serverTimestamp()
-        });
+        };
+
+        // Refill buffer if doctor is 'In'
+        const doctor = doctors.find(d => d.name === appointment.doctor);
+        if (doctor?.consultationStatus === 'In') {
+          const confirmed = todaysAppointments.filter(a => a.id !== appointment.id && a.status === 'Confirmed' && a.doctor === appointment.doctor);
+          const currentBuffered = confirmed.filter(a => a.isInBuffer);
+          if (currentBuffered.length < 2) {
+            updateData.isInBuffer = true;
+          }
+        }
+
+        await updateDoc(appointmentRef, updateData);
 
         toast({
           title: "Patient Re-joined Queue",

@@ -236,7 +236,7 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                       "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
                       isSwiping && 'text-white',
                       !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
-                      !isSwiping && isBuffer && "bg-yellow-50/50 border-yellow-400",
+                      !isSwiping && isBuffer && "bg-blue-50/80 border-blue-400",
                       !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
                     )}
                     style={getSwipeStyle(appt.id)}

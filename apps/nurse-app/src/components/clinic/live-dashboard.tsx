@@ -679,6 +679,7 @@ export default function LiveDashboard() {
                     clinicStatus={consultationStatus}
                     currentTime={currentTime}
                     showStatusBadge={false}
+                    enableSwipeCompletion={false}
                   />
                 </div>
               </TabsContent>
@@ -691,6 +692,7 @@ export default function LiveDashboard() {
                   showTopRightActions={false}
                   clinicStatus={consultationStatus}
                   showStatusBadge={false}
+                  enableSwipeCompletion={false}
                 />
               </TabsContent>
             </Tabs>

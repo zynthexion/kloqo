@@ -215,4 +215,5 @@ export type User = {
     name?: string;
     designation?: 'Doctor' | 'Owner';
     onboarded?: boolean;
+    pwaInstalled?: boolean;
 }

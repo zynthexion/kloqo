@@ -4,19 +4,22 @@ import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { fetchAllPatients, fetchAllAppointments, getPatientFirstBooking, getPatientLastActive } from '@/lib/analytics';
+import { fetchAllPatients, fetchAllAppointments, fetchAllUsers, getPatientFirstBooking, getPatientLastActive } from '@/lib/analytics';
 import { calculate30DayRetention, calculateMAU, firestoreTimestampToDate } from '@/lib/metrics';
 import { format, subDays, startOfMonth, endOfMonth, differenceInDays, endOfDay, startOfDay } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { Users, Activity, TrendingUp, Calendar, Search, MapPin } from 'lucide-react';
-import type { Patient, Appointment } from '@/lib/analytics';
+import { Users, Activity, TrendingUp, Calendar, Search, MapPin, Smartphone } from 'lucide-react';
+import type { Patient, Appointment, User } from '@/lib/analytics';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+import { useRouter } from 'next/navigation';
 
 export default function PatientsPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [stats, setStats] = useState({
     total: 0,
@@ -32,17 +35,19 @@ export default function PatientsPage() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [patientsData, appointmentsData] = await Promise.all([
+        const [patientsData, appointmentsData, usersData] = await Promise.all([
           fetchAllPatients(),
           fetchAllAppointments(),
+          fetchAllUsers(),
         ]);
 
         setPatients(patientsData);
         setAppointments(appointmentsData);
+        setUsers(usersData);
 
         // Calculate DAU (yesterday's active users)
         const yesterday = subDays(new Date(), 1);
-        const yesterdayAppointments = appointmentsData.filter((apt) => {
+        const yesterdayAppointments = appointmentsData.filter((apt: any) => {
           let aptDate: Date | null = null;
           if (apt.createdAt) {
             aptDate = apt.createdAt.toDate ? apt.createdAt.toDate() : new Date(apt.createdAt);
@@ -70,7 +75,7 @@ export default function PatientsPage() {
           if (!aptDate) return false;
           return format(aptDate, 'yyyy-MM-dd') === format(yesterday, 'yyyy-MM-dd');
         });
-        const dau = new Set(yesterdayAppointments.map(apt => apt.patientId)).size;
+        const dau = new Set(yesterdayAppointments.map((apt: any) => apt.patientId)).size;
 
         // Calculate MAU
         const mau = calculateMAU(appointmentsData, new Date());
@@ -83,14 +88,14 @@ export default function PatientsPage() {
 
         // Calculate new vs returning
         const patientAppointmentCounts = new Map<string, number>();
-        appointmentsData.forEach(apt => {
+        appointmentsData.forEach((apt: any) => {
           patientAppointmentCounts.set(apt.patientId, (patientAppointmentCounts.get(apt.patientId) || 0) + 1);
         });
         const newPatients = Array.from(patientAppointmentCounts.values()).filter(count => count === 1).length;
         const returningPatients = Array.from(patientAppointmentCounts.values()).filter(count => count > 1).length;
 
-        const avgAppointments = patientsData.length > 0 
-          ? appointmentsData.length / patientsData.length 
+        const avgAppointments = patientsData.length > 0
+          ? appointmentsData.length / patientsData.length
           : 0;
 
         setStats({
@@ -115,9 +120,9 @@ export default function PatientsPage() {
   // Filter patients
   const filteredPatients = useMemo(() => {
     if (!searchTerm) return patients;
-    
+
     const search = searchTerm.toLowerCase();
-    return patients.filter(patient => 
+    return patients.filter(patient =>
       patient.name?.toLowerCase().includes(search) ||
       patient.phone?.toLowerCase().includes(search) ||
       patient.email?.toLowerCase().includes(search) ||
@@ -191,30 +196,30 @@ export default function PatientsPage() {
   const registrationTrends = (() => {
     const now = new Date();
     const trends: Array<{ date: string; count: number }> = [];
-    
+
     for (let i = 29; i >= 0; i--) {
       const date = subDays(now, i);
       const dateStr = format(date, 'yyyy-MM-dd');
       const dayStart = startOfDay(date);
       const dayEnd = endOfDay(date);
-      
+
       const dayPatients = patients.filter((patient) => {
         if (!patient.createdAt) return false;
         const createdDate = firestoreTimestampToDate(patient.createdAt);
         if (!createdDate) return false;
         return createdDate >= dayStart && createdDate <= dayEnd;
       });
-      
+
       trends.push({ date: dateStr, count: dayPatients.length });
     }
-    
+
     return trends;
   })();
 
   // Calculate appointment frequency distribution
   const appointmentFrequency = (() => {
     const patientCounts = new Map<string, number>();
-    appointments.forEach(apt => {
+    appointments.forEach((apt: any) => {
       patientCounts.set(apt.patientId, (patientCounts.get(apt.patientId) || 0) + 1);
     });
 
@@ -243,6 +248,18 @@ export default function PatientsPage() {
   // Get appointment count for a patient
   const getPatientAppointmentCount = (patientId: string) => {
     return appointments.filter(apt => apt.patientId === patientId).length;
+  };
+
+  const getPatientPwaStatus = (patientId: string, patientPhone: string) => {
+    // Try to find user by patientId link first
+    let user = users.find(u => u.patientId === patientId);
+
+    // If not found, try by phone number
+    if (!user && patientPhone) {
+      user = users.find(u => u.phone === patientPhone);
+    }
+
+    return user?.pwaInstalled || false;
   };
 
   if (loading) {
@@ -346,7 +363,7 @@ export default function PatientsPage() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   outerRadius={100}
                   fill="#8884d8"
                   dataKey="value"
@@ -392,22 +409,22 @@ export default function PatientsPage() {
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={registrationTrends}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="date" 
+                <XAxis
+                  dataKey="date"
                   tickFormatter={(date) => format(new Date(date), 'MMM d')}
                   angle={-45}
                   textAnchor="end"
                   height={80}
                 />
                 <YAxis />
-                <Tooltip 
+                <Tooltip
                   labelFormatter={(date) => format(new Date(date), 'MMM d, yyyy')}
                 />
                 <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="count" 
-                  stroke="#8884d8" 
+                <Line
+                  type="monotone"
+                  dataKey="count"
+                  stroke="#8884d8"
                   strokeWidth={2}
                   name="New Patients"
                   dot={{ r: 3 }}
@@ -475,8 +492,8 @@ export default function PatientsPage() {
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full" 
+                  <div
+                    className="bg-blue-600 h-2 rounded-full"
                     style={{ width: `${stats.total > 0 ? (stats.newVsReturning.new / stats.total) * 100 : 0}%` }}
                   />
                 </div>
@@ -489,8 +506,8 @@ export default function PatientsPage() {
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-green-600 h-2 rounded-full" 
+                  <div
+                    className="bg-green-600 h-2 rounded-full"
                     style={{ width: `${stats.total > 0 ? (stats.newVsReturning.returning / stats.total) * 100 : 0}%` }}
                   />
                 </div>
@@ -530,6 +547,12 @@ export default function PatientsPage() {
                   <th className="text-left p-3 text-sm font-medium">Email</th>
                   <th className="text-left p-3 text-sm font-medium">
                     <div className="flex items-center gap-1">
+                      <Smartphone className="h-4 w-4" />
+                      App
+                    </div>
+                  </th>
+                  <th className="text-left p-3 text-sm font-medium">
+                    <div className="flex items-center gap-1">
                       <MapPin className="h-4 w-4" />
                       Location
                     </div>
@@ -551,7 +574,11 @@ export default function PatientsPage() {
                     const appointmentCount = getPatientAppointmentCount(patient.id);
 
                     return (
-                      <tr key={patient.id} className="border-b hover:bg-gray-50 transition-colors">
+                      <tr
+                        key={patient.id}
+                        className="border-b hover:bg-gray-50 transition-colors cursor-pointer"
+                        onClick={() => router.push(`/dashboard/patients/${patient.id}`)}
+                      >
                         <td className="p-3">
                           <div className="font-medium">{patient.name || 'N/A'}</div>
                         </td>
@@ -567,6 +594,13 @@ export default function PatientsPage() {
                         </td>
                         <td className="p-3 text-sm">{patient.phone || 'N/A'}</td>
                         <td className="p-3 text-sm">{patient.email || '-'}</td>
+                        <td className="p-3 text-sm">
+                          {getPatientPwaStatus(patient.id, patient.phone) ? (
+                            <Badge variant="default" className="bg-green-600 hover:bg-green-700">Installed</Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">No</span>
+                          )}
+                        </td>
                         <td className="p-3 text-sm">{patient.place || 'Unknown'}</td>
                         <td className="p-3">
                           <Badge variant="secondary">{appointmentCount}</Badge>

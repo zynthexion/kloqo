@@ -11,7 +11,8 @@ import { ErrorBoundaryWithLogging } from '@/components/ErrorBoundary';
 import { GlobalErrorHandler } from '@/components/GlobalErrorHandler';
 import { RoutePrefetcher } from '@/components/route-prefetcher';
 import { ReviewChecker, AppointmentReminderHandler } from '@/components/deferred-components';
-import { OpenInAppPrompt } from '@/components/open-in-app-prompt';
+import { PwaTracker } from '@/components/pwa-tracker';
+
 
 export const metadata: Metadata = {
   title: 'Kloqo',
@@ -95,8 +96,9 @@ export default function RootLayout({
               <RoutePrefetcher />
             </ErrorBoundaryWithLogging>
             <Toaster />
-            <OpenInAppPrompt />
+
             <AddToHomeScreenPrompt />
+            <PwaTracker />
             <MessagingInitializer />
             <NotificationOnboard />
           </LanguageProvider>

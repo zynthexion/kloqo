@@ -144,10 +144,25 @@ export function useDoctorStatusUpdater() {
 
           let isWithinAnySlot = false;
           if (todaysAvailability?.timeSlots?.length) {
-            isWithinAnySlot = todaysAvailability.timeSlots.some(slot => {
+            const todayYmd = format(now, 'yyyy-MM-dd');
+            const todayExtensions = doctor.availabilityExtensions?.[todayYmd];
+
+            isWithinAnySlot = todaysAvailability.timeSlots.some((slot, index) => {
               try {
                 const startTime = parseTime(slot.from, now);
-                const endTime = parseTime(slot.to, now);
+                let endTime = parseTime(slot.to, now);
+
+                // Check for extension for this session
+                if (todayExtensions?.sessions) {
+                  const extension = todayExtensions.sessions.find(s => s.sessionIndex === index);
+                  if (extension?.newEndTime) {
+                    const extendedEndTime = parseTime(extension.newEndTime, now);
+                    // Use the extended end time if it's valid
+                    if (!isNaN(extendedEndTime.getTime())) {
+                      endTime = extendedEndTime;
+                    }
+                  }
+                }
 
                 // Fix: Allow 30-minute buffer before session start
                 // This allows doctors to mark "In" shortly before their shift starts

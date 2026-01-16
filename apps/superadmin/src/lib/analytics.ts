@@ -1,4 +1,4 @@
-import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { firestoreTimestampToDate, parseDateString } from './metrics';
 
@@ -62,6 +62,24 @@ export interface Appointment {
   tokenNumber?: string;
 }
 
+export interface User {
+  id: string;
+  uid: string;
+  phone: string;
+  role?: string;
+  patientId?: string;
+  pwaInstalled?: boolean;
+}
+
+export interface User {
+  id: string;
+  uid: string;
+  phone: string;
+  role?: string;
+  patientId?: string;
+  pwaInstalled?: boolean;
+}
+
 /**
  * Fetch all clinics
  */
@@ -94,6 +112,43 @@ export async function fetchAllPatients(): Promise<Patient[]> {
     })) as Patient[];
   } catch (error) {
     console.error('Error fetching patients:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch patient by ID
+ */
+export async function fetchPatientById(id: string): Promise<Patient | null> {
+  try {
+    const patientRef = doc(db, 'patients', id);
+    const snapshot = await getDoc(patientRef);
+
+    if (snapshot.exists()) {
+      return { id: snapshot.id, ...snapshot.data() } as Patient;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching patient:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetch appointments for a specific patient
+ */
+export async function fetchAppointmentsByPatientId(patientId: string): Promise<Appointment[]> {
+  try {
+    const appointmentsRef = collection(db, 'appointments');
+    const q = query(appointmentsRef, where('patientId', '==', patientId));
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Appointment[];
+  } catch (error) {
+    console.error('Error fetching patient appointments:', error);
     return [];
   }
 }

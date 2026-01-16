@@ -350,11 +350,24 @@ function ScheduleBreakContent() {
 
                 const freshApptSnap = await getDocs(freshApptQuery);
 
-                // We need originalEnd to calculate extension. 
-                // We can derive it from the session info or doctor availability if currentSession is stale,
-                // but currentSession.originalEnd should be consistent for the day's structure.
-                if (currentSession?.originalEnd) {
-                    const originalEnd = currentSession.originalEnd;
+                // CRITICAL FIX: Determine correct originalEnd for THIS break's session
+                // Do NOT rely on currentSession.originalEnd as it might be for a different session (e.g. Session 0 vs 1)
+                let sessionOriginalEnd: Date | null = null;
+
+                // 1. Try to find session by index in doctor availability
+                const dayOfWeek = format(selectedDate, 'EEEE');
+                const availabilityForDay = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
+                if (availabilityForDay && availabilityForDay.timeSlots[breakPeriod.sessionIndex]) {
+                    const sessionDef = availabilityForDay.timeSlots[breakPeriod.sessionIndex];
+                    sessionOriginalEnd = parseTime(sessionDef.to, selectedDate);
+                }
+                // 2. Fallback to currentSession ONLY if indices match
+                else if (currentSession?.originalEnd && currentSession.sessionIndex === breakPeriod.sessionIndex) {
+                    sessionOriginalEnd = currentSession.originalEnd;
+                }
+
+                if (sessionOriginalEnd) {
+                    const originalEnd = sessionOriginalEnd;
 
                     freshApptSnap.docs.forEach(d => {
                         const apt = d.data(); // Untyped immediate access
@@ -369,24 +382,15 @@ function ScheduleBreakContent() {
                         const apptStart = parseTime(apptTimeStr, selectedDate);
                         const apptEnd = addMinutes(apptStart, doctor.averageConsultingTime || 15);
 
-                        console.log('[BREAK DEBUG] Checking appt for extension:', {
-                            id: d.id,
-                            time: apptTimeStr,
-                            start: format(apptStart, 'HH:mm'),
-                            end: format(apptEnd, 'HH:mm'),
-                            originalSessionEnd: format(originalEnd, 'HH:mm'),
-                            isAfterOrEqual: apptEnd >= originalEnd
-                        });
-
-                        if (apptEnd >= originalEnd) {
+                        if (apptEnd.getTime() > originalEnd.getTime()) {
                             const extensionNeeded = differenceInMinutes(apptEnd, originalEnd);
-                            console.log('[BREAK DEBUG] Extension needed for this appt:', extensionNeeded);
                             if (extensionNeeded > freshMaxExtensionNeeded) {
                                 freshMaxExtensionNeeded = extensionNeeded;
                             }
                         }
                     });
-                    console.log('[BREAK DEBUG] Final freshMaxExtensionNeeded:', freshMaxExtensionNeeded);
+                } else {
+                    console.warn('[BREAK] Could not determine originalEnd for sessionIndex:', breakPeriod.sessionIndex);
                 }
             } catch (err) {
                 console.error('Error calculating fresh extension needed:', err);
@@ -435,6 +439,9 @@ function ScheduleBreakContent() {
                 const breaks = freshData.breakPeriods?.[dateKey] || [];
                 // Remove the break with matching ID matches
                 const updatedBreaks = breaks.filter(b => b.id !== breakPeriod.id);
+                console.log('[DEBUG-BREAK] Cancel Break - Original Breaks Count:', breaks.length);
+                console.log('[DEBUG-BREAK] Cancel Break - Removing Break ID:', breakPeriod.id, 'Session:', breakPeriod.sessionIndex);
+                console.log('[DEBUG-BREAK] Cancel Break - Updated Breaks Count:', updatedBreaks.length);
 
                 // Also remove/update extensions if needed?
                 // Break removal might affect extensions. 
@@ -450,8 +457,17 @@ function ScheduleBreakContent() {
                     availabilityExtensions[dateKey] = { sessions: [] };
                 }
 
-                const totalBreakMinutes = updatedBreaks.reduce((sum, bp) => sum + bp.duration, 0);
                 const sessionIndex = breakPeriod.sessionIndex;
+                console.log('[DEBUG-BREAK] Processing Session Index:', sessionIndex);
+
+                // CRITICAL FIX: Filter breaks for THIS session only before calculating stats
+                const sessionBreaks = updatedBreaks.filter(b => b.sessionIndex === sessionIndex);
+
+                // Debug logging what passes the filter
+                console.log('[DEBUG-BREAK] Remaining Breaks for Session', sessionIndex, ':', sessionBreaks.map(b => ({ id: b.id, sessionIndex: b.sessionIndex, start: b.startTimeFormatted })));
+
+                const totalBreakMinutes = sessionBreaks.reduce((sum, bp) => sum + bp.duration, 0);
+                console.log('[DEBUG-BREAK] totalBreakMinutes for Session:', totalBreakMinutes);
 
                 const dayOfWeek = format(selectedDate, 'EEEE');
                 const availabilityForDay = freshData.availabilitySlots?.find(s => s.day === dayOfWeek);
@@ -465,13 +481,18 @@ function ScheduleBreakContent() {
                 const currentExt = existingSessionExtIndex >= 0 ? availabilityExtensions[dateKey].sessions[existingSessionExtIndex] : null;
                 const currentTotalExtendedBy = currentExt ? currentExt.totalExtendedBy : 0;
 
+                console.log('[DEBUG-BREAK] Existing Extension Data:', currentExt);
+                console.log('[DEBUG-BREAK] freshMaxExtensionNeeded:', freshMaxExtensionNeeded);
+
                 const newTotalExtendedBy = shouldCancelExtension
                     ? Math.max(totalBreakMinutes, freshMaxExtensionNeeded)
                     : currentTotalExtendedBy;
 
+                console.log('[DEBUG-BREAK] newTotalExtendedBy:', newTotalExtendedBy, '(shouldCancelExtension:', shouldCancelExtension, ')');
+
                 const newSessionExtension = {
                     sessionIndex: sessionIndex,
-                    breaks: updatedBreaks,
+                    breaks: sessionBreaks,
                     totalExtendedBy: newTotalExtendedBy,
                     originalEndTime: originalEndStr ? format(parseTime(originalEndStr, selectedDate), 'hh:mm a') : '',
                     newEndTime: originalEndStr
@@ -479,14 +500,19 @@ function ScheduleBreakContent() {
                         : ''
                 };
 
+                console.log('[DEBUG-BREAK] Constructed New Session Extension:', newSessionExtension);
+
                 if (existingSessionExtIndex >= 0) {
                     if (updatedBreaks.length === 0 && newTotalExtendedBy === 0) {
                         availabilityExtensions[dateKey].sessions.splice(existingSessionExtIndex, 1);
+                        console.log('[DEBUG-BREAK] Removed empty extension entry');
                     } else {
                         availabilityExtensions[dateKey].sessions[existingSessionExtIndex] = newSessionExtension;
+                        console.log('[DEBUG-BREAK] Updated existing extension entry');
                     }
                 } else if (newTotalExtendedBy > 0 || updatedBreaks.length > 0) {
                     availabilityExtensions[dateKey].sessions.push(newSessionExtension);
+                    console.log('[DEBUG-BREAK] Added new extension entry');
                 }
 
                 if (availabilityExtensions[dateKey].sessions.length === 0) {
@@ -494,6 +520,7 @@ function ScheduleBreakContent() {
                 }
 
                 updates['availabilityExtensions'] = availabilityExtensions;
+                console.log('[DEBUG-BREAK] Final Firestore Updates:', JSON.stringify(updates, null, 2));
 
                 await updateDoc(doctorRef, updates);
 

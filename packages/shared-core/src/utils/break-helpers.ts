@@ -466,7 +466,8 @@ export function getAvailableBreakSlots(
 
   // Start from session start, not current time, to show all slot times in slot format
   let currentTime = new Date(currentSession.sessionStart);
-  const currentEndTime = currentSession.sessionEnd;
+  // FIX: Use effectiveEnd (which includes extensions) instead of original sessionEnd
+  const currentEndTime = currentSession.effectiveEnd;
 
   while (currentTime < currentEndTime) {
     // If it's today, only add slots that start in the future (or now)
@@ -501,7 +502,8 @@ export function getAvailableBreakSlots(
   for (let i = currentSession.sessionIndex + 1; i < availabilityForDay.timeSlots.length; i++) {
     const session = availabilityForDay.timeSlots[i];
     const sessionStart = parseTime(session.from, referenceDate);
-    const sessionEnd = parseTime(session.to, referenceDate);
+    // FIX: Use getSessionEnd to account for extensions in upcoming sessions
+    const sessionEnd = getSessionEnd(doctor, referenceDate, i) || parseTime(session.to, referenceDate);
     const sessionBreaks = getSessionBreaks(doctor, referenceDate, i);
     const takenSlotsForSession = new Set(sessionBreaks.flatMap(b => b.slots));
 

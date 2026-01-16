@@ -324,6 +324,11 @@ export default function LiveDashboard() {
                 isInBuffer: true,
                 updatedAt: serverTimestamp()
               });
+
+              // Optimistically update local state to avoid race conditions with handleAddToQueue
+              setAppointments(prev => prev.map(a =>
+                a.id === nextCandidate.id ? { ...a, isInBuffer: true } : a
+              ));
             }
           }
         }

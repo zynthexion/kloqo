@@ -10,6 +10,7 @@ import {
     fetchPatientById,
     fetchAppointmentsByPatientId,
     fetchAllUsers,
+    fetchPatientsByPhone,
     type Patient,
     type Appointment,
     type User
@@ -26,7 +27,8 @@ import {
     ArrowLeft,
     Smartphone,
     History,
-    Activity
+    Activity,
+    Users
 } from 'lucide-react';
 
 export default function PatientDetailPage() {
@@ -36,6 +38,7 @@ export default function PatientDetailPage() {
 
     const [loading, setLoading] = useState(true);
     const [patient, setPatient] = useState<Patient | null>(null);
+    const [relatedPatients, setRelatedPatients] = useState<Patient[]>([]);
     const [pwaInstalled, setPwaInstalled] = useState(false);
     const [appointments, setAppointments] = useState<Appointment[]>([]);
 
@@ -52,8 +55,16 @@ export default function PatientDetailPage() {
                 setPatient(patientData);
                 setAppointments(appointmentsData);
 
-                // Check PWA status
+                // Fetch related patients using communicationPhone or phone
                 if (patientData) {
+                    const phoneToSearch = patientData.communicationPhone || patientData.phone;
+                    if (phoneToSearch) {
+                        const related = await fetchPatientsByPhone(phoneToSearch);
+                        // Filter out current patient
+                        setRelatedPatients(related.filter(p => p.id !== patientData.id));
+                    }
+
+                    // Check PWA status
                     let user = usersData.find(u => u.patientId === patientData.id);
                     if (!user && patientData.phone) {
                         user = usersData.find(u => u.phone === patientData.phone);
@@ -198,9 +209,10 @@ export default function PatientDetailPage() {
                 {/* Right Column: Key Stats & Appointments */}
                 <div className="md:col-span-2 space-y-6">
                     <Tabs defaultValue="upcoming" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 mb-4">
-                            <TabsTrigger value="upcoming">Upcoming Appointments</TabsTrigger>
-                            <TabsTrigger value="history">Visit History</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-3 mb-4">
+                            <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+                            <TabsTrigger value="history">Visits</TabsTrigger>
+                            <TabsTrigger value="related">Related</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="upcoming">
@@ -271,6 +283,48 @@ export default function PatientDetailPage() {
                                                     <div className="text-right">
                                                         <div className="text-sm font-medium text-muted-foreground">{apt.clinicId}</div>
                                                     </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+
+                        <TabsContent value="related">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Users className="h-5 w-5 text-primary" />
+                                        Related Patients
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Other patients sharing the same phone number ({patient.communicationPhone || patient.phone})
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    {relatedPatients.length === 0 ? (
+                                        <div className="text-center py-8 text-muted-foreground">
+                                            No related patients found.
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {relatedPatients.map((relPatient) => (
+                                                <div
+                                                    key={relPatient.id}
+                                                    className="flex items-center justify-between p-4 border rounded-lg bg-card hover:bg-muted/50 transition-colors cursor-pointer"
+                                                    onClick={() => router.push(`/dashboard/patients/${relPatient.id}`)}
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                                                            {relPatient.name?.charAt(0) || 'U'}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-medium">{relPatient.name}</div>
+                                                            <div className="text-sm text-muted-foreground">{relPatient.age} years • {relPatient.sex}</div>
+                                                        </div>
+                                                    </div>
+                                                    <Button variant="ghost" size="sm">View</Button>
                                                 </div>
                                             ))}
                                         </div>

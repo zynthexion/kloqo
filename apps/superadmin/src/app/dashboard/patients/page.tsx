@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { fetchAllPatients, fetchAllAppointments, fetchAllUsers, getPatientFirstBooking, getPatientLastActive } from '@/lib/analytics';
@@ -544,11 +545,10 @@ export default function PatientsPage() {
                   <th className="text-left p-3 text-sm font-medium">Age</th>
                   <th className="text-left p-3 text-sm font-medium">Gender</th>
                   <th className="text-left p-3 text-sm font-medium">Phone</th>
-                  <th className="text-left p-3 text-sm font-medium">Email</th>
                   <th className="text-left p-3 text-sm font-medium">
                     <div className="flex items-center gap-1">
                       <Smartphone className="h-4 w-4" />
-                      App
+                      PWA Installed?
                     </div>
                   </th>
                   <th className="text-left p-3 text-sm font-medium">
@@ -559,12 +559,13 @@ export default function PatientsPage() {
                   </th>
                   <th className="text-left p-3 text-sm font-medium">Appointments</th>
                   <th className="text-left p-3 text-sm font-medium">Registered</th>
+                  <th className="text-left p-3 text-sm font-medium">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredPatients.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={9} className="p-8 text-center text-muted-foreground">
                       {searchTerm ? 'No patients found matching your search.' : 'No patients registered yet.'}
                     </td>
                   </tr>
@@ -572,12 +573,12 @@ export default function PatientsPage() {
                   filteredPatients.map((patient) => {
                     const createdDate = patient.createdAt ? firestoreTimestampToDate(patient.createdAt) : null;
                     const appointmentCount = getPatientAppointmentCount(patient.id);
+                    const displayPhone = patient.communicationPhone || patient.phone;
 
                     return (
                       <tr
                         key={patient.id}
-                        className="border-b hover:bg-gray-50 transition-colors cursor-pointer"
-                        onClick={() => router.push(`/dashboard/patients/${patient.id}`)}
+                        className="border-b hover:bg-gray-50 transition-colors"
                       >
                         <td className="p-3">
                           <div className="font-medium">{patient.name || 'N/A'}</div>
@@ -592,11 +593,10 @@ export default function PatientsPage() {
                             <span className="text-muted-foreground text-sm">Not specified</span>
                           )}
                         </td>
-                        <td className="p-3 text-sm">{patient.phone || 'N/A'}</td>
-                        <td className="p-3 text-sm">{patient.email || '-'}</td>
+                        <td className="p-3 text-sm">{displayPhone || 'N/A'}</td>
                         <td className="p-3 text-sm">
                           {getPatientPwaStatus(patient.id, patient.phone) ? (
-                            <Badge variant="default" className="bg-green-600 hover:bg-green-700">Installed</Badge>
+                            <Badge variant="default" className="bg-green-600 hover:bg-green-700">Yes</Badge>
                           ) : (
                             <span className="text-muted-foreground text-xs">No</span>
                           )}
@@ -607,6 +607,16 @@ export default function PatientsPage() {
                         </td>
                         <td className="p-3 text-sm text-muted-foreground">
                           {createdDate ? format(createdDate, 'MMM d, yyyy') : 'N/A'}
+                        </td>
+                        <td className="p-3">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => router.push(`/dashboard/patients/${patient.id}`)}
+                            title="View Details"
+                          >
+                            <Users className="h-4 w-4" />
+                          </Button>
                         </td>
                       </tr>
                     );

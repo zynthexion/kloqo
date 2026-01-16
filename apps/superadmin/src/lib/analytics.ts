@@ -41,6 +41,7 @@ export interface Patient {
   id: string;
   name: string;
   phone: string;
+  communicationPhone?: string;
   email?: string;
   age?: number;
   sex?: 'Male' | 'Female' | 'Other' | '';
@@ -67,17 +68,25 @@ export interface User {
   uid: string;
   phone: string;
   role?: string;
-  patientId?: string;
   pwaInstalled?: boolean;
 }
 
-export interface User {
-  id: string;
-  uid: string;
-  phone: string;
-  role?: string;
-  patientId?: string;
-  pwaInstalled?: boolean;
+/**
+ * Fetch all users
+ */
+export async function fetchAllUsers(): Promise<User[]> {
+  try {
+    const usersRef = collection(db, 'users');
+    const snapshot = await getDocs(usersRef);
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as User[];
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    return [];
+  }
 }
 
 /**
@@ -112,6 +121,37 @@ export async function fetchAllPatients(): Promise<Patient[]> {
     })) as Patient[];
   } catch (error) {
     console.error('Error fetching patients:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch patients by communication phone (for finding related accounts)
+ */
+export async function fetchPatientsByPhone(phone: string): Promise<Patient[]> {
+  try {
+    if (!phone) return [];
+
+    // Check both phone and communicationPhone fields
+    const patientsRef = collection(db, 'patients');
+
+    // Method 1: Fetch all and filter (safest for small datasets, but inefficient for large ones)
+    // For now, let's assume we can query via 'communicationPhone' OR 'phone' manually
+
+    const q1 = query(patientsRef, where('phone', '==', phone));
+    const snap1 = await getDocs(q1);
+
+    const q2 = query(patientsRef, where('communicationPhone', '==', phone));
+    const snap2 = await getDocs(q2);
+
+    const patientsMap = new Map<string, Patient>();
+
+    snap1.docs.forEach(doc => patientsMap.set(doc.id, { id: doc.id, ...doc.data() } as Patient));
+    snap2.docs.forEach(doc => patientsMap.set(doc.id, { id: doc.id, ...doc.data() } as Patient));
+
+    return Array.from(patientsMap.values());
+  } catch (error) {
+    console.error('Error fetching related patients:', error);
     return [];
   }
 }

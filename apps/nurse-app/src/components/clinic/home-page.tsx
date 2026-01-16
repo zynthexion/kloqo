@@ -139,7 +139,9 @@ export default function HomePage() {
 
     const doctorRef = doc(db, 'doctors', currentDoctor.id);
     try {
+      console.log('[BUFFER-DEBUG] handleGoOnline: Setting status to In for doctor', currentDoctor.name);
       await updateDoc(doctorRef, { consultationStatus: 'In' });
+      console.log('[BUFFER-DEBUG] handleGoOnline: Firestore updated successfully');
     } catch (error) {
       console.error('Error updating doctor status:', error);
       toast({ variant: 'destructive', title: 'Update Failed' });

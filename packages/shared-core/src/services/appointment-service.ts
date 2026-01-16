@@ -2839,6 +2839,18 @@ export function compareAppointments(a: Appointment, b: Appointment): number {
   if (a.isInBuffer && !b.isInBuffer) return -1;
   if (!a.isInBuffer && b.isInBuffer) return 1;
 
+  // 1b. Buffer Stability: If both are in buffer, sort by bufferedAt (FIFO)
+  // This ensures that once a patient enters the buffer, they are not displaced by a "more urgent" late arrival.
+  if (a.isInBuffer && b.isInBuffer) {
+    const bufferTimeA = (a.bufferedAt as any)?.toMillis ? (a.bufferedAt as any).toMillis() : 0;
+    const bufferTimeB = (b.bufferedAt as any)?.toMillis ? (b.bufferedAt as any).toMillis() : 0;
+
+    if (bufferTimeA && bufferTimeB && bufferTimeA !== bufferTimeB) {
+      return bufferTimeA - bufferTimeB;
+    }
+    // If timestamps are missing or equal, fall back to natural sort below
+  }
+
   try {
     const parseRes = (apt: Appointment) => {
       // Appointments can have different date formats, but 'd MMMM yyyy' is the standard in Kloqo

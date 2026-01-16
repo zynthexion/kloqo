@@ -20,6 +20,10 @@ function RootPageContent() {
     // If the user is authenticated, always redirect to the home page.
     // This is the definitive destination for any logged-in user hitting the root.
     if (user) {
+      // Mark splash as shown for this session so Home doesn't play it again
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem('homeSplashShown', '1');
+      }
       router.replace('/home');
       return;
     }
@@ -27,14 +31,14 @@ function RootPageContent() {
     // If the user is not authenticated, redirect them to the login page.
     const params = new URLSearchParams(searchParams);
     const clinicId = params.get('clinicId')?.trim();
-    
+
     const loginParams = new URLSearchParams();
     if (clinicId) {
       loginParams.set('clinicId', clinicId);
       // Set the post-login redirect destination.
       loginParams.set('redirect', `/consult-today?clinicId=${clinicId}`);
     }
-    
+
     // Redirect to the login page with the appropriate parameters.
     router.replace(`/login?${loginParams.toString()}`);
 

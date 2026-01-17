@@ -1,5 +1,5 @@
 'use client';
-import { ArrowLeft, Home, Calendar, Radio, User, ChevronRight, LogOut, FileText, Shield, HelpCircle, Download, Share, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Home, Calendar, Radio, User, Users, ChevronRight, LogOut, FileText, Shield, HelpCircle, Download, Share, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -96,6 +96,7 @@ function ProfilePage() {
     };
 
     const menuItems = [
+        { icon: Users, label: t.profile?.friendsAndFamily || 'Your Friends and Family', href: '/profile/relatives' },
         { icon: FileText, label: t.profile.terms, href: '#', key: 'terms' },
         { icon: Shield, label: t.profile.privacyPolicy, href: '#', key: 'privacy' },
         { icon: Download, label: t.profile.installAppMenu, href: '#', key: 'install' },

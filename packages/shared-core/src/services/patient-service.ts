@@ -306,3 +306,38 @@ export async function managePatient(patientData: PatientInput): Promise<string> 
         throw permissionError;
     }
 }
+
+/**
+ * Unlinks a relative patient from a primary patient's account.
+ * This removes the relative's ID from the primary patient's relatedPatientIds array.
+ * The relative's patient document is NOT deleted to preserve historical data.
+ */
+export async function unlinkRelative(
+    primaryPatientId: string,
+    relativeId: string
+): Promise<void> {
+    const db = getFirestore(getServerFirebaseApp());
+    const primaryRef = doc(db, 'patients', primaryPatientId);
+    const batch = writeBatch(db);
+
+    try {
+        // We use a batch just in case we want to add more operations later 
+        // (like marking the relative as unlinked in their own doc)
+        const { arrayRemove } = await import('firebase/firestore');
+        batch.update(primaryRef, {
+            relatedPatientIds: arrayRemove(relativeId),
+            updatedAt: serverTimestamp()
+        });
+
+        await batch.commit();
+    } catch (error) {
+        console.error("Error in unlinkRelative: ", error);
+        const permissionError = new FirestorePermissionError({
+            path: `patients/${primaryPatientId}`,
+            operation: 'write',
+            requestResourceData: { relativeId }
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        throw permissionError;
+    }
+}

@@ -112,6 +112,7 @@
   },
   "profile": {
     "myProfile": "My Profile",
+    "friendsAndFamily": "Your Friends and Family",
     "language": "Language",
     "help": "Help",
     "privacyPolicy": "Privacy Policy",
@@ -354,6 +355,7 @@
     "male": "Male",
     "female": "Female",
     "other": "Other",
+    "years": "years",
     "place": "Place",
     "phone": "Phone Number",
     "phoneOptional": "phone number is optional",
@@ -396,7 +398,17 @@
     "patientCreationFailed": "Could not load patient data. Please try again.",
     "tokenGenerated": "Token Generated!",
     "pleaseArriveOnTime": "Please arrive on time and show this token at the front desk.",
-    "yourTokenNumber": "Your token number"
+    "yourTokenNumber": "Your token number",
+    "relativeListFull": "Relative list is full. Do you need to delete one?",
+    "deleteHeader": "Delete",
+    "confirmUnlinkTitle": "Remove relative?",
+    "confirmUnlinkDesc": "This will remove {name} from your friends and family list. Historical clinic records will remain unchanged.",
+    "noRelatives": "No one here yet",
+    "noRelativesDesc": "Relatives added during booking will appear here for you to manage.",
+    "editRelativeInfo": "Edit Relative Info",
+    "editRelativeDesc": "Update the details for your family member.",
+    "saveChanges": "Save Changes",
+    "selectGender": "Select gender"
   },
   "reviews": {
     "title": "Rate Your Experience",

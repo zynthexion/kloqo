@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format, parse, addMinutes, isBefore, isAfter } from 'date-fns';
-import { Loader2, Plus, CheckCircle2, X, Clock, Calendar, Users, Radio } from 'lucide-react';
+import { Loader2, Plus, CheckCircle2, X, Clock, Calendar, Users, Radio, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import { useUser } from '@/firebase/auth/use-user';
 import { useFirestore } from '@/firebase';
 import { getPatientListFromCache, savePatientListToCache } from '@/lib/patient-cache';
 import { useLanguage } from '@/contexts/language-context';
+import { unlinkRelative } from '@kloqo/shared-core';
 import { collection, query, where, getDocs, doc, writeBatch, getDoc, runTransaction, serverTimestamp, arrayUnion, deleteDoc } from 'firebase/firestore';
 import type { Doctor, Patient, Appointment } from '@/lib/types';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -99,6 +100,11 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
     const [estimatedConsultationTime, setEstimatedConsultationTime] = useState<Date | null>(null);
     const [estimatedDelay, setEstimatedDelay] = useState(0);
     const [patientsAhead, setPatientsAhead] = useState(0);
+
+    // New state for inline deletion
+    const [isDeleteMode, setIsDeleteMode] = useState(false);
+    const [patientToUnlink, setPatientToUnlink] = useState<Patient | null>(null);
+    const [isUnlinking, setIsUnlinking] = useState(false);
     const [primaryPatient, setPrimaryPatient] = useState<Patient | null>(null);
     const [relatedPatients, setRelatedPatients] = useState<Patient[]>([]);
     const [walkInData, setWalkInData] = useState<any>(null); // To store data before confirmation
@@ -1121,6 +1127,37 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
         }
     }
 
+    const handleUnlink = async () => {
+        if (!patientToUnlink || !primaryPatient?.id) return;
+
+        setIsUnlinking(true);
+        try {
+            await unlinkRelative(primaryPatient.id, patientToUnlink.id);
+
+            toast({
+                title: t.messages.success,
+                description: t.patientForm.confirmUnlinkDesc.replace('{name}', patientToUnlink.name),
+            });
+
+            // Refresh patient list
+            fetchPatientData();
+            setPatientToUnlink(null);
+
+            // If the deleted patient was selected, clear selection
+            if (selectedPatientId === patientToUnlink.id) {
+                form.setValue('selectedPatient', primaryPatient.id);
+            }
+        } catch (error) {
+            console.error('Error unlinking relative:', error);
+            toast({
+                variant: 'destructive',
+                title: t.common.error,
+                description: 'Failed to remove relative.',
+            });
+        } finally {
+            setIsUnlinking(false);
+        }
+    };
 
     const handlePatientSelect = (patientId: string) => {
         setAddNewPatient(false);
@@ -1166,21 +1203,84 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                                 {displayedPatients.map(p => {
                                     // Show "myself" only if patient's phone matches logged-in user's phone
                                     const isLoggedInUser = p.phone === user?.phoneNumber;
+                                    const isRelative = !isLoggedInUser && p.id !== primaryPatient?.id;
+
                                     return (
-                                        <div key={p.id} className="flex flex-col items-center gap-2 text-center flex-shrink-0 cursor-pointer" onClick={() => handlePatientSelect(p.id)}>
-                                            <Avatar className={cn("w-16 h-16 border-2 rounded-lg", selectedPatientId === p.id && !addNewPatient ? "border-primary" : "border-transparent")}>
+                                        <div
+                                            key={p.id}
+                                            className="flex flex-col items-center gap-2 text-center flex-shrink-0 cursor-pointer relative"
+                                            onClick={() => {
+                                                if (isDeleteMode) {
+                                                    if (isRelative) setPatientToUnlink(p);
+                                                } else {
+                                                    handlePatientSelect(p.id);
+                                                }
+                                            }}
+                                        >
+                                            <Avatar className={cn(
+                                                "w-16 h-16 border-2 rounded-lg relative overflow-hidden",
+                                                selectedPatientId === p.id && !addNewPatient ? "border-primary" : "border-transparent",
+                                                isDeleteMode && isRelative && "ring-2 ring-red-500 ring-offset-2"
+                                            )}>
                                                 <AvatarFallback className="text-lg rounded-lg">{p.name ? p.name.split(' ').map(n => n[0]).join('') : 'Me'}</AvatarFallback>
+
+                                                {/* Delete Indicator */}
+                                                {isDeleteMode && isRelative && (
+                                                    <div className="absolute top-0 right-0 bg-red-600 text-white p-1 rounded-bl-lg rounded-tr-lg z-10 shadow-sm animate-in zoom-in-50 duration-200">
+                                                        <Trash2 className="w-4 h-4" strokeWidth={2.5} />
+                                                    </div>
+                                                )}
                                             </Avatar>
                                             <span className="text-sm font-medium">{isLoggedInUser ? t.patientForm.myself : (p.name ? p.name.split(' ')[0] : 'New')}</span>
                                         </div>
                                     );
                                 })}
-                                <div className="flex flex-col items-center gap-2 text-center flex-shrink-0">
-                                    <button type="button" onClick={handleAddNewClick} className={cn("w-16 h-16 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer", addNewPatient ? "border-primary bg-primary/10" : "border-border")}>
-                                        <Plus className="w-6 h-6 text-muted-foreground" />
-                                    </button>
-                                    <span className="text-sm font-medium">{t.patientForm.addNew}</span>
-                                </div>
+
+                                {relatedPatients.length < 5 && (
+                                    <div className="flex flex-col items-center gap-2 text-center flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={handleAddNewClick}
+                                            disabled={isDeleteMode}
+                                            className={cn(
+                                                "w-16 h-16 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                                                addNewPatient ? "border-primary bg-primary/10" : "border-border"
+                                            )}
+                                        >
+                                            <Plus className="w-6 h-6 text-muted-foreground" />
+                                        </button>
+                                        <span className="text-sm font-medium">{t.patientForm.addNew}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Limit Warning and Delete Toggle */}
+                        {relatedPatients.length >= 5 && !addNewPatient && !isDeleteMode && (
+                            <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                                <p className="text-sm text-red-800 font-medium">
+                                    {t.patientForm.relativeListFull}
+                                </p>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-100 font-bold"
+                                    onClick={() => setIsDeleteMode(true)}
+                                >
+                                    {t.patientForm.deleteHeader}
+                                </Button>
+                            </div>
+                        )}
+
+                        {isDeleteMode && (
+                            <div className="mt-4 flex justify-end">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setIsDeleteMode(false)}
+                                >
+                                    {t.common.back}
+                                </Button>
                             </div>
                         )}
                     </div>
@@ -1490,6 +1590,31 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                             <Link href="/live-token"><Radio className="mr-2 h-4 w-4" />{t.liveToken.title}</Link>
                         </Button>
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Deletion Confirmation Dialog using regular Dialog */}
+            <Dialog open={!!patientToUnlink} onOpenChange={(open) => !open && setPatientToUnlink(null)}>
+                <DialogContent className="sm:max-w-md w-[90%]">
+                    <DialogHeader>
+                        <DialogTitle>{t.patientForm.confirmUnlinkTitle}</DialogTitle>
+                        <DialogDescription>
+                            {t.patientForm.confirmUnlinkDesc.replace('{name}', patientToUnlink?.name || '')}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+                        <Button variant="outline" onClick={() => setPatientToUnlink(null)} disabled={isUnlinking}>
+                            {t.common.cancel}
+                        </Button>
+                        <Button
+                            onClick={handleUnlink}
+                            className="bg-red-500 hover:bg-red-600 text-white"
+                            disabled={isUnlinking}
+                        >
+                            {isUnlinking ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            {t.patientForm.deleteHeader}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </>

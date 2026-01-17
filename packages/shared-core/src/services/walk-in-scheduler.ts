@@ -1,4 +1,4 @@
-import { addMinutes, isAfter, isBefore } from 'date-fns';
+import { addMinutes, isAfter, isBefore, subMinutes } from 'date-fns';
 
 export type SchedulerSlot = {
   index: number;
@@ -157,7 +157,7 @@ export function computeWalkInSchedule({
   });
 
   const oneHourFromNow = addMinutes(now, 60);
-  const firstFuturePosition = orderedSlots.findIndex(slot => !isBefore(slot.time, now));
+  const firstFuturePosition = orderedSlots.findIndex(slot => !isBefore(slot.time, subMinutes(now, 2)));
   const effectiveFirstFuturePosition = firstFuturePosition === -1 ? positionCount : firstFuturePosition;
 
   const assignments = new Map<string, SchedulerAssignment>();

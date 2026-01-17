@@ -1656,20 +1656,20 @@ export async function prepareAdvanceShift({
   if (forceBook) {
     const allOccupiedSlots = effectiveAppointments
       .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number' && apt.sessionIndex === targetSessionIndex)
-      .map(apt => apt.slotIndex as number);
+      .map(apt => toRelativeIndex(apt.slotIndex as number, segmentedBase));
 
-    const maxOccupiedSlot = allOccupiedSlots.length > 0 ? Math.max(...allOccupiedSlots) : (segmentedBase - 1);
-    const forceBookSlotIndex = maxOccupiedSlot + 1;
+    const maxOccupiedSlot = allOccupiedSlots.length > 0 ? Math.max(...allOccupiedSlots) : -1;
+    const forceRelativeSlot = maxOccupiedSlot + 1;
+    const forceBookSlotIndex = forceRelativeSlot + segmentedBase;
 
-    const relativeSlot = forceBookSlotIndex - segmentedBase;
     let forceBookTime: Date;
     const slotDuration = doctor.averageConsultingTime || 15;
 
-    if (relativeSlot >= 0 && relativeSlot < slots.length) {
-      forceBookTime = slots[relativeSlot].time;
+    if (forceRelativeSlot >= 0 && forceRelativeSlot < slots.length) {
+      forceBookTime = slots[forceRelativeSlot].time;
     } else {
       const lastSlot = slots[slots.length - 1];
-      const diff = relativeSlot - (slots.length > 0 ? slots.length - 1 : 0);
+      const diff = forceRelativeSlot - (slots.length > 0 ? slots.length - 1 : 0);
       forceBookTime = addMinutes(lastSlot ? lastSlot.time : now, diff * slotDuration);
     }
 
@@ -1861,7 +1861,9 @@ export async function calculateWalkInDetails(
     .filter(token => token > 0);
 
   const numericToken =
-    (existingNumericTokens.length > 0 ? Math.max(...existingNumericTokens) : slots.length) + 1;
+    existingNumericTokens.length > 0
+      ? Math.max(...existingNumericTokens) + 1
+      : slots.length + 101; // First token = total slots + 1 + 100
 
 
   // Filter Active vs Walk-ins

@@ -32,6 +32,7 @@ import {
 } from './walk-in.service';
 import { getClinicNow, getClinicDateString, getClinicTimeString } from '../utils/date-utils';
 import { parseTime } from '../utils/break-helpers';
+import { generateWalkInTokenNumber } from '../utils/token-utils';
 import type { Doctor, Appointment } from '@kloqo/shared-types';
 
 const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Skipped', 'Completed'];
@@ -245,7 +246,7 @@ export async function completeStaffWalkInBooking(
             slotIndex: remapOverflowSlotIndex(u.slotIndex)
         }));
 
-        const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;
+        const tokenNumber = generateWalkInTokenNumber(nextWalkInNumericToken, shiftPlan.newAssignment.sessionIndex);
         const newDocRef = doc(collection(firestore, 'appointments'));
 
         // C. Write Section
@@ -572,7 +573,7 @@ export async function completePatientWalkInBooking(
             return update;
         });
 
-        const tokenNumber = `W${String(nextWalkInNumericToken).padStart(3, '0')}`;
+        const tokenNumber = generateWalkInTokenNumber(nextWalkInNumericToken, shiftPlan.newAssignment.sessionIndex);
         const newDocRef = doc(collection(firestore, 'appointments'));
 
         // C. Write Section

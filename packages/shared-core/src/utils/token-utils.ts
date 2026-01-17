@@ -17,5 +17,5 @@ export const generateOnlineTokenNumber = (numericToken: number, sessionIndex: nu
 export const generateWalkInTokenNumber = (numericToken: number, sessionIndex: number): string => {
     const sessionLabel = sessionIndex + 1;
     const tokenPart = String(numericToken).padStart(3, '0');
-    return `W${sessionLabel}-{tokenPart}`;
+    return `W${sessionLabel}-${tokenPart}`;
 };

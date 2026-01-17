@@ -126,20 +126,17 @@ function PhoneBookingDetailsContent() {
             if (!doctor || !clinicId) return;
 
             setNextSlotHint(null);
-            const today = new Date();
-            const daysCheckLimit = (doctor as any).advanceBookingDays || 7;
+            const now = new Date();
+            const daysCheckLimit = (doctor as any).advanceBookingDays || 15;
 
             for (let i = 0; i < daysCheckLimit; i++) {
-                const checkDate = addDays(today, i);
+                const checkDate = addDays(now, i);
                 const dayOfWeek = format(checkDate, 'EEEE');
                 const availabilityForDay = (doctor.availabilitySlots || []).find(slot => slot.day === dayOfWeek);
 
                 if (!availabilityForDay || !availabilityForDay.timeSlots.length) continue;
 
-                // Check for extension logic (simplified for hint purpose, using primary slots mostly)
-                // Real-time slot calculation is complex, here we do a reasonable approximation for "next available"
-
-                // Fetch appointments for this day to check booking status
+                // 1. Fetch appointments for this day to check booking status
                 const dateStr = format(checkDate, 'd MMMM yyyy');
                 const q = query(
                     collection(db, 'appointments'),
@@ -150,12 +147,13 @@ function PhoneBookingDetailsContent() {
 
                 const snapshot = await getDocs(q);
                 const appointments = snapshot.docs.map(doc => doc.data() as any);
+
+                // Booked times: Pending, Confirmed, Completed (excluding walk-ins)
                 const bookedTimes = new Set(
                     appointments
                         .filter((apt: any) =>
-                            apt.status === 'Pending' ||
-                            apt.status === 'Confirmed' ||
-                            apt.status === 'Completed'
+                            !apt.tokenNumber?.startsWith('W') &&
+                            (apt.status === 'Pending' || apt.status === 'Confirmed' || apt.status === 'Completed')
                         )
                         .map((apt: any) => {
                             try {
@@ -164,47 +162,108 @@ function PhoneBookingDetailsContent() {
                         })
                 );
 
+                // Break blocked times: cancelledByBreakPlaceholder appointments
+                const breakBlockedTimes = new Set(
+                    appointments
+                        .filter(a => a.cancelledByBreak && a.status === 'Completed')
+                        .map(a => {
+                            try {
+                                return parseAppointmentDateTime(a.date, a.time).getTime();
+                            } catch (e) { return 0; }
+                        })
+                );
+
                 const slotDuration = doctor.averageConsultingTime || 15;
+                const extensions = doctor.availabilityExtensions?.[dateStr];
+                const oneHourFromNow = addMinutes(now, 60);
+                const isCheckToday = isSameDay(checkDate, now);
+
                 let foundSlot: Date | null = null;
+                let globalSlotIndex = 0;
 
-                // Sort sessions by start time
-                const sortedSessions = [...availabilityForDay.timeSlots].sort((a, b) => {
-                    return parseTime(a.from, checkDate).getTime() - parseTime(b.from, checkDate).getTime();
-                });
-
-                for (const session of sortedSessions) {
+                // Sort sessions basically as defined in doctor profile
+                for (let sessionIndex = 0; sessionIndex < availabilityForDay.timeSlots.length; sessionIndex++) {
+                    const session = availabilityForDay.timeSlots[sessionIndex];
                     let currentTime = parseTime(session.from, checkDate);
                     let endTime = parseTime(session.to, checkDate);
 
-                    while (isBefore(currentTime, endTime)) {
-                        const slotTime = new Date(currentTime);
-
-                        // Check if slot is in the future
-                        if (isAfter(slotTime, today)) {
-                            // Check if blocked by leave
-                            const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
-
-                            // Check if booked
-                            const isBooked = bookedTimes.has(slotTime.getTime());
-
-                            if (!isBlocked && !isBooked) {
-                                foundSlot = slotTime;
-                                break;
-                            }
+                    // A. Determine actual session end (check for extensions)
+                    if (extensions) {
+                        const sessionExtension = extensions.sessions?.find((s: any) => Number(s.sessionIndex) === sessionIndex);
+                        if (sessionExtension && sessionExtension.newEndTime && sessionExtension.totalExtendedBy > 0) {
+                            try {
+                                const extendedEndTime = parseTime(sessionExtension.newEndTime, checkDate);
+                                if (isAfter(extendedEndTime, endTime)) {
+                                    endTime = extendedEndTime;
+                                }
+                            } catch (e) { }
                         }
-                        currentTime = addMinutes(currentTime, slotDuration);
                     }
+
+                    // B. Identify FUTURE slots in this session for capacity calculation (same-day logic)
+                    const sessionSlots: { time: Date; globalIdx: number }[] = [];
+                    const futureValidCapacitySlots: number[] = [];
+
+                    let tempTime = new Date(currentTime);
+
+                    while (isBefore(tempTime, endTime)) {
+                        const slotTime = new Date(tempTime);
+                        sessionSlots.push({ time: slotTime, globalIdx: globalSlotIndex });
+
+                        const isBlocked = isSlotBlockedByLeave(doctor, slotTime);
+                        const isBlockedByBreak = breakBlockedTimes.has(slotTime.getTime());
+
+                        // Slots that contribute to quota: in the future and not blocked
+                        if (!isBlocked && !isBlockedByBreak && (isAfter(slotTime, now) || slotTime.getTime() >= now.getTime())) {
+                            futureValidCapacitySlots.push(globalSlotIndex);
+                        }
+
+                        globalSlotIndex++;
+                        tempTime = addMinutes(tempTime, slotDuration);
+                    }
+
+                    // C. Calculate Reserved (Walk-in) slots for this session (last 15% of future capacity)
+                    const reservedGlobalIndices = new Set<number>();
+                    if (futureValidCapacitySlots.length > 0) {
+                        const futureCount = futureValidCapacitySlots.length;
+                        const reserveCount = Math.ceil(futureCount * 0.15);
+                        const reservedStartIdx = futureCount - reserveCount;
+                        for (let j = reservedStartIdx; j < futureCount; j++) {
+                            reservedGlobalIndices.add(futureValidCapacitySlots[j]);
+                        }
+                    }
+
+                    // D. Find the first available slot in this session
+                    for (const { time: slotTime, globalIdx } of sessionSlots) {
+                        // 1. Must be in future (and >1 hour if today)
+                        const timingValid = isCheckToday ? isAfter(slotTime, oneHourFromNow) : isAfter(slotTime, now);
+                        if (!timingValid) continue;
+
+                        // 2. Not blocked by leave or break placeholder
+                        if (isSlotBlockedByLeave(doctor, slotTime) || breakBlockedTimes.has(slotTime.getTime())) continue;
+
+                        // 3. Not already booked
+                        if (bookedTimes.has(slotTime.getTime())) continue;
+
+                        // 4. Not reserved for walk-ins (85/15 rule)
+                        if (reservedGlobalIndices.has(globalIdx)) continue;
+
+                        // If all checks pass, this is the next available slot
+                        foundSlot = slotTime;
+                        break;
+                    }
+
                     if (foundSlot) break;
                 }
 
                 if (foundSlot) {
                     const reportingTime = subMinutes(foundSlot, 15);
                     setNextSlotHint({
-                        date: isSameDay(foundSlot, today) ? 'Today' : format(foundSlot, 'd MMM'),
+                        date: isSameDay(foundSlot, now) ? 'Today' : format(foundSlot, 'd MMM'),
                         time: format(foundSlot, 'hh:mm a'),
                         reportingTime: format(reportingTime, 'hh:mm a')
                     });
-                    return; // Found the earliest slot, exit
+                    return;
                 }
             }
         };

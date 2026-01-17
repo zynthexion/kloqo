@@ -390,7 +390,16 @@ export function useAppointmentStatusUpdater() {
             // Filter out appointments that didn't take actual time (cancelled by break or dummy slots)
             const completedCount = completedSnapshot.docs.filter(doc => {
               const data = doc.data();
-              return !data.cancelledByBreak && data.patientId !== 'dummy-break-patient';
+              // Count as completed if it's a real patient
+              if (!data.cancelledByBreak && data.patientId !== 'dummy-break-patient') return true;
+
+              // Also count if it's a ghost/dummy BUT it's NOT covered by an active break period
+              // This handles the "cancelled break but slots still closed" case
+              const apptTime = parseTime(data.arriveByTime || data.time, now);
+              const isCoveredByBreak = breakIntervals.some(interval =>
+                apptTime >= interval.start && apptTime < interval.end
+              );
+              return !isCoveredByBreak;
             }).length;
 
             // 2. Fetch current stored delay from one active appointment in this SPECIFIC session

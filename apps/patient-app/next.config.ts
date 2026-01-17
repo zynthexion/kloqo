@@ -131,7 +131,7 @@ const securityHeaders = [
   },
   {
     key: 'Permissions-Policy',
-    value: 'geolocation=(self), microphone=(), camera=()',
+    value: 'geolocation=(self), microphone=(), camera=(self)',
   },
   {
     key: 'Cross-Origin-Opener-Policy',

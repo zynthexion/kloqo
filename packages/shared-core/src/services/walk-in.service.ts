@@ -2050,13 +2050,24 @@ export async function calculateWalkInDetails(
   // Force Book Check
   if (forceBook) {
     // Simple Append Logic
+    // IMPORTANT: Filter overflow appointments (slotIndex >= 10000) BEFORE toRelativeIndex
+    // because toRelativeIndex uses modulo 10000, which would convert 10016 to 16
     const usedIndices = sessionAppointments
       .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
+      .filter(a => (a.slotIndex || 0) < 10000) // Filter overflow appointments FIRST
       .map(a => toRelativeIndex(a.slotIndex as number, sessionBaseIndex))
-      .filter(idx => idx >= 0 && idx < 1000); // Filter out legitimate outliers (e.g. adjacent session 1000+) but keep 10000+ force books
+      .filter(idx => idx >= 0 && idx < 1000); // Then filter adjacent sessions
+
+    console.log('[FORCE BOOK DEBUG] Used indices:', usedIndices.sort((a, b) => a - b));
+    console.log('[FORCE BOOK DEBUG] Active appointments for force book:', sessionAppointments
+      .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
+      .map(a => ({ id: a.id, token: a.tokenNumber, slot: a.slotIndex, relativeSlot: toRelativeIndex(a.slotIndex as number, sessionBaseIndex), isOverflow: (a.slotIndex || 0) >= 10000 }))
+    );
 
     const maxIdx = usedIndices.length > 0 ? Math.max(...usedIndices) : -1;
     const forceRelativeVals = maxIdx + 1;
+
+    console.log('[FORCE BOOK DEBUG] Max index:', maxIdx, 'Force slot:', forceRelativeVals, 'Session base:', sessionBaseIndex);
 
     let forceTime: Date;
     if (forceRelativeVals < slots.length) {
@@ -2066,6 +2077,7 @@ export async function calculateWalkInDetails(
       const lastSlot = slots[slots.length - 1];
       const diff = forceRelativeVals - (slots.length - 1);
       forceTime = addMinutes(lastSlot.time, diff * slotDuration);
+      console.log('[FORCE BOOK DEBUG] Overflow calculation:', { lastSlotIndex: slots.length - 1, forceRelativeVals, diff, slotDuration, forceTime });
     }
 
     return {

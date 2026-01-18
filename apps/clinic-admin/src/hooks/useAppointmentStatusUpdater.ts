@@ -265,7 +265,24 @@ export function useAppointmentStatusUpdater() {
               where('status', '==', 'Completed')
             );
             const completedSnapshot = await getDocs(completedQuery);
-            const completedCount = completedSnapshot.size;
+            // Filter out appointments that didn't take actual time (cancelled by break or dummy slots)
+            const completedCount = completedSnapshot.docs.filter(doc => {
+              const data = doc.data();
+
+              // NEVER count blocked slots (cancelled by break + completed)
+              // These represent time when doctor wasn't available (e.g., break cancelled but some slots remained closed)
+              if (data.cancelledByBreak && data.status === 'Completed') {
+                return false;
+              }
+
+              // NEVER count dummy break patients
+              if (data.patientId === 'dummy-break-patient') {
+                return false;
+              }
+
+              // Count all other completed appointments as real consultations
+              return true;
+            }).length;
 
             const activeApptQuery = query(
               collection(db, 'appointments'),

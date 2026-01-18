@@ -629,6 +629,8 @@ export async function completePatientWalkInBooking(
                 time: update.timeString,
                 arriveByTime: update.arriveByTime,
                 noShowTime: Timestamp.fromDate(update.noShowTime),
+                cutOffTime: Timestamp.fromDate(update.cutOffTime),
+                updatedAt: serverTimestamp(),
             });
         }
 

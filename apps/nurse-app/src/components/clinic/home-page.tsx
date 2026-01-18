@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc, query, where, orderBy, limit, doc, updateDoc, onSnapshot, getDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, limit, doc, updateDoc, onSnapshot, getDoc, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   DropdownMenu,
@@ -28,7 +28,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import ClinicHeader from './header';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
-import { notifySessionPatientsOfConsultationStart } from '@kloqo/shared-core';
+import { notifySessionPatientsOfConsultationStart, compareAppointments } from '@kloqo/shared-core';
 
 
 export default function HomePage() {
@@ -146,6 +146,45 @@ export default function HomePage() {
       console.error('Error updating doctor status:', error);
       toast({ variant: 'destructive', title: 'Update Failed' });
       return;
+    }
+
+    // Auto-fill buffer with 2 appointments when doctor goes "In"
+    try {
+      const today = format(new Date(), 'd MMMM yyyy');
+      const appointmentsRef = collection(db, 'appointments');
+      const q = query(
+        appointmentsRef,
+        where('doctor', '==', currentDoctor.name),
+        where('date', '==', today),
+        where('status', '==', 'Confirmed'),
+        where('clinicId', '==', clinicId)
+      );
+
+      const snapshot = await getDocs(q);
+      const confirmed = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Appointment))
+        .filter(a => !a.isInBuffer)
+        .sort(compareAppointments)
+        .slice(0, 2); // Take first 2
+
+      if (confirmed.length > 0) {
+        const batch = writeBatch(db);
+        confirmed.forEach(apt => {
+          const aptRef = doc(db, 'appointments', apt.id);
+          batch.update(aptRef, {
+            isInBuffer: true,
+            bufferedAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
+        console.log(`[BUFFER-DEBUG] Auto-filled buffer with ${confirmed.length} appointment(s)`);
+      } else {
+        console.log('[BUFFER-DEBUG] No confirmed appointments available to fill buffer');
+      }
+    } catch (bufferError) {
+      console.error('Error filling buffer:', bufferError);
+      // Don't fail the status update if buffer fill fails
     }
 
     try {

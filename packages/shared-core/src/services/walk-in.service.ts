@@ -1608,7 +1608,81 @@ export async function prepareAdvanceShift({
     slotIndex: (entry.slotIndex || 0) - segmentedBase,
   })).filter(a => a.slotIndex >= 0);
 
-  const normalizedWalkIns = activeWalkIns.map(appt => ({
+  // 3b. Bucket Logic: Identify cancelled slots that should be blocked
+  // A cancelled slot is "bucketed" if there are active walk-ins scheduled AFTER it.
+  const bucketSlots = effectiveAppointments.filter(appt => {
+    return (
+      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
+      typeof appt.slotIndex === 'number' &&
+      appt.sessionIndex === targetSessionIndex
+    );
+  }).filter(cancelledAppt => {
+    // Check if any active walk-in exists after this cancelled slot
+    const hasWalkInAfter = activeWalkIns.some(w => (w.slotIndex || 0) > (cancelledAppt.slotIndex || 0));
+    console.log(`[BUCKET DEBUG] Checking cancelled slotIndex ${cancelledAppt.slotIndex} (ID: ${cancelledAppt.id}): hasWalkInAfter=${hasWalkInAfter}`);
+    return hasWalkInAfter;
+  });
+
+  console.log(`[BUCKET DEBUG] Found ${bucketSlots.length} bucket slots:`, bucketSlots.map(s => ({ id: s.id, slotIndex: s.slotIndex, status: s.status })));
+
+  // SURGICAL FIX: Create a set of bucket slot indices for fast lookup
+  const bucketSlotIndices = new Set(bucketSlots.map(s => s.slotIndex));
+
+  // SURGICAL FIX: Separate walk-ins into two groups:
+  // 1. Walk-ins occupying bucket slots → block them (they're already compensating)
+  // 2. Walk-ins NOT in bucket slots → treat as candidates (they can be rescheduled)
+  const walkInsInBucketSlots = activeWalkIns.filter(appt => bucketSlotIndices.has(appt.slotIndex));
+
+  // COLLISION FIX: Only block bucket slots that are NOT occupied by walk-ins
+  // If a walk-in is already there, blocking the walk-in is sufficient
+  const walkInOccupiedBucketSlots = new Set(walkInsInBucketSlots.map(w => w.slotIndex));
+  const emptyBucketSlots = bucketSlots.filter(slot => !walkInOccupiedBucketSlots.has(slot.slotIndex));
+
+  if (emptyBucketSlots.length > 0) {
+    console.log(`[Walk-in Scheduling] Blocking ${emptyBucketSlots.length} empty bucket slots:`, emptyBucketSlots.map(s => s.slotIndex));
+    emptyBucketSlots.forEach(slot => {
+      blockedAdvanceAppointments.push({
+        id: `__blocked_bucket_${slot.id}`,
+        slotIndex: (slot.slotIndex || 0) - segmentedBase
+      });
+    });
+  }
+  const walkInsNotInBucketSlots = activeWalkIns.filter(appt => !bucketSlotIndices.has(appt.slotIndex));
+
+  console.log(`[BUCKET DEBUG] Walk-ins in bucket slots (will be blocked):`, walkInsInBucketSlots.map(w => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex })));
+  console.log(`[BUCKET DEBUG] Walk-ins NOT in bucket slots (candidates):`, walkInsNotInBucketSlots.map(w => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex })));
+
+  // Block walk-ins that are in bucket slots
+  walkInsInBucketSlots.forEach(appt => {
+    blockedAdvanceAppointments.push({
+      id: `__blocked_${appt.id}`,
+      slotIndex: (appt.slotIndex || 0) - segmentedBase
+    });
+  });
+
+  // SURGICAL FIX PART 2: Also block Completed/Skipped walk-ins
+  // Historical walk-ins should not be rescheduled, just like historical advance appointments
+  const completedWalkIns = walkInsNotInBucketSlots.filter(appt =>
+    appt.status === 'Completed' || appt.status === 'Skipped' || appt.status === 'No-show'
+  );
+
+  const activeReschedulableWalkIns = walkInsNotInBucketSlots.filter(appt =>
+    appt.status !== 'Completed' && appt.status !== 'Skipped' && appt.status !== 'No-show'
+  );
+
+  console.log(`[BUCKET DEBUG] Completed walk-ins (will be blocked):`, completedWalkIns.map(w => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex, status: w.status })));
+  console.log(`[BUCKET DEBUG] Active reschedulable walk-ins (candidates):`, activeReschedulableWalkIns.map(w => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex, status: w.status })));
+
+  // Block completed walk-ins
+  completedWalkIns.forEach(appt => {
+    blockedAdvanceAppointments.push({
+      id: `__blocked_${appt.id}`,
+      slotIndex: (appt.slotIndex || 0) - segmentedBase
+    });
+  });
+
+  // Only active, non-completed walk-ins NOT in bucket slots are candidates for rescheduling
+  const normalizedWalkIns = activeReschedulableWalkIns.map(appt => ({
     ...appt,
     id: getTaggedId(appt),
     numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
@@ -1625,29 +1699,6 @@ export async function prepareAdvanceShift({
 
   const allWalkInCandidates = [...normalizedWalkIns, newWalkInCandidate];
   const normalizedSlots = slots.map(s => ({ ...s, index: s.index - memoryBase }));
-
-  // 3b. Bucket Logic: Identify cancelled slots that should be blocked
-  // A cancelled slot is "bucketed" if there are active walk-ins scheduled AFTER it.
-  const bucketSlots = effectiveAppointments.filter(appt => {
-    return (
-      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
-      typeof appt.slotIndex === 'number' &&
-      appt.sessionIndex === targetSessionIndex
-    );
-  }).filter(cancelledAppt => {
-    // Check if any active walk-in exists after this cancelled slot
-    return activeWalkIns.some(w => (w.slotIndex || 0) > (cancelledAppt.slotIndex || 0));
-  });
-
-  if (bucketSlots.length > 0) {
-    console.log(`[Walk-in Scheduling] Blocking ${bucketSlots.length} bucket slots to prevent reverse shifting:`, bucketSlots.map(s => s.slotIndex));
-    bucketSlots.forEach(slot => {
-      blockedAdvanceAppointments.push({
-        id: `__blocked_bucket_${slot.id}`,
-        slotIndex: (slot.slotIndex || 0) - segmentedBase
-      });
-    });
-  }
 
   let newAssignment: SchedulerAssignment | null = null;
   let schedule: ReturnType<typeof computeWalkInSchedule> | null = null;
@@ -1714,6 +1765,8 @@ export async function prepareAdvanceShift({
       if (originalAppt.slotIndex === finalSlotIndex && originalAppt.time === newTimeString) {
         continue;
       }
+
+      console.log(`[SHIFT DEBUG] Plan to shift ${originalAppt.id} (${originalAppt.tokenNumber}) from ${originalAppt.slotIndex} to ${finalSlotIndex}`);
 
       // Metadata calculation
       let calculatedTime: Date;
@@ -1919,7 +1972,65 @@ export async function calculateWalkInDetails(
     };
   }).filter(a => a.slotIndex >= 0);
 
-  const baseWalkInCandidates = activeWalkIns.map((appt: any) => ({
+  // SURGICAL FIX FOR PREVIEW: Apply the same bucket logic as in prepareAdvanceShift
+  // Identify cancelled slots that have active walk-ins after them (bucket slots)
+  const bucketSlots = sessionAppointments.filter((appt: any) => {
+    return (
+      (appt.status === 'Cancelled' || appt.status === 'No-show') &&
+      typeof appt.slotIndex === 'number' &&
+      activeWalkIns.some((w: any) => (w.slotIndex || 0) > (appt.slotIndex || 0))
+    );
+  });
+
+  const bucketSlotIndices = new Set(bucketSlots.map((s: any) => s.slotIndex));
+
+  // Separate walk-ins: those in bucket slots + completed ones should be blocked
+  const walkInsInBucketSlots = activeWalkIns.filter((appt: any) => bucketSlotIndices.has(appt.slotIndex));
+
+  // COLLISION FIX: Only block bucket slots that are NOT occupied by walk-ins
+  // If a walk-in is already there, blocking the walk-in is sufficient
+  const walkInOccupiedBucketSlots = new Set(walkInsInBucketSlots.map((w: any) => w.slotIndex));
+  const emptyBucketSlots = bucketSlots.filter((slot: any) => !walkInOccupiedBucketSlots.has(slot.slotIndex));
+
+  emptyBucketSlots.forEach((slot: any) => {
+    blockedAdvanceAppointments.push({
+      id: `__blocked_bucket_${slot.id}`,
+      slotIndex: toRelative(slot.slotIndex || 0)
+    });
+  });
+  const walkInsNotInBucketSlots = activeWalkIns.filter((appt: any) => !bucketSlotIndices.has(appt.slotIndex));
+
+  const completedWalkIns = walkInsNotInBucketSlots.filter((appt: any) =>
+    appt.status === 'Completed' || appt.status === 'Skipped' || appt.status === 'No-show'
+  );
+
+  const activeReschedulableWalkIns = walkInsNotInBucketSlots.filter((appt: any) =>
+    appt.status !== 'Completed' && appt.status !== 'Skipped' && appt.status !== 'No-show'
+  );
+
+  console.log('[PREVIEW BUCKET DEBUG] Bucket slots:', bucketSlots.map((s: any) => ({ id: s.id, slot: s.slotIndex })));
+  console.log('[PREVIEW BUCKET DEBUG] Walk-ins in bucket slots (blocked):', walkInsInBucketSlots.map((w: any) => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex })));
+  console.log('[PREVIEW BUCKET DEBUG] Completed walk-ins (blocked):', completedWalkIns.map((w: any) => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex, status: w.status })));
+  console.log('[PREVIEW BUCKET DEBUG] Active reschedulable walk-ins (candidates):', activeReschedulableWalkIns.map((w: any) => ({ id: w.id, token: w.tokenNumber, slot: w.slotIndex })));
+
+  // Block walk-ins in bucket slots
+  walkInsInBucketSlots.forEach((appt: any) => {
+    blockedAdvanceAppointments.push({
+      id: `__blocked_${appt.id}`,
+      slotIndex: toRelative(appt.slotIndex || 0)
+    });
+  });
+
+  // Block completed walk-ins
+  completedWalkIns.forEach((appt: any) => {
+    blockedAdvanceAppointments.push({
+      id: `__blocked_${appt.id}`,
+      slotIndex: toRelative(appt.slotIndex || 0)
+    });
+  });
+
+  // Only active, reschedulable walk-ins are candidates
+  const baseWalkInCandidates = activeReschedulableWalkIns.map((appt: any) => ({
     id: appt.id,
     numericToken: Number(appt.numericToken) || 0,
     createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,

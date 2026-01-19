@@ -26,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" style={{ backgroundColor: 'hsl(220, 20%, 97%)' }}>
+    <html lang="en" translate="no" className="notranslate" style={{ backgroundColor: 'hsl(220, 20%, 97%)' }}>
       <head>
         {/* Critical CSS: Set background immediately to prevent white flash during page transitions */}
         <style dangerouslySetInnerHTML={{

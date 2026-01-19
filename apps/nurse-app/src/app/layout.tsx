@@ -36,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning style={{ backgroundColor: '#E6F0F7' }}>
+    <html lang="en" translate="no" className="notranslate" suppressHydrationWarning style={{ backgroundColor: '#E6F0F7' }}>
       <head>
         <title>Kloqo Nurse</title>
         <meta name="description" content="Nurse app for managing clinic appointments." />

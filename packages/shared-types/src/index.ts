@@ -117,6 +117,8 @@ export type Appointment = {
     cancelledByBreak?: boolean; // True if appointment was effectively cancelled due to a break insertion (shifted to a new slot)
     isRescheduled?: boolean; // True if appointment was cancelled due to a reschedule or is the result of a reschedule
     isInBuffer?: boolean;
+    bufferedAt?: any;
+    confirmedAt?: any;
     updatedAt?: any;
 };
 
@@ -151,6 +153,8 @@ export type Clinic = {
     longitude?: number;
     logo?: string;
     logoUrl?: string;
+    clinicRegNumber?: string;
+    tokenDistribution?: 'classic' | 'advanced';
     [key: string]: any;
 };
 

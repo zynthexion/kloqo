@@ -3,7 +3,7 @@ import { db } from '@kloqo/shared-firebase';
 import { parse, format } from 'date-fns';
 import type { Appointment } from '@kloqo/shared-types';
 import { parseTime } from '../utils/break-helpers';
-import { compareAppointments } from './appointment-service';
+import { compareAppointments, compareAppointmentsClassic } from './appointment-service';
 
 /**
  * Queue State Interface
@@ -109,7 +109,8 @@ export async function computeQueues(
     clinicId: string,
     date: string,
     sessionIndex: number,
-    doctorConsultationStatus?: 'In' | 'Out'
+    doctorConsultationStatus?: 'In' | 'Out',
+    tokenDistribution?: 'classic' | 'advanced'
 ): Promise<QueueState> {
     // Get consultation count
     const consultationCount = await getConsultationCount(clinicId, doctorId, date, sessionIndex);
@@ -133,7 +134,7 @@ export async function computeQueues(
 
     const arrivedQueue = relevantAppointments
         .filter(apt => apt.status === 'Confirmed')
-        .sort(compareAppointments);
+        .sort(tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
 
     // Buffer Queue: Appointments explicitly marked as being in the buffer
     const bufferQueue = arrivedQueue.filter(apt => apt.isInBuffer);

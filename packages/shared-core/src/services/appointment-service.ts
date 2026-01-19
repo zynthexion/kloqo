@@ -2881,3 +2881,34 @@ export function compareAppointments(a: Appointment, b: Appointment): number {
     return (a.numericToken || 0) - (b.numericToken || 0);
   }
 }
+
+/**
+ * Classic Distribution comparison function.
+ * Primary sort: confirmedAt (Ascending - FIFO based on arrival time)
+ * Secondary sort: original scheduled time (via compareAppointments)
+ */
+export function compareAppointmentsClassic(a: Appointment, b: Appointment): number {
+  const getMillis = (val: any) => {
+    if (!val) return 0;
+    if (typeof val.toMillis === 'function') return val.toMillis();
+    if (val instanceof Date) return val.getTime();
+    if (typeof val === 'number') return val;
+    return new Date(val).getTime();
+  };
+
+  const confirmedA = getMillis(a.confirmedAt);
+  const confirmedB = getMillis(b.confirmedAt);
+
+  if (confirmedA && confirmedB) {
+    if (confirmedA !== confirmedB) {
+      return confirmedA - confirmedB;
+    }
+  } else if (confirmedA) {
+    return -1;
+  } else if (confirmedB) {
+    return 1;
+  }
+
+  return compareAppointments(a, b);
+}
+

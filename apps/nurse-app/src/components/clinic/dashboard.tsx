@@ -26,7 +26,7 @@ import {
 import ClinicHeader from './header';
 import AppointmentList from './appointment-list';
 import { useRouter, usePathname } from 'next/navigation';
-import { errorEmitter, compareAppointments, FirestorePermissionError } from '@kloqo/shared-core';
+import { errorEmitter, compareAppointments, compareAppointmentsClassic, FirestorePermissionError } from '@kloqo/shared-core';
 
 
 export default function ClinicDashboard() {
@@ -177,7 +177,7 @@ export default function ClinicDashboard() {
     });
 
 
-    fetchedAppointments.sort(compareAppointments);
+    fetchedAppointments.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
 
     setAppointments(fetchedAppointments);
   }, []);
@@ -378,9 +378,14 @@ export default function ClinicDashboard() {
     startTransition(async () => {
       try {
         const appointmentRef = doc(db, "appointments", appointment.id);
-        await updateDoc(appointmentRef, {
-          status: 'Confirmed'
-        });
+        const updateData: any = {
+          status: 'Confirmed',
+          updatedAt: serverTimestamp()
+        };
+        if (clinicDetails?.tokenDistribution === 'classic') {
+          updateData.confirmedAt = serverTimestamp();
+        }
+        await updateDoc(appointmentRef, updateData);
 
         setAppointments(prev => prev.map(a =>
           a.id === appointment.id ? { ...a, status: 'Confirmed' as const } : a
@@ -440,7 +445,8 @@ export default function ClinicDashboard() {
         await updateDoc(appointmentRef, {
           status: 'Confirmed',
           time: newTimeString,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
         });
 
         // Update local state
@@ -488,15 +494,15 @@ export default function ClinicDashboard() {
     const pending = filteredAppointments.filter(a => (a.status === 'Pending' || a.status === 'Confirmed'));
 
     // Sort by unified logic
-    return pending.sort(compareAppointments);
-  }, [filteredAppointments]);
+    return pending.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);;
+  }, [filteredAppointments, clinicDetails]);
 
   const skippedAppointments = useMemo(() => {
     const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
 
     // Sort by unified logic
-    return skipped.sort(compareAppointments);
-  }, [filteredAppointments]);
+    return skipped.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+  }, [filteredAppointments, clinicDetails]);
 
   const pastAppointments = useMemo(() => filteredAppointments.filter(a => a.status === 'Completed' || a.status === 'Cancelled' || a.status === 'No-show'), [filteredAppointments]);
 

@@ -18,7 +18,7 @@ import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreD
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
-import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments } from '@kloqo/shared-core';
+import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments, compareAppointmentsClassic } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
   Form,
@@ -2432,7 +2432,10 @@ export default function AppointmentsPage() {
     startTransition(async () => {
       try {
         const appointmentRef = doc(db, 'appointments', appointment.id);
-        const updateData: any = { status: 'Confirmed' };
+        const updateData: any = {
+          status: 'Confirmed',
+          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+        };
 
         // Refill buffer if doctor is 'In'
         const doctor = doctors.find(d => d.name === appointment.doctor);
@@ -2440,7 +2443,7 @@ export default function AppointmentsPage() {
           // Re-derive confirmed list from appointments state
           const latestConfirmed = appointments
             .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor)
-            .sort(compareAppointments);
+            .sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
 
           const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
           if (currentBuffered.length < 2) {
@@ -2511,7 +2514,8 @@ export default function AppointmentsPage() {
         const updateData: any = {
           status: 'Confirmed',
           time: newTimeString,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
         };
 
         // Refill buffer if doctor is 'In'
@@ -2520,7 +2524,7 @@ export default function AppointmentsPage() {
           // Re-derive confirmed list from appointments state
           const latestConfirmed = appointments
             .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor && a.id !== appointment.id)
-            .sort(compareAppointments);
+            .sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
 
           const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
           if (currentBuffered.length < 2) {
@@ -3061,7 +3065,7 @@ export default function AppointmentsPage() {
       filtered = filtered.filter(apt => apt.status.toLowerCase() === activeTab);
     }
 
-    return filtered.sort(compareAppointments);
+    return filtered.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
   }, [appointments, drawerSearchTerm, activeTab, drawerDateRange, selectedDrawerDoctor]);
 
   const today = format(new Date(), "d MMMM yyyy");
@@ -3101,7 +3105,9 @@ export default function AppointmentsPage() {
             doctor.id,
             clinicId,
             today,
-            sessionIndex
+            sessionIndex,
+            undefined,
+            clinicDetails?.tokenDistribution || 'classic'
           );
 
           // Store queue state keyed by doctor name
@@ -3176,8 +3182,9 @@ export default function AppointmentsPage() {
     const parseTimeForSort = (timeStr: string) => parse(timeStr, "hh:mm a", new Date()).getTime();
 
     // Sort Confirmed and Pending by shared comparison logic
-    confirmed.sort(compareAppointments);
-    pending.sort(compareAppointments);
+    const isClassic = clinicDetails?.tokenDistribution === 'classic';
+    confirmed.sort(isClassic ? compareAppointmentsClassic : compareAppointments);
+    pending.sort(isClassic ? compareAppointmentsClassic : compareAppointments);
 
     // Return Confirmed at top, then Pending, then Skipped
     return [...confirmed, ...pending, ...skipped];

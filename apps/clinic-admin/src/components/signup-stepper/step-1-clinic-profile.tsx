@@ -210,6 +210,28 @@ export function Step1ClinicProfile() {
             </FormItem>
           )}
         />
+        <FormField
+          control={control}
+          name="tokenDistribution"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Token Distribution Method <span className="text-destructive">*</span></FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select distribution method" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="classic">Classic Distribution (FIFO based on Arrival)</SelectItem>
+                  <SelectItem value="advanced">Kloqo Advanced (Optimized Flow)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Classic: Arrived patients are served in order of arrival. Advanced: Optimized scheduling for minimum wait time.</p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <div className="md:col-span-2">
           <Button type="button" variant={latitude !== 0 ? "secondary" : "outline"} onClick={handleDetectLocation} className="w-full" disabled={isDetecting}>
             {isDetecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (latitude !== 0 ? <CheckCircle className="mr-2 h-4 w-4" /> : <MapPin className="mr-2 h-4 w-4" />)}

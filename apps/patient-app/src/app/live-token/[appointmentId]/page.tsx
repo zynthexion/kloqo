@@ -35,7 +35,7 @@ import { useLanguage } from '@/contexts/language-context';
 import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { computeQueues, type QueueState, compareAppointments, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371e3;
@@ -174,7 +174,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     clinicId,
                     yourAppointment.date,
                     sessionIndex,
-                    currentDoctor.consultationStatus
+                    currentDoctor.consultationStatus,
+                    clinicData?.tokenDistribution || 'classic'
                 );
                 setQueueState(state);
             } catch (error) {
@@ -192,7 +193,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         };
 
         computeQueueState();
-    }, [allTodaysAppointments, yourAppointment, doctorId, clinicId, sessionIndex, firestore, currentDoctor]);
+    }, [allTodaysAppointments, yourAppointment, doctorId, clinicId, sessionIndex, firestore, currentDoctor, clinicData]);
 
     // Helper function to parse appointment time
     const parseAppointmentTime = useCallback((apt: Appointment): Date => {
@@ -327,7 +328,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         }
 
         // Sort using shared logic
-        queue.sort((a, b) => compareAppointments(a.appointment, b.appointment));
+        queue.sort((a, b) => (clinicData?.tokenDistribution === 'classic' ? compareAppointmentsClassic(a.appointment, b.appointment) : compareAppointments(a.appointment, b.appointment)));
 
         // Return just the appointments in order
         return queue.map(item => item.appointment);
@@ -357,13 +358,14 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 apt.status !== 'No-show' &&
                 apt.status !== 'Completed'
             )
-            .sort(compareAppointments);
-    }, [allTodaysAppointments, yourAppointment]);
+            .sort(clinicData?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+    }, [allTodaysAppointments, yourAppointment, clinicData]);
 
     // Check if your appointment is in buffer queue
     const isInBufferQueue = useMemo(() => {
         if (!queueState || !yourAppointment) return false;
         return queueState.bufferQueue.some(apt => apt.id === yourAppointment.id);
+
     }, [queueState, yourAppointment]);
 
     // Calculate cutoff time for display: use original cutOffTime + doctorDelayMinutes
@@ -1028,7 +1030,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 // For Pending appointments, simple status update
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
-                    updatedAt: serverTimestamp()
+                    updatedAt: serverTimestamp(),
+                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
                 });
                 // Get the appointment time
                 const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
@@ -1041,7 +1044,8 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
                     time: newTimeString,
-                    updatedAt: serverTimestamp()
+                    updatedAt: serverTimestamp(),
+                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
                 });
             } else if (yourAppointment.status === 'Skipped') {
                 // For Skipped appointments, rejoin queue using deterministic logic
@@ -1065,13 +1069,15 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
                     time: newTimeString,
-                    updatedAt: serverTimestamp()
+                    updatedAt: serverTimestamp(),
+                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
                 });
             } else {
                 // For other statuses, just update status
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
-                    updatedAt: serverTimestamp()
+                    updatedAt: serverTimestamp(),
+                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
                 });
             }
 

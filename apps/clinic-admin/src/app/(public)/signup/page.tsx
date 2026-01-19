@@ -67,6 +67,7 @@ const signupSchema = z.object({
   latitude: z.coerce.number().min(-90, "Invalid latitude").max(90, "Invalid latitude"),
   longitude: z.coerce.number().min(-180, "Invalid longitude").max(180, "Invalid longitude"),
   walkInTokenAllotment: z.coerce.number().min(2, "Value must be at least 2.").max(10, "Value cannot exceed 10."),
+  tokenDistribution: z.enum(['classic', 'advanced'], { required_error: "Please select a token distribution method." }),
 
   // Step 2
   ownerName: z.string()
@@ -135,6 +136,7 @@ const defaultFormData: SignUpFormData = {
   latitude: 0,
   longitude: 0,
   walkInTokenAllotment: 5,
+  tokenDistribution: 'classic',
 
   ownerName: "",
   designation: 'Doctor',
@@ -173,7 +175,7 @@ const defaultFormData: SignUpFormData = {
 };
 
 const stepFields: (keyof SignUpFormData)[][] = [
-  ['clinicName', 'clinicType', 'numDoctors', 'walkInTokenAllotment'], // Step 1, latitude/longitude are special
+  ['clinicName', 'clinicType', 'numDoctors', 'walkInTokenAllotment', 'tokenDistribution'], // Step 1, latitude/longitude are special
   ['ownerName', 'designation', 'mobileNumber', 'emailAddress', 'password'], // Step 2
   ['addressLine1', 'city', 'state', 'pincode'], // Step 3
   ['hours', 'avgPatientsPerDay'], // Step 4
@@ -386,6 +388,7 @@ export default function SignupPage() {
       latitude: formData.latitude,
       longitude: formData.longitude,
       walkInTokenAllotment: formData.walkInTokenAllotment,
+      tokenDistribution: formData.tokenDistribution,
       numDoctors: formData.numDoctors,
       currentDoctorCount: 0,
       clinicRegNumber: formData.clinicRegNumber,

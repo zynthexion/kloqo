@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
 import type { Appointment } from '@/lib/types';
-import { parse, subMinutes, format } from 'date-fns';
+import { parse, subMinutes, format, addMinutes } from 'date-fns';
 import { cn, getDisplayTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { User, XCircle, Edit, Check, CheckCircle2, SkipForward, Phone } from 'lucide-react';
@@ -42,6 +42,8 @@ type AppointmentListProps = {
   showStatusBadge?: boolean;
   isPhoneMode?: boolean;
   showPositionNumber?: boolean;
+  showEstimatedTime?: boolean;
+  averageConsultingTime?: number;
 };
 
 // Helper function to parse time
@@ -57,7 +59,22 @@ function parseTime(timeStr: string, referenceDate: Date): Date {
   }
 }
 
-function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQueue, showTopRightActions = true, clinicStatus = 'In', currentTime = new Date(), isInBufferQueue, enableSwipeCompletion = true, showStatusBadge = true, isPhoneMode = false, showPositionNumber = false }: AppointmentListProps) {
+function AppointmentList({
+  appointments,
+  onUpdateStatus,
+  onRejoinQueue,
+  onAddToQueue,
+  showTopRightActions = true,
+  clinicStatus = 'In',
+  currentTime = new Date(),
+  isInBufferQueue,
+  enableSwipeCompletion = true,
+  showStatusBadge = true,
+  isPhoneMode = false,
+  showPositionNumber = false,
+  showEstimatedTime = false,
+  averageConsultingTime = 15
+}: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
@@ -255,10 +272,16 @@ function AppointmentList({ appointments, onUpdateStatus, onRejoinQueue, onAddToQ
                         <div className="flex items-start gap-4 flex-1">
                           <div className="flex-1">
                             <div className="flex justify-between items-center">
-                              <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
-                                {appt.date && `${appt.date} - `}
-                                {['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)}
-                              </Badge>
+                              {(!showEstimatedTime || index !== 0) && (
+                                <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
+                                  {appt.date && `${appt.date} - `}
+                                  {showEstimatedTime ? (
+                                    format(addMinutes(currentTime, (averageConsultingTime || 15) * index), 'hh:mm a')
+                                  ) : (
+                                    ['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)
+                                  )}
+                                </Badge>
+                              )}
                               {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
                                 <div className="flex items-center gap-2">

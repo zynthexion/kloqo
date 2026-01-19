@@ -97,6 +97,7 @@ type OperatingHoursFormValues = z.infer<typeof operatingHoursFormSchema>;
 
 const settingsFormSchema = z.object({
   walkInTokenAllotment: z.coerce.number().min(2, "Walk-in token allotment must be at least 2."),
+  tokenDistribution: z.enum(['classic', 'advanced']),
 });
 type SettingsFormValues = z.infer<typeof settingsFormSchema>;
 
@@ -147,6 +148,7 @@ export default function ProfilePage() {
     resolver: zodResolver(settingsFormSchema),
     defaultValues: {
       walkInTokenAllotment: 5,
+      tokenDistribution: 'classic',
     }
   });
 
@@ -193,6 +195,7 @@ export default function ProfilePage() {
 
               const settingsResetData = {
                 walkInTokenAllotment: clinicData.walkInTokenAllotment || 5,
+                tokenDistribution: clinicData.tokenDistribution || 'classic',
               };
               settingsForm.reset(settingsResetData);
 
@@ -246,10 +249,12 @@ export default function ProfilePage() {
       try {
         await updateDoc(clinicRef, {
           walkInTokenAllotment: values.walkInTokenAllotment,
+          tokenDistribution: values.tokenDistribution,
         });
         setClinicDetails((prev: any) => prev ? {
           ...prev,
           walkInTokenAllotment: values.walkInTokenAllotment,
+          tokenDistribution: values.tokenDistribution,
         } : null);
         toast({ title: "Settings Updated", description: "Clinic settings have been saved successfully." });
         setIsEditingSettings(false);
@@ -264,6 +269,7 @@ export default function ProfilePage() {
     if (clinicDetails) {
       settingsForm.reset({
         walkInTokenAllotment: clinicDetails.walkInTokenAllotment || 5,
+        tokenDistribution: clinicDetails.tokenDistribution || 'classic',
       });
     }
     setIsEditingSettings(false);
@@ -838,6 +844,34 @@ export default function ProfilePage() {
                         </FormControl>
                         <FormDescription>
                           Allot one walk-in token after every X online tokens. This determines how many slots to skip before placing a walk-in patient.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={settingsForm.control}
+                    name="tokenDistribution"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Token Distribution Method</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={!isEditingSettings || isPending}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select distribution method" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="classic">Classic Distribution (FIFO based on Arrival)</SelectItem>
+                            <SelectItem value="advanced">Kloqo Advanced (Optimized Flow)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Classic: FIFO base on patient arrival. Advanced: Kloqo's prioritized scheduling algorithm.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

@@ -87,7 +87,9 @@ export async function completeStaffWalkInBooking(
     ]);
 
     if (!clinicSnap.exists()) throw new Error('Clinic not found');
-    const walkInTokenAllotment = Number(clinicSnap.data()?.walkInTokenAllotment ?? 5);
+    const clinicData = clinicSnap.data();
+    const walkInTokenAllotment = Number(clinicData?.walkInTokenAllotment ?? 5);
+    const tokenDistribution = clinicData?.tokenDistribution || 'classic';
 
     // CRITICAL: For walk-in bookings, restrict to active session only
     // This prevents concurrent bookings from spilling over into distant future sessions
@@ -296,6 +298,7 @@ export async function completeStaffWalkInBooking(
             cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
             isForceBooked: isForceBooked || false,
+            ...(tokenDistribution === 'classic' && { confirmedAt: serverTimestamp() }),
         };
         transaction.set(newDocRef, appointmentData);
 
@@ -387,7 +390,9 @@ export async function completePatientWalkInBooking(
     ]);
 
     if (!clinicSnap.exists()) throw new Error('Clinic not found');
-    const walkInTokenAllotment = Number(clinicSnap.data()?.walkInTokenAllotment ?? 5);
+    const clinicDataFromSnap = clinicSnap.data();
+    const walkInTokenAllotment = Number(clinicDataFromSnap?.walkInTokenAllotment ?? 5);
+    const tokenDistribution = clinicDataFromSnap?.tokenDistribution || 'classic';
 
     // CRITICAL: For walk-in bookings, restrict to active session only
     // This prevents concurrent bookings from spilling over into distant future sessions
@@ -620,6 +625,7 @@ export async function completePatientWalkInBooking(
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
             patientProfile: patientProfile ?? null,
             walkInPatientsAhead: walkInDetails.patientsAhead,
+            ...(tokenDistribution === 'classic' && { confirmedAt: serverTimestamp() }),
         });
 
         for (const update of segmentedUpdates) {

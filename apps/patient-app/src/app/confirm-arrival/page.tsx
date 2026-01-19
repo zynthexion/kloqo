@@ -614,7 +614,8 @@ function ConfirmArrivalPage() {
         if (isBefore(now, reportingTime)) {
           // Confirm normally
           await updateDoc(appointmentRef, {
-            status: 'Confirmed'
+            status: 'Confirmed',
+            ...(clinic?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
           });
 
           toast({
@@ -659,7 +660,8 @@ function ConfirmArrivalPage() {
           status: 'Confirmed',
           time: newTimeString,
           skippedAt: serverTimestamp(), // Mark AS rejoined
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...(clinic?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
         });
 
         toast({

@@ -18,7 +18,7 @@ import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreD
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
-import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments, compareAppointmentsClassic } from '@kloqo/shared-core';
+import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
   Form,
@@ -2434,7 +2434,7 @@ export default function AppointmentsPage() {
         const appointmentRef = doc(db, 'appointments', appointment.id);
         const updateData: any = {
           status: 'Confirmed',
-          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+          ...(clinicDetails?.tokenDistribution === 'advanced' ? {} : { confirmedAt: serverTimestamp() })
         };
 
         // Refill buffer if doctor is 'In'
@@ -2443,7 +2443,7 @@ export default function AppointmentsPage() {
           // Re-derive confirmed list from appointments state
           const latestConfirmed = appointments
             .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor)
-            .sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+            .sort(clinicDetails?.tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
 
           const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
           if (currentBuffered.length < 2) {
@@ -3065,8 +3065,8 @@ export default function AppointmentsPage() {
       filtered = filtered.filter(apt => apt.status.toLowerCase() === activeTab);
     }
 
-    return filtered.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
-  }, [appointments, drawerSearchTerm, activeTab, drawerDateRange, selectedDrawerDoctor]);
+    return filtered.sort(clinicDetails?.tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
+  }, [appointments, drawerSearchTerm, activeTab, drawerDateRange, selectedDrawerDoctor, clinicDetails]);
 
   const today = format(new Date(), "d MMMM yyyy");
 
@@ -3107,7 +3107,7 @@ export default function AppointmentsPage() {
             today,
             sessionIndex,
             undefined,
-            clinicDetails?.tokenDistribution || 'classic'
+            clinicDetails?.tokenDistribution === 'advanced' ? 'advanced' : 'classic'
           );
 
           // Store queue state keyed by doctor name
@@ -3122,6 +3122,22 @@ export default function AppointmentsPage() {
 
     computeAllQueues();
   }, [filteredAppointments, today, clinicId, doctors]);
+
+  const arrivedEstimatesByDoctor = useMemo(() => {
+    const estimates: Record<string, any[]> = {};
+    for (const [doctorName, queue] of Object.entries(queuesByDoctor)) {
+      const doctor = doctors.find(d => d.name === doctorName);
+      if (!doctor) continue;
+
+      estimates[doctorName] = calculateEstimatedTimes(
+        queue.arrivedQueue,
+        doctor,
+        currentTime,
+        doctor.averageConsultingTime || 15
+      );
+    }
+    return estimates;
+  }, [queuesByDoctor, doctors, currentTime]);
 
   // Calculate next sessionIndex for each doctor
   const nextSessionIndexByDoctor = useMemo(() => {
@@ -3182,9 +3198,9 @@ export default function AppointmentsPage() {
     const parseTimeForSort = (timeStr: string) => parse(timeStr, "hh:mm a", new Date()).getTime();
 
     // Sort Confirmed and Pending by shared comparison logic
-    const isClassic = clinicDetails?.tokenDistribution === 'classic';
-    confirmed.sort(isClassic ? compareAppointmentsClassic : compareAppointments);
-    pending.sort(isClassic ? compareAppointmentsClassic : compareAppointments);
+    const isAdvanced = clinicDetails?.tokenDistribution === 'advanced';
+    confirmed.sort(isAdvanced ? compareAppointments : compareAppointmentsClassic);
+    pending.sort(isAdvanced ? compareAppointments : compareAppointmentsClassic);
 
     // Return Confirmed at top, then Pending, then Skipped
     return [...confirmed, ...pending, ...skipped];
@@ -4377,16 +4393,30 @@ export default function AppointmentsPage() {
                                             )}
                                           >
                                             <TableCell className="font-medium">
-                                              <div className="flex items-center gap-2">
-                                                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                                                  {index + 1}
+                                              <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-2">
+                                                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                                                    {index + 1}
+                                                  </div>
+                                                  {appointment.patientName}
+                                                  {appointment.skippedAt && (
+                                                    <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                      Late
+                                                    </Badge>
+                                                  )}
                                                 </div>
-                                                {appointment.patientName}
-                                                {appointment.skippedAt && (
-                                                  <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
-                                                    Late
-                                                  </Badge>
-                                                )}
+                                                {(() => {
+                                                  if (clinicDetails?.tokenDistribution !== 'classic') return null;
+
+                                                  const doctorName = appointment.doctor;
+                                                  const est = arrivedEstimatesByDoctor[doctorName]?.find((e: any) => e.appointmentId === appointment.id);
+                                                  if (est) {
+                                                    const doctor = doctors.find(d => d.name === doctorName);
+                                                    if (est.isFirst && doctor?.consultationStatus === 'In') return null;
+                                                    return <span className="text-[10px] text-muted-foreground ml-8">Est: {est.estimatedTime}</span>;
+                                                  }
+                                                  return null;
+                                                })()}
                                               </div>
                                             </TableCell>
                                             <TableCell>{appointment.tokenNumber}</TableCell>

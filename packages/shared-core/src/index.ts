@@ -18,3 +18,4 @@ export * from './utils/errors';
 export * from './utils/error-emitter';
 export * from './utils/text-utils';
 export * from './utils/token-utils';
+export * from './utils/estimated-time-utils';

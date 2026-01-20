@@ -35,7 +35,7 @@ import { useLanguage } from '@/contexts/language-context';
 import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, getClinicNow, getClinicDateString, calculateEstimatedTimes } from '@kloqo/shared-core';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371e3;
@@ -162,49 +162,6 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     // Use liveDoctor if available, otherwise fallback to prop doctor
     const currentDoctor = liveDoctor || doctor;
 
-    useEffect(() => {
-        if (!yourAppointment || !doctorId || !clinicId || !currentDoctor || !firestore) return;
-
-        const computeQueueState = async () => {
-            try {
-                const state = await computeQueues(
-                    allTodaysAppointments,
-                    yourAppointment.doctor,
-                    doctorId,
-                    clinicId,
-                    yourAppointment.date,
-                    sessionIndex,
-                    currentDoctor.consultationStatus,
-                    clinicData?.tokenDistribution || 'classic'
-                );
-                setQueueState(state);
-            } catch (error) {
-                console.error('Error computing queues:', error);
-                // Fallback to empty state
-                setQueueState({
-                    arrivedQueue: [],
-                    bufferQueue: [],
-                    skippedQueue: [],
-                    currentConsultation: null,
-                    consultationCount: 0,
-                    nextBreakDuration: null,
-                });
-            }
-        };
-
-        computeQueueState();
-    }, [allTodaysAppointments, yourAppointment, doctorId, clinicId, sessionIndex, firestore, currentDoctor, clinicData]);
-
-    // Helper function to parse appointment time
-    const parseAppointmentTime = useCallback((apt: Appointment): Date => {
-        try {
-            const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-            return parseTime(apt.time, appointmentDate);
-        } catch {
-            return new Date(0); // Fallback for invalid dates
-        }
-    }, []);
-
     // Get clinic data
     const [clinicData, setClinicData] = useState<any | null>(null);
     useEffect(() => {
@@ -224,6 +181,59 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
         fetchClinicData();
     }, [clinicId, firestore]);
+
+    useEffect(() => {
+        if (!yourAppointment || !doctorId || !clinicId || !currentDoctor || !firestore) return;
+
+        const computeQueueState = async () => {
+            try {
+                const state = await computeQueues(
+                    allTodaysAppointments,
+                    yourAppointment.doctor,
+                    doctorId,
+                    clinicId,
+                    yourAppointment.date,
+                    sessionIndex,
+                    currentDoctor.consultationStatus,
+                    clinicData?.tokenDistribution === 'advanced' ? 'advanced' : 'classic'
+                );
+                setQueueState(state);
+            } catch (error) {
+                console.error('Error computing queues:', error);
+                // Fallback to empty state
+                setQueueState({
+                    arrivedQueue: [],
+                    bufferQueue: [],
+                    skippedQueue: [],
+                    currentConsultation: null,
+                    consultationCount: 0,
+                    nextBreakDuration: null,
+                });
+            }
+        };
+
+        computeQueueState();
+    }, [allTodaysAppointments, yourAppointment, doctorId, clinicId, sessionIndex, firestore, currentDoctor, clinicData]);
+
+    const arrivedEstimates = useMemo(() => {
+        if (!currentDoctor || !queueState?.arrivedQueue) return [];
+        return calculateEstimatedTimes(
+            queueState.arrivedQueue,
+            currentDoctor,
+            currentTime,
+            currentDoctor.averageConsultingTime || 15
+        );
+    }, [queueState?.arrivedQueue, currentDoctor, currentTime]);
+
+    // Helper function to parse appointment time
+    const parseAppointmentTime = useCallback((apt: Appointment): Date => {
+        try {
+            const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
+            return parseTime(apt.time, appointmentDate);
+        } catch {
+            return new Date(0); // Fallback for invalid dates
+        }
+    }, []);
 
     // Simulate where a skipped appointment would be placed if it rejoined now
     // Simulate where a skipped appointment would be placed if it rejoined now
@@ -1401,6 +1411,17 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const formatTokenTime = (appointment: Appointment) => {
         try {
+            if (clinicData?.tokenDistribution !== 'advanced') {
+                const estimate = arrivedEstimates.find(e => e.appointmentId === appointment.id);
+                if (estimate) {
+                    // If it's the first person and doctor is In, hide time (in consultation)
+                    if (estimate.isFirst && currentDoctor?.consultationStatus === 'In') {
+                        return null;
+                    }
+                    return estimate.estimatedTime;
+                }
+            }
+
             const dateObj = parse(appointment.date, "d MMMM yyyy", new Date());
             const dateTime = parseTime(appointment.time, dateObj);
             return format(dateTime, 'hh:mm a');

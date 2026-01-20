@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { parseTime } from '@/lib/utils';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes } from '@kloqo/shared-core';
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -137,7 +137,7 @@ export default function LiveDashboard() {
         });
       });
 
-      const sorted = fetchedAppointments.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+      const sorted = fetchedAppointments.sort(clinicDetails?.tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
       setAppointments(sorted);
 
     }, async (serverError) => {
@@ -163,8 +163,18 @@ export default function LiveDashboard() {
 
   const confirmedAppointments = useMemo(() => {
     const confirmed = filteredAppointments.filter(a => a.status === 'Confirmed');
-    return confirmed.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+    return confirmed.sort(clinicDetails?.tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
   }, [filteredAppointments, clinicDetails]);
+
+  const arrivedEstimates = useMemo(() => {
+    if (!currentDoctor) return [];
+    return calculateEstimatedTimes(
+      confirmedAppointments,
+      currentDoctor,
+      currentTime,
+      currentDoctor.averageConsultingTime || 15
+    );
+  }, [confirmedAppointments, currentDoctor, currentTime]);
 
   const handleStatusChange = useCallback(async (newStatus: 'In' | 'Out') => {
     if (!selectedDoctor) return;
@@ -351,7 +361,7 @@ export default function LiveDashboard() {
         // Just update status to Confirmed. Do NOT touch isInBuffer here.
         // Let the refill logic decide who gets buffered based on PRIORITY.
         const updateData: any = { status: 'Confirmed', updatedAt: serverTimestamp() };
-        if (clinicDetails?.tokenDistribution === 'classic') {
+        if (clinicDetails?.tokenDistribution !== 'advanced') {
           updateData.confirmedAt = serverTimestamp();
         }
         await updateDoc(doc(db, 'appointments', appointmentToAddToQueue.id), updateData);
@@ -397,7 +407,7 @@ export default function LiveDashboard() {
           status: 'Confirmed',
           time: newTimeStr,
           updatedAt: serverTimestamp(),
-          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+          ...(clinicDetails?.tokenDistribution !== 'advanced' ? { confirmedAt: serverTimestamp() } : {})
         };
         await updateDoc(doc(db, 'appointments', appointment.id), updateData);
 
@@ -612,8 +622,9 @@ export default function LiveDashboard() {
                     isInBufferQueue={isInBufferQueue}
                     showStatusBadge={false}
                     showPositionNumber={true}
-                    showEstimatedTime={true}
+                    showEstimatedTime={clinicDetails?.tokenDistribution !== 'advanced'}
                     averageConsultingTime={currentDoctor?.averageConsultingTime}
+                    estimatedTimes={arrivedEstimates}
                   />
                 </div>
 

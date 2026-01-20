@@ -298,7 +298,7 @@ export async function completeStaffWalkInBooking(
             cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
             isForceBooked: isForceBooked || false,
-            ...(tokenDistribution === 'classic' && { confirmedAt: serverTimestamp() }),
+            ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
         };
         transaction.set(newDocRef, appointmentData);
 
@@ -625,7 +625,7 @@ export async function completePatientWalkInBooking(
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
             patientProfile: patientProfile ?? null,
             walkInPatientsAhead: walkInDetails.patientsAhead,
-            ...(tokenDistribution === 'classic' && { confirmedAt: serverTimestamp() }),
+            ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
         });
 
         for (const update of segmentedUpdates) {

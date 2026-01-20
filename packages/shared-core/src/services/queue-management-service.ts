@@ -134,7 +134,7 @@ export async function computeQueues(
 
     const arrivedQueue = relevantAppointments
         .filter(apt => apt.status === 'Confirmed')
-        .sort(tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+        .sort(tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
 
     // Buffer Queue: Appointments explicitly marked as being in the buffer
     const bufferQueue = arrivedQueue.filter(apt => apt.isInBuffer);

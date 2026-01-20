@@ -177,10 +177,10 @@ export default function ClinicDashboard() {
     });
 
 
-    fetchedAppointments.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+    fetchedAppointments.sort(clinicDetails?.tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
 
     setAppointments(fetchedAppointments);
-  }, []);
+  }, [clinicDetails]);
 
   useEffect(() => {
     if (!selectedDoctor || !clinicId) return;
@@ -380,11 +380,9 @@ export default function ClinicDashboard() {
         const appointmentRef = doc(db, "appointments", appointment.id);
         const updateData: any = {
           status: 'Confirmed',
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          ...(clinicDetails?.tokenDistribution !== 'advanced' ? { confirmedAt: serverTimestamp() } : {})
         };
-        if (clinicDetails?.tokenDistribution === 'classic') {
-          updateData.confirmedAt = serverTimestamp();
-        }
         await updateDoc(appointmentRef, updateData);
 
         setAppointments(prev => prev.map(a =>
@@ -446,7 +444,7 @@ export default function ClinicDashboard() {
           status: 'Confirmed',
           time: newTimeString,
           updatedAt: serverTimestamp(),
-          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+          ...(clinicDetails?.tokenDistribution !== 'advanced' ? { confirmedAt: serverTimestamp() } : {})
         });
 
         // Update local state
@@ -494,14 +492,14 @@ export default function ClinicDashboard() {
     const pending = filteredAppointments.filter(a => (a.status === 'Pending' || a.status === 'Confirmed'));
 
     // Sort by unified logic
-    return pending.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);;
+    return pending.sort(clinicDetails?.tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
   }, [filteredAppointments, clinicDetails]);
 
   const skippedAppointments = useMemo(() => {
     const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
 
     // Sort by unified logic
-    return skipped.sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+    return skipped.sort(clinicDetails?.tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
   }, [filteredAppointments, clinicDetails]);
 
   const pastAppointments = useMemo(() => filteredAppointments.filter(a => a.status === 'Completed' || a.status === 'Cancelled' || a.status === 'No-show'), [filteredAppointments]);

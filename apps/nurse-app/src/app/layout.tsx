@@ -13,6 +13,7 @@ import { useAppointmentStatusUpdater } from '@/hooks/useAppointmentStatusUpdater
 
 
 import { DailyReminderHandler } from '@/components/daily-reminder-handler';
+import WakeLockHandler from '@/components/wake-lock-handler';
 
 // Client component wrapper to use hooks
 function LayoutContent({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       {children}
       <GlobalErrorHandler />
       <DailyReminderHandler />
+      <WakeLockHandler />
     </>
   );
 }

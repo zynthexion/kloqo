@@ -44,6 +44,7 @@ type AppointmentListProps = {
   showPositionNumber?: boolean;
   showEstimatedTime?: boolean;
   averageConsultingTime?: number;
+  estimatedTimes?: Array<{ appointmentId: string; estimatedTime: string; isFirst: boolean }>;
 };
 
 // Helper function to parse time
@@ -73,7 +74,8 @@ function AppointmentList({
   isPhoneMode = false,
   showPositionNumber = false,
   showEstimatedTime = false,
-  averageConsultingTime = 15
+  averageConsultingTime = 15,
+  estimatedTimes = []
 }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
@@ -272,16 +274,30 @@ function AppointmentList({
                         <div className="flex items-start gap-4 flex-1">
                           <div className="flex-1">
                             <div className="flex justify-between items-center">
-                              {(!showEstimatedTime || index !== 0) && (
-                                <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
-                                  {appt.date && `${appt.date} - `}
-                                  {showEstimatedTime ? (
-                                    format(addMinutes(currentTime, (averageConsultingTime || 15) * index), 'hh:mm a')
-                                  ) : (
-                                    ['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)
-                                  )}
-                                </Badge>
-                              )}
+                              {(() => {
+                                if (showEstimatedTime) {
+                                  const est = estimatedTimes.find(e => e.appointmentId === appt.id);
+                                  // Hide 1st person's time if doctor is In
+                                  if (est?.isFirst && clinicStatus === 'In') return null;
+
+                                  const displayTime = est?.estimatedTime || (index === 0 ? '' : format(addMinutes(currentTime, (averageConsultingTime || 15) * index), 'hh:mm a'));
+                                  if (!displayTime) return null;
+
+                                  return (
+                                    <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
+                                      {appt.date && `${appt.date} - `}
+                                      {displayTime}
+                                    </Badge>
+                                  );
+                                }
+
+                                return (
+                                  <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
+                                    {appt.date && `${appt.date} - `}
+                                    {['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)}
+                                  </Badge>
+                                );
+                              })()}
                               {showStatusBadge && getStatusBadge(appt)}
                               {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
                                 <div className="flex items-center gap-2">

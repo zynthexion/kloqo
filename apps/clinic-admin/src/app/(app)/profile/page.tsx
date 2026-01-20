@@ -161,11 +161,12 @@ export default function ProfilePage() {
 
 
   useEffect(() => {
-    if (!auth.currentUser) {
-      setLoading(false);
-      return;
-    }
     const fetchUserData = async () => {
+
+      if (!auth.currentUser) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const userDocRef = doc(db, "users", auth.currentUser!.uid);
@@ -217,7 +218,7 @@ export default function ProfilePage() {
       }
     };
     fetchUserData();
-  }, [auth.currentUser, profileForm, clinicForm, hoursForm, settingsForm]);
+  }, [auth.currentUser]); // Removed form objects from dependencies to prevent unnecessary loops
 
   // Separate effect to handle clinic form reset when clinicDetails changes
   useEffect(() => {
@@ -242,22 +243,44 @@ export default function ProfilePage() {
         setFormKey(prev => prev + 1); // Force re-render
       }, 100);
     }
-  }, [clinicDetails, clinicForm]);
+  }, [clinicDetails]); // Removed clinicForm from dependencies
 
   // Separate effect to handle settings form reset when clinicDetails changes
   useEffect(() => {
-    if (clinicDetails && settingsForm) {
+    if (clinicDetails && settingsForm && !isEditingSettings) {
+
       const settingsResetData = {
         walkInTokenAllotment: clinicDetails.walkInTokenAllotment || 5,
         tokenDistribution: clinicDetails.tokenDistribution || 'classic',
         genderPreference: clinicDetails.genderPreference || 'None',
       };
+
       settingsForm.reset(settingsResetData);
+    } else if (isEditingSettings) {
+
     }
-  }, [clinicDetails, settingsForm]);
+  }, [clinicDetails, isEditingSettings]); // Added isEditingSettings to prevent resets while editing
 
   const onSettingsSubmit = async (values: SettingsFormValues) => {
-    if (!userProfile?.clinicId) return;
+    console.log("DEBUG: onSettingsSubmit CALL START");
+    const currentValues = settingsForm.getValues();
+    console.log("DEBUG: settingsForm.getValues() at start:", currentValues);
+    console.log("DEBUG: arguments 'values':", values);
+
+    // Fallback: if 'values' is None but 'currentValues' has something else, use currentValues
+    const finalValues = {
+      ...values,
+      genderPreference: values.genderPreference === 'None' && currentValues.genderPreference !== 'None'
+        ? currentValues.genderPreference
+        : values.genderPreference
+    };
+
+    console.log("DEBUG: finalValues to save:", finalValues);
+
+    if (!userProfile?.clinicId) {
+
+      return;
+    }
 
     startTransition(async () => {
       const clinicRef = doc(db, 'clinics', userProfile.clinicId!);
@@ -267,6 +290,7 @@ export default function ProfilePage() {
           tokenDistribution: values.tokenDistribution,
           genderPreference: values.genderPreference,
         });
+
         setClinicDetails((prev: any) => prev ? {
           ...prev,
           walkInTokenAllotment: values.walkInTokenAllotment,
@@ -276,7 +300,7 @@ export default function ProfilePage() {
         toast({ title: "Settings Updated", description: "Clinic settings have been saved successfully." });
         setIsEditingSettings(false);
       } catch (error) {
-        console.error("Error updating settings: ", error);
+        console.error("Error updating settings:", error);
         toast({ variant: "destructive", title: "Update Failed", description: "Could not save settings." });
       }
     });
@@ -899,25 +923,35 @@ export default function ProfilePage() {
                   <FormField
                     control={settingsForm.control}
                     name="genderPreference"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Clinic Gender Preference <span className="text-destructive">*</span></FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value} disabled={!isEditingSettings || isPending}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select gender preference" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="None">No Preference</SelectItem>
-                            <SelectItem value="Men">Men Only</SelectItem>
-                            <SelectItem value="Women">Women Only</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">Default gender selection in booking forms</p>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={({ field }) => {
+                      return (
+                        <FormItem>
+                          <FormLabel>Clinic Gender Preference <span className="text-destructive">*</span></FormLabel>
+                          <Select
+                            key={`gender-${field.value}-${isEditingSettings}`}
+                            onValueChange={(val) => {
+                              settingsForm.setValue('genderPreference', val, { shouldDirty: true, shouldValidate: true });
+                            }}
+                            value={field.value}
+                            defaultValue={field.value}
+                            disabled={!isEditingSettings || isPending}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select gender preference" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="None">No Preference</SelectItem>
+                              <SelectItem value="Men">Men Only</SelectItem>
+                              <SelectItem value="Women">Women Only</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">Default gender selection in booking forms</p>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
                   {isEditingSettings && (
                     <div className="flex justify-end gap-2 pt-4">

@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppFrameLayout from '@/components/layout/app-frame';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import type { Appointment, Doctor, Patient } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { format, isWithinInterval, parse, subMinutes, addMinutes, differenceInMinutes, parseISO, isAfter } from 'date-fns';
@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, generateWalkInTokenNumber } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, generateWalkInTokenNumber, calculateEstimatedTimes, getClinicDateString, getClinicNow } from '@kloqo/shared-core';
 
 import { getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing } from '@kloqo/shared-core';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
@@ -88,6 +88,7 @@ function WalkInRegistrationContent() {
   const [patientsAhead, setPatientsAhead] = useState(0);
   const [loading, setLoading] = useState(true);
   const [appointmentToSave, setAppointmentToSave] = useState<UnsavedAppointment | null>(null);
+  const [arrivedAppointments, setArrivedAppointments] = useState<Appointment[]>([]);
 
   // Force booking states
   const [showForceBookDialog, setShowForceBookDialog] = useState(false);
@@ -339,6 +340,29 @@ function WalkInRegistrationContent() {
     fetchDoctor();
   }, [doctorIdFromParams, toast, clinicId]);
 
+  // Listen for arrived appointments to show correct people ahead for Classic distribution
+  useEffect(() => {
+    if (!doctor || !clinicId) return;
+
+    const todayStr = getClinicDateString(getClinicNow());
+    const q = query(
+      collection(db, 'appointments'),
+      where('clinicId', '==', clinicId),
+      where('doctor', '==', doctor.name),
+      where('date', '==', todayStr),
+      where('status', 'in', ['Arrived'])
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
+      setArrivedAppointments(apps);
+    }, (err) => {
+      console.error("Error listening to arrived appointments:", err);
+    });
+
+    return () => unsubscribe();
+  }, [doctor, clinicId]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!doctor || !clinicId) {
       toast({ variant: 'destructive', title: 'Error', description: 'Doctor or clinic not identified.' });
@@ -448,9 +472,26 @@ function WalkInRegistrationContent() {
       }
 
       const previewTokenNumber = `${numericToken}W`;
-      const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
-      const cutOffTime = subMinutes(estimatedTime, 15);
-      const noShowTime = addMinutes(estimatedTime, 15);
+      const appointmentDate = parse(appointmentDateStr, "d MMMM yyyy", new Date());
+
+      // Visual Estimate Override for Classic Distribution
+      let visualEstimatedTime = estimatedTime;
+      let visualPatientsAhead = patientsAhead;
+
+      if (clinicData?.tokenDistribution !== 'advanced') {
+        const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as any];
+        const estimates = calculateEstimatedTimes(
+          simulationQueue,
+          doctor,
+          getClinicNow(),
+          doctor.averageConsultingTime || 15
+        );
+        const lastEstimate = estimates[estimates.length - 1];
+        if (lastEstimate) {
+          visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
+          visualPatientsAhead = arrivedAppointments.length;
+        }
+      }
 
       const newAppointmentData: UnsavedAppointment = {
         patientName: values.patientName,
@@ -463,22 +504,22 @@ function WalkInRegistrationContent() {
         doctor: doctor.name,
         department: doctor.department,
         bookedVia: 'Walk-in',
-        date: format(new Date(), "d MMMM yyyy"),
-        time: format(estimatedTime, "hh:mm a"),
-        arriveByTime: format(estimatedTime, "hh:mm a"),
+        date: appointmentDateStr,
+        time: getClinicTimeString(visualEstimatedTime),
+        arriveByTime: getClinicTimeString(visualEstimatedTime),
         status: 'Confirmed', // Walk-ins are physically present at clinic
         tokenNumber: previewTokenNumber,
         numericToken: numericToken,
         clinicId,
         createdAt: serverTimestamp(),
         slotIndex,
-        cutOffTime: cutOffTime,
-        noShowTime: noShowTime,
+        cutOffTime: subMinutes(visualEstimatedTime, 15),
+        noShowTime: addMinutes(visualEstimatedTime, 15),
       };
 
       setAppointmentToSave(newAppointmentData);
-      setEstimatedConsultationTime(estimatedTime);
-      setPatientsAhead(patientsAhead);
+      setEstimatedConsultationTime(visualEstimatedTime);
+      setPatientsAhead(visualPatientsAhead);
       setGeneratedToken(previewTokenNumber);
       setIsEstimateModalOpen(true);
 
@@ -577,8 +618,26 @@ function WalkInRegistrationContent() {
 
       const previewTokenNumber = generateWalkInTokenNumber(numericToken, details.sessionIndex);
       const appointmentDate = parse(format(new Date(), "d MMMM yyyy"), "d MMMM yyyy", new Date());
-      const cutOffTime = subMinutes(estimatedTime, 15);
-      const noShowTime = addMinutes(estimatedTime, 15);
+      const appointmentDateStr = format(new Date(), "d MMMM yyyy");
+
+      // Visual Estimate Override for Classic Distribution (Force Book)
+      let visualEstimatedTime = estimatedTime;
+      let visualPatientsAhead = patientsAhead;
+
+      if (clinicData?.tokenDistribution !== 'advanced') {
+        const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as any];
+        const estimates = calculateEstimatedTimes(
+          simulationQueue,
+          doctor,
+          getClinicNow(),
+          doctor.averageConsultingTime || 15
+        );
+        const lastEstimate = estimates[estimates.length - 1];
+        if (lastEstimate) {
+          visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
+          visualPatientsAhead = arrivedAppointments.length;
+        }
+      }
 
       const newAppointmentData: UnsavedAppointment = {
         patientId,
@@ -591,23 +650,23 @@ function WalkInRegistrationContent() {
         doctor: doctor.name,
         department: doctor.department,
         bookedVia: 'Walk-in',
-        date: format(new Date(), "d MMMM yyyy"),
-        time: format(estimatedTime, "hh:mm a"),
-        arriveByTime: format(estimatedTime, "hh:mm a"),
+        date: appointmentDateStr,
+        time: getClinicTimeString(visualEstimatedTime),
+        arriveByTime: getClinicTimeString(visualEstimatedTime),
         status: 'Confirmed',
         tokenNumber: previewTokenNumber,
         numericToken: numericToken,
         clinicId,
         createdAt: serverTimestamp(),
         slotIndex,
-        cutOffTime: cutOffTime,
-        noShowTime: noShowTime,
+        cutOffTime: subMinutes(visualEstimatedTime, 15),
+        noShowTime: addMinutes(visualEstimatedTime, 15),
         isForceBooked, // Mark as force booked
       };
 
       setAppointmentToSave(newAppointmentData);
-      setEstimatedConsultationTime(estimatedTime);
-      setPatientsAhead(patientsAhead);
+      setEstimatedConsultationTime(visualEstimatedTime);
+      setPatientsAhead(visualPatientsAhead);
       setGeneratedToken(previewTokenNumber);
       setIsEstimateModalOpen(true);
 

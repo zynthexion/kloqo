@@ -665,6 +665,8 @@ function WalkInRegistrationContent() {
 
       // Visual Estimate Override for Classic Distribution
       let visualEstimatedTime = estimatedTime;
+      let visualPatientsAhead = patientsAhead;
+
       if (clinicDetails?.tokenDistribution !== 'advanced') {
         const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as Appointment];
         const estimates = calculateEstimatedTimes(
@@ -676,9 +678,12 @@ function WalkInRegistrationContent() {
         const lastEstimate = estimates[estimates.length - 1];
         if (lastEstimate) {
           visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
+          visualPatientsAhead = arrivedAppointments.length; // Your position is arrivedAppointments.length + 1, so internal "ahead" is arrivedAppointments.length
+
           console.log('[NURSE:GET-TOKEN] Applying visual estimate override:', {
             original: getClinicTimeString(estimatedTime),
-            visual: lastEstimate.estimatedTime
+            visual: lastEstimate.estimatedTime,
+            visualPatientsAhead
           });
         }
       }
@@ -720,7 +725,7 @@ function WalkInRegistrationContent() {
 
       setAppointmentToSave(previewAppointment);
       setEstimatedConsultationTime(visualEstimatedTime);
-      setPatientsAhead(patientsAhead);
+      setPatientsAhead(visualPatientsAhead);
       setGeneratedToken(previewTokenNumber);
       setIsEstimateModalOpen(true);
       console.log('[NURSE:GET-TOKEN] ✅ Modal opened successfully');
@@ -817,6 +822,8 @@ function WalkInRegistrationContent() {
       const appointmentDate = now;
       // Visual Estimate Override for Classic Distribution (Force Book)
       let visualEstimatedTime = estimatedTime;
+      let visualPatientsAhead = patientsAhead;
+
       if (clinicDetails?.tokenDistribution !== 'advanced') {
         const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as Appointment];
         const estimates = calculateEstimatedTimes(
@@ -828,6 +835,7 @@ function WalkInRegistrationContent() {
         const lastEstimate = estimates[estimates.length - 1];
         if (lastEstimate) {
           visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
+          visualPatientsAhead = arrivedAppointments.length;
         }
       }
 
@@ -865,7 +873,7 @@ function WalkInRegistrationContent() {
 
       setAppointmentToSave(previewAppointment);
       setEstimatedConsultationTime(visualEstimatedTime);
-      setPatientsAhead(patientsAhead);
+      setPatientsAhead(visualPatientsAhead);
       setGeneratedToken(previewTokenNumber);
       setIsEstimateModalOpen(true);
 
@@ -1249,7 +1257,7 @@ function WalkInRegistrationContent() {
 
                 return (
                   <>
-                    <div className="flex items-center justify-center gap-6 text-center py-4">
+                    <div className="flex items-center justify-center gap-6 text-center py-4 flex-wrap">
                       <div className="flex flex-col items-center">
                         <Clock className="w-8 h-8 text-primary mb-2" />
                         <span className="text-xl font-bold">{adjustedTime ? `~ ${getClinicTimeString(adjustedTime)}` : 'Calculating...'}</span>

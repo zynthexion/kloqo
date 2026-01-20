@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
 import type { Appointment } from '@/lib/types';
-import { parse, subMinutes, format, addMinutes } from 'date-fns';
+import { parse, subMinutes, format, addMinutes, isAfter } from 'date-fns';
 import { cn, getDisplayTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { User, XCircle, Edit, Check, CheckCircle2, SkipForward, Phone } from 'lucide-react';
@@ -98,8 +98,10 @@ function AppointmentList({
     // But we need consistent shape.
     let items: Array<{ type: 'appointment' | 'break'; data: any }> = [];
 
-    // Sort breaks by start time just in case
-    const sortedBreaks = [...breaks].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    // Sort breaks by start time and filter out past breaks
+    const sortedBreaks = [...breaks]
+      .filter(b => isAfter(new Date(b.endTime), currentTime))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
     // Helper to get appointment time (estimated or computed)
     const getApptTime = (apt: Appointment) => {
@@ -304,234 +306,239 @@ function AppointmentList({
               </div>
             )}
 
-            {mixedItems.length > 0 ? (
-              mixedItems.map((item, index) => {
-                // RENDER BREAK
-                if (item.type === 'break') {
-                  const brk = item.data;
-                  const startLabel = format(new Date(brk.startTime), 'h:mm a');
-                  const endLabel = format(new Date(brk.endTime), 'h:mm a');
+            {(() => {
+              let appointmentCounter = 0;
+              return mixedItems.length > 0 ? (
+                mixedItems.map((item, index) => {
+                  // RENDER BREAK
+                  if (item.type === 'break') {
+                    const brk = item.data;
+                    const startLabel = format(new Date(brk.startTime), 'h:mm a');
+                    const endLabel = format(new Date(brk.endTime), 'h:mm a');
+                    return (
+                      <div key={`break-${index}`} className="flex items-center justify-center p-3 bg-amber-50 rounded-lg border border-amber-100 text-amber-800 text-sm font-medium">
+                        <span className="flex items-center gap-2">
+                          <span className="block w-2 h-2 rounded-full bg-amber-500" />
+                          Break: {startLabel} - {endLabel} {brk.note ? `(${brk.note})` : ''}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  // RENDER APPOINTMENT
+                  appointmentCounter++;
+                  const appt = item.data as Appointment;
+                  const currentPos = appointmentCounter;
+                  const isSwiping = swipeState.id === appt.id;
+
+                  const isBuffer = isInBufferQueue && isInBufferQueue(appt);
+
                   return (
-                    <div key={`break-${index}`} className="flex items-center justify-center p-3 bg-amber-50 rounded-lg border border-amber-100 text-amber-800 text-sm font-medium">
-                      <span className="flex items-center gap-2">
-                        <span className="block w-2 h-2 rounded-full bg-amber-500" />
-                        Break: {startLabel} - {endLabel} {brk.note ? `(${brk.note})` : ''}
-                      </span>
-                    </div>
-                  );
-                }
-
-                // RENDER APPOINTMENT
-                const appt = item.data as Appointment;
-                const isSwiping = swipeState.id === appt.id;
-
-                const isBuffer = isInBufferQueue && isInBufferQueue(appt);
-
-                return (
-                  <div
-                    key={appt.id}
-                    ref={swipeState.id === appt.id ? swipedItemRef : null}
-                    className={cn(
-                      "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
-                      isSwiping && 'text-white',
-                      !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
-                      !isSwiping && isBuffer && "bg-blue-50/80 border-blue-400",
-                      !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
-                    )}
-                    style={getSwipeStyle(appt.id)}
-                    onMouseDown={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
-                    onTouchStart={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
-                  >
                     <div
+                      key={appt.id}
+                      ref={swipeState.id === appt.id ? swipedItemRef : null}
                       className={cn(
-                        "transition-opacity duration-200",
-                        !isSwiping && appt.status === 'Skipped' && 'border-l-4 border-yellow-400 pl-2',
-                        !isSwiping && appt.status === 'Completed' && 'opacity-50',
-                        !isSwiping && appt.status === 'Cancelled' && (appt.cancellationReason === 'DOCTOR_LEAVE' ? 'border-l-4 border-orange-400 pl-2' : 'opacity-60'),
+                        "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
+                        isSwiping && 'text-white',
+                        !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
+                        !isSwiping && isBuffer && "bg-blue-50/80 border-blue-400",
+                        !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
                       )}
+                      style={getSwipeStyle(appt.id)}
+                      onMouseDown={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
+                      onTouchStart={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-4 flex-1">
-                          <div className="flex-1">
-                            <div className="flex justify-between items-center">
-                              {(() => {
-                                if (showEstimatedTime) {
-                                  const est = estimatedTimes.find(e => e.appointmentId === appt.id);
-                                  // Hide 1st person's time if doctor is In
-                                  if (est?.isFirst && clinicStatus === 'In') return null;
+                      <div
+                        className={cn(
+                          "transition-opacity duration-200",
+                          !isSwiping && appt.status === 'Skipped' && 'border-l-4 border-yellow-400 pl-2',
+                          !isSwiping && appt.status === 'Completed' && 'opacity-50',
+                          !isSwiping && appt.status === 'Cancelled' && (appt.cancellationReason === 'DOCTOR_LEAVE' ? 'border-l-4 border-orange-400 pl-2' : 'opacity-60'),
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-4 flex-1">
+                            <div className="flex-1">
+                              <div className="flex justify-between items-center">
+                                {(() => {
+                                  if (showEstimatedTime) {
+                                    const est = estimatedTimes.find(e => e.appointmentId === appt.id);
+                                    // Hide 1st person's time if doctor is In
+                                    if (est?.isFirst && clinicStatus === 'In') return null;
 
-                                  const displayTime = est?.estimatedTime || (index === 0 ? '' : format(addMinutes(currentTime, (averageConsultingTime || 15) * index), 'hh:mm a'));
-                                  if (!displayTime) return null;
+                                    const displayTime = est?.estimatedTime || (index === 0 ? '' : format(addMinutes(currentTime, (averageConsultingTime || 15) * index), 'hh:mm a'));
+                                    if (!displayTime) return null;
+
+                                    return (
+                                      <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
+                                        {appt.date && `${appt.date} - `}
+                                        {displayTime}
+                                      </Badge>
+                                    );
+                                  }
 
                                   return (
                                     <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
                                       {appt.date && `${appt.date} - `}
-                                      {displayTime}
+                                      {['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)}
                                     </Badge>
                                   );
-                                }
-
-                                return (
-                                  <Badge variant={isSwiping ? 'default' : 'outline'} className={cn("text-xs", isSwiping && 'bg-white/20 text-white')}>
-                                    {appt.date && `${appt.date} - `}
-                                    {['Confirmed', 'Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.time : getDisplayTime(appt)}
-                                  </Badge>
-                                );
-                              })()}
-                              {showStatusBadge && getStatusBadge(appt)}
-                              {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
+                                })()}
+                                {showStatusBadge && getStatusBadge(appt)}
+                                {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
+                                  <div className="flex items-center gap-2">
+                                    {appt.status === 'Pending' && onAddToQueue && shouldShowConfirmArrival(appt) && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-7 w-7 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+                                            onClick={() => onAddToQueue(appt)}
+                                          >
+                                            <CheckCircle2 className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Confirm Arrival</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {appt.id === firstActionableAppointmentId && appt.status === 'Confirmed' && onUpdateStatus && !showTopRightActions && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-7 w-7 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
+                                            onClick={() => onUpdateStatus(appt.id, 'Skipped')}
+                                            disabled={isClinicOut}
+                                          >
+                                            <SkipForward className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Skip Appointment</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {(appt.status === 'Skipped' || appt.status === 'No-show') && onRejoinQueue ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2 bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
+                                        onClick={() => onRejoinQueue(appt)}
+                                      >
+                                        <Check className="mr-1 h-3 w-3" /> Rejoin
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex justify-between items-start mt-1">
                                 <div className="flex items-center gap-2">
-                                  {appt.status === 'Pending' && onAddToQueue && shouldShowConfirmArrival(appt) && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="icon"
-                                          className="h-7 w-7 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
-                                          onClick={() => onAddToQueue(appt)}
-                                        >
-                                          <CheckCircle2 className="h-4 w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Confirm Arrival</p>
-                                      </TooltipContent>
-                                    </Tooltip>
+                                  {showPositionNumber && (
+                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                                      {currentPos}
+                                    </div>
                                   )}
-                                  {appt.id === firstActionableAppointmentId && appt.status === 'Confirmed' && onUpdateStatus && !showTopRightActions && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="icon"
-                                          className="h-7 w-7 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
-                                          onClick={() => onUpdateStatus(appt.id, 'Skipped')}
-                                          disabled={isClinicOut}
-                                        >
-                                          <SkipForward className="h-4 w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Skip Appointment</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  )}
-                                  {(appt.status === 'Skipped' || appt.status === 'No-show') && onRejoinQueue ? (
+                                  <div className="flex items-center gap-2">
+                                    <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
+                                      {['Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.patientName : `#${appt.tokenNumber} - ${appt.patientName}`}
+                                    </p>
+                                    {appt.skippedAt && (
+                                      <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                        Late
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {isPhoneMode && (
+                                  <div className="mt-2 text-white">
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      className="h-7 px-2 bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
-                                      onClick={() => onRejoinQueue(appt)}
+                                      className="h-8 gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (appt.communicationPhone) {
+                                          window.location.href = `tel:${appt.communicationPhone}`;
+                                        }
+                                      }}
                                     >
-                                      <Check className="mr-1 h-3 w-3" /> Rejoin
+                                      <Phone className="h-3 w-3" />
+                                      <span>{appt.communicationPhone || 'No Number'}</span>
                                     </Button>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex justify-between items-start mt-1">
-                              <div className="flex items-center gap-2">
-                                {showPositionNumber && (
-                                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                                    {index + 1}
                                   </div>
                                 )}
-                                <div className="flex items-center gap-2">
-                                  <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
-                                    {['Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.patientName : `#${appt.tokenNumber} - ${appt.patientName}`}
-                                  </p>
-                                  {appt.skippedAt && (
-                                    <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
-                                      Late
-                                    </Badge>
-                                  )}
-                                </div>
                               </div>
 
-                              {isPhoneMode && (
-                                <div className="mt-2 text-white">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (appt.communicationPhone) {
-                                        window.location.href = `tel:${appt.communicationPhone}`;
-                                      }
-                                    }}
-                                  >
-                                    <Phone className="h-3 w-3" />
-                                    <span>{appt.communicationPhone || 'No Number'}</span>
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2 mt-1 flex-wrap">
-                              {(appt.age && appt.place) && (
-                                <p className={cn("text-sm", isSwiping ? 'text-white/80' : 'text-muted-foreground')}>
-                                  {appt.age} yrs, {appt.place}
-                                </p>
-                              )}
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                {(appt.age && appt.place) && (
+                                  <p className={cn("text-sm", isSwiping ? 'text-white/80' : 'text-muted-foreground')}>
+                                    {appt.age} yrs, {appt.place}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {showTopRightActions && isActionable(appt) && (
-                          <div className="flex items-center gap-1 -mr-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-500 hover:text-blue-600" onClick={() => handleEditClick(appt.id)} disabled={isClinicOut}>
-                                  <Edit className="h-5 w-5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Edit Appointment</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            {onUpdateStatus && (
+                          {showTopRightActions && isActionable(appt) && (
+                            <div className="flex items-center gap-1 -mr-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" disabled={isClinicOut}>
-                                        <XCircle className="h-5 w-5" />
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          Are you sure you want to cancel this appointment for {appt.patientName}? This action cannot be undone.
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Go Back</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => onUpdateStatus(appt.id, 'Cancelled')} className="bg-destructive hover:bg-destructive/90">
-                                          Confirm Cancel
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
+                                  <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-500 hover:text-blue-600" onClick={() => handleEditClick(appt.id)} disabled={isClinicOut}>
+                                    <Edit className="h-5 w-5" />
+                                  </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p>Cancel Appointment</p>
+                                  <p>Edit Appointment</p>
                                 </TooltipContent>
                               </Tooltip>
-                            )}
-                          </div>
-                        )}
+                              {onUpdateStatus && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" disabled={isClinicOut}>
+                                          <XCircle className="h-5 w-5" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Cancel Appointment?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Are you sure you want to cancel this appointment for {appt.patientName}? This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Go Back</AlertDialogCancel>
+                                          <AlertDialogAction onClick={() => onUpdateStatus(appt.id, 'Cancelled')} className="bg-destructive hover:bg-destructive/90">
+                                            Confirm Cancel
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Cancel Appointment</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })
-            ) : (
-              <div className="h-24 flex items-center justify-center text-center text-muted-foreground">
-                <p>No appointments found for the selected criteria.</p>
-              </div>
-            )}
+                  )
+                })
+              ) : (
+                <div className="h-24 flex items-center justify-center text-center text-muted-foreground">
+                  <p>No appointments found for the selected criteria.</p>
+                </div>
+              )
+            })()}
           </div>
         </div>
       </TooltipProvider>

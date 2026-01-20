@@ -45,6 +45,7 @@ type AppointmentListProps = {
   showEstimatedTime?: boolean;
   averageConsultingTime?: number;
   estimatedTimes?: Array<{ appointmentId: string; estimatedTime: string; isFirst: boolean }>;
+  breaks?: Array<{ id: string; startTime: string; endTime: string; note?: string }>;
 };
 
 // Helper function to parse time
@@ -75,7 +76,8 @@ function AppointmentList({
   showPositionNumber = false,
   showEstimatedTime = false,
   averageConsultingTime = 15,
-  estimatedTimes = []
+  estimatedTimes = [],
+  breaks = []
 }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
@@ -89,6 +91,66 @@ function AppointmentList({
   const [swipeState, setSwipeState] = useState<SwipeState>(createSwipeState);
   const swipeDataRef = useRef<SwipeState>(createSwipeState());
   const swipedItemRef = useRef<HTMLDivElement | null>(null);
+
+  // Merge appointments and breaks for rendering
+  const mixedItems = useMemo(() => {
+    // If no breaks, return mapped appointments
+    // But we need consistent shape.
+    let items: Array<{ type: 'appointment' | 'break'; data: any }> = [];
+
+    // Sort breaks by start time just in case
+    const sortedBreaks = [...breaks].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+    // Helper to get appointment time (estimated or computed)
+    const getApptTime = (apt: Appointment) => {
+      const est = estimatedTimes.find(e => e.appointmentId === apt.id);
+      if (est) {
+        return parseTime(est.estimatedTime, new Date());
+      }
+      return new Date(8640000000000000); // Push to end if no time
+    };
+
+    let breakIndex = 0;
+
+    appointments.forEach(apt => {
+      const aptTime = getApptTime(apt);
+
+      // Insert any breaks that start before this appointment
+      while (breakIndex < sortedBreaks.length) {
+        const brk = sortedBreaks[breakIndex];
+        const brkStart = new Date(brk.startTime);
+
+        // If break starts before this appointment
+        // Using <= to ensures break appears before an appointment scheduled AT the break start?
+        // Actually, if appointment is at 4:30 and break is at 4:30, break should likely come first or after?
+        // Usually Break implies "Doctor is unavailable", so it effectively delays slots.
+        // If the appointment is *scheduled* for 4:30, and break is at 4:30, it means appointment is delayed till 5:00.
+        // But here we are displaying *estimated times*. The estimated time calculation SHOULD have already pushed the appointment to 5:00.
+        // So aptTime would be 5:00.
+        // Break is 4:30.
+        // 4:30 <= 5:00. Break rendered first. Correct.
+
+        if (brkStart.getTime() <= aptTime.getTime()) {
+          items.push({ type: 'break', data: brk });
+          breakIndex++;
+        } else {
+          break;
+        }
+      }
+      items.push({ type: 'appointment', data: apt });
+    });
+
+    // Add remaining breaks
+    while (breakIndex < sortedBreaks.length) {
+      items.push({ type: 'break', data: sortedBreaks[breakIndex] });
+      breakIndex++;
+    }
+
+    // If both empty
+    if (items.length === 0 && appointments.length === 0 && breaks.length === 0) return [];
+
+    return items;
+  }, [appointments, breaks, estimatedTimes]);
 
   const getIcon = (type: Appointment['bookedVia']) => {
     switch (type) {
@@ -241,8 +303,26 @@ function AppointmentList({
                 Swipe-to-complete is temporarily disabled for 2 minutes after each completion.
               </div>
             )}
-            {appointments.length > 0 ? (
-              appointments.map((appt, index) => {
+
+            {mixedItems.length > 0 ? (
+              mixedItems.map((item, index) => {
+                // RENDER BREAK
+                if (item.type === 'break') {
+                  const brk = item.data;
+                  const startLabel = format(new Date(brk.startTime), 'h:mm a');
+                  const endLabel = format(new Date(brk.endTime), 'h:mm a');
+                  return (
+                    <div key={`break-${index}`} className="flex items-center justify-center p-3 bg-amber-50 rounded-lg border border-amber-100 text-amber-800 text-sm font-medium">
+                      <span className="flex items-center gap-2">
+                        <span className="block w-2 h-2 rounded-full bg-amber-500" />
+                        Break: {startLabel} - {endLabel} {brk.note ? `(${brk.note})` : ''}
+                      </span>
+                    </div>
+                  );
+                }
+
+                // RENDER APPOINTMENT
+                const appt = item.data as Appointment;
                 const isSwiping = swipeState.id === appt.id;
 
                 const isBuffer = isInBufferQueue && isInBufferQueue(appt);

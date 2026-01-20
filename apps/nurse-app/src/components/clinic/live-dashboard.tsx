@@ -557,6 +557,18 @@ export default function LiveDashboard() {
   }, [filteredAppointments]);
 
 
+  const todayBreaks = useMemo(() => {
+    if (!currentDoctor?.breakPeriods) return [];
+    const todayKey = format(new Date(), 'd MMMM yyyy');
+    const periods = currentDoctor.breakPeriods[todayKey] || [];
+    return periods.map((b: any, index: number) => ({
+      id: `break-${index}`,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      note: b.reason // Assuming reason or note property exists
+    }));
+  }, [currentDoctor]);
+
   return (
     <div className="flex flex-col h-full bg-muted/20">
       <ClinicHeader
@@ -625,6 +637,7 @@ export default function LiveDashboard() {
                     showEstimatedTime={clinicDetails?.tokenDistribution !== 'advanced'}
                     averageConsultingTime={currentDoctor?.averageConsultingTime}
                     estimatedTimes={arrivedEstimates}
+                    breaks={todayBreaks}
                   />
                 </div>
 

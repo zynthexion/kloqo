@@ -1115,6 +1115,106 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
     const confirmedEstimatedWaitMinutes = useMemo(() => {
         if (!yourAppointment || yourAppointment.status !== 'Confirmed') return 0;
 
+        // Classic Token Distribution Logic
+        if (clinicData?.tokenDistribution === 'classic') {
+            const confirmedAppointmentsAhead = masterQueue
+                .filter(a => a.status === 'Confirmed');
+            const yourConfirmedIndex = confirmedAppointmentsAhead.findIndex(a => a.id === yourAppointment.id);
+
+            if (yourConfirmedIndex !== -1) {
+                // Number of CONFIRMED patients ahead of you
+                const peopleAhead = yourConfirmedIndex;
+                const avgTime = currentDoctor?.averageConsultingTime || 15;
+
+                // Simulation Start
+                let simulationTime = new Date(currentTime);
+                const isDoctorIn = currentDoctor?.consultationStatus === 'In';
+
+                // 1. Initial Delay (Session Start or Current Break)
+                if (!isDoctorIn) {
+                    if (breakMinutes > 0) {
+                        // If currently on break, add remaining break time
+                        simulationTime = addMinutes(simulationTime, breakMinutes);
+                    } else {
+                        // Check session start delay
+                        try {
+                            const dayOfWeek = format(appointmentDate, 'EEEE');
+                            const sessionIndex = yourAppointment.sessionIndex || 0;
+                            const daySlot = currentDoctor?.availabilitySlots?.find(s => s.day === dayOfWeek);
+
+                            if (daySlot && daySlot.timeSlots[sessionIndex]) {
+                                const sessionStartStr = daySlot.timeSlots[sessionIndex].from;
+                                const sessionStartDate = parseTime(sessionStartStr, appointmentDate);
+                                const minutesUntilStart = differenceInMinutes(sessionStartDate, currentTime);
+                                if (minutesUntilStart > 0) {
+                                    simulationTime = addMinutes(simulationTime, minutesUntilStart);
+                                }
+                            }
+                        } catch (error) {
+                            console.error("Error calculating session start delay:", error);
+                        }
+                    }
+                }
+
+                // 2. Project Consultation Time with Future Break hopping
+                let remainingConsultationMinutes = peopleAhead * avgTime;
+
+                try {
+                    const dateKey = format(appointmentDate, 'd MMMM yyyy');
+                    const breaks = (currentDoctor?.breakPeriods?.[dateKey] || [])
+                        .map((b: any) => ({ start: parseISO(b.startTime), end: parseISO(b.endTime) }))
+                        .sort((a: any, b: any) => a.start.getTime() - b.start.getTime());
+
+                    // Filter relevant breaks (those ending after simulation starts)
+                    const relevantBreaks = breaks.filter((b: any) => isAfter(b.end, simulationTime));
+
+                    for (const brk of relevantBreaks) {
+                        if (remainingConsultationMinutes <= 0) break;
+
+                        // Calculate available time until this break starts
+                        // If simulationTime is already past start (e.g. inside break), this might be negative, 
+                        // but logic below handles jump if we are 'at' start.
+                        // However, if we simulated hopping current break in step 1, we should be at brk.end.
+
+                        let timeUntilBreak = differenceInMinutes(brk.start, simulationTime);
+
+                        if (timeUntilBreak < 0) {
+                            // We are inside this break (and didn't hop it yet? Unlikely if step 1 worked for current break)
+                            // Or this is a overlapping break scenario. Just hop it.
+                            const remainingBreak = differenceInMinutes(brk.end, simulationTime);
+                            simulationTime = addMinutes(simulationTime, Math.max(0, remainingBreak));
+                            continue;
+                        }
+
+                        if (remainingConsultationMinutes < timeUntilBreak) {
+                            // We can finish before this break starts
+                            simulationTime = addMinutes(simulationTime, remainingConsultationMinutes);
+                            remainingConsultationMinutes = 0;
+                        } else {
+                            // Work until break starts
+                            simulationTime = addMinutes(simulationTime, timeUntilBreak);
+                            remainingConsultationMinutes -= timeUntilBreak;
+
+                            // Jump over the break
+                            const breakDuration = differenceInMinutes(brk.end, brk.start);
+                            simulationTime = addMinutes(simulationTime, breakDuration);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error calculating break hopping:", e);
+                }
+
+                // Add any remaining time (after all breaks)
+                if (remainingConsultationMinutes > 0) {
+                    simulationTime = addMinutes(simulationTime, remainingConsultationMinutes);
+                }
+
+                const totalWait = differenceInMinutes(simulationTime, currentTime);
+                return Math.max(0, totalWait);
+            }
+        }
+
+        // Default Advanced/Standard Logic
         try {
             const appointmentDateTime = parseAppointmentDateTime(yourAppointment.date, yourAppointment.time);
             // Include doctor delay in the wait time calculation
@@ -1125,7 +1225,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             console.error('Error calculating confirmed wait time:', error);
             return 0;
         }
-    }, [yourAppointment, currentTime, totalDelayMinutes]);
+    }, [yourAppointment, currentTime, totalDelayMinutes, clinicData, masterQueue, currentDoctor, appointmentDate, breakMinutes]);
 
 
     const BottomMessage = () => {

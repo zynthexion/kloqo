@@ -210,6 +210,13 @@ function WalkInRegistrationContent() {
         form.setValue('phone', phone);
         setPhoneNumber(phone);
         setPrimaryPatient(null);
+
+        // Default gender based on clinic preference
+        if (clinicDetails?.genderPreference === 'Men') {
+          form.setValue('sex', 'Male');
+        } else if (clinicDetails?.genderPreference === 'Women') {
+          form.setValue('sex', 'Female');
+        }
         return;
       }
 
@@ -275,11 +282,27 @@ function WalkInRegistrationContent() {
 
     setIsPhoneDisabled(!hasValidPhone);
 
+    const normalizeSex = (val: any): "Male" | "Female" | "Other" | "" => {
+      if (!val) {
+        if (clinicDetails?.genderPreference === 'Men') return 'Male';
+        if (clinicDetails?.genderPreference === 'Women') return 'Female';
+        return '';
+      }
+      const s = val.toString().toLowerCase();
+      if (s === 'male' || s === 'm') return 'Male';
+      if (s === 'female' || s === 'f') return 'Female';
+      if (s === 'other' || s === 'o') return 'Other';
+
+      if (clinicDetails?.genderPreference === 'Men') return 'Male';
+      if (clinicDetails?.genderPreference === 'Women') return 'Female';
+      return '';
+    };
+
     form.reset({
       patientName: patient.name ?? '',
       age: (patient.age as number | undefined) ?? undefined,
       place: patient.place ?? '',
-      sex: patient.sex ?? '',
+      sex: normalizeSex(patient.sex || (patient as any).gender),
       phone: hasValidPhone ? cleanedPhone : '',
       phoneDisabled: !hasValidPhone,
     });

@@ -98,6 +98,7 @@ type OperatingHoursFormValues = z.infer<typeof operatingHoursFormSchema>;
 const settingsFormSchema = z.object({
   walkInTokenAllotment: z.coerce.number().min(2, "Walk-in token allotment must be at least 2."),
   tokenDistribution: z.enum(['classic', 'advanced']),
+  genderPreference: z.enum(['None', 'Men', 'Women']),
 });
 type SettingsFormValues = z.infer<typeof settingsFormSchema>;
 
@@ -149,6 +150,7 @@ export default function ProfilePage() {
     defaultValues: {
       walkInTokenAllotment: 5,
       tokenDistribution: 'classic',
+      genderPreference: 'None',
     }
   });
 
@@ -196,6 +198,7 @@ export default function ProfilePage() {
               const settingsResetData = {
                 walkInTokenAllotment: clinicData.walkInTokenAllotment || 5,
                 tokenDistribution: clinicData.tokenDistribution || 'classic',
+                genderPreference: clinicData.genderPreference || 'None',
               };
               settingsForm.reset(settingsResetData);
 
@@ -250,11 +253,13 @@ export default function ProfilePage() {
         await updateDoc(clinicRef, {
           walkInTokenAllotment: values.walkInTokenAllotment,
           tokenDistribution: values.tokenDistribution,
+          genderPreference: values.genderPreference,
         });
         setClinicDetails((prev: any) => prev ? {
           ...prev,
           walkInTokenAllotment: values.walkInTokenAllotment,
           tokenDistribution: values.tokenDistribution,
+          genderPreference: values.genderPreference,
         } : null);
         toast({ title: "Settings Updated", description: "Clinic settings have been saved successfully." });
         setIsEditingSettings(false);
@@ -270,6 +275,7 @@ export default function ProfilePage() {
       settingsForm.reset({
         walkInTokenAllotment: clinicDetails.walkInTokenAllotment || 5,
         tokenDistribution: clinicDetails.tokenDistribution || 'classic',
+        genderPreference: clinicDetails.genderPreference || 'None',
       });
     }
     setIsEditingSettings(false);
@@ -866,13 +872,37 @@ export default function ProfilePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="classic">Classic Distribution (FIFO based on Arrival)</SelectItem>
-                            <SelectItem value="advanced">Kloqo Advanced (Optimized Flow)</SelectItem>
+                            <SelectItem value="classic">Kloqo Classic (Best for Walk-ins)</SelectItem>
+                            <SelectItem value="advanced">Kloqo Advanced (Strict Slot Timing)</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormDescription>
                           Classic: FIFO base on patient arrival. Advanced: Kloqo's prioritized scheduling algorithm.
                         </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={settingsForm.control}
+                    name="genderPreference"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Clinic Gender Preference <span className="text-destructive">*</span></FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value} disabled={!isEditingSettings || isPending}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select gender preference" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="None">No Preference</SelectItem>
+                            <SelectItem value="Men">Men Only</SelectItem>
+                            <SelectItem value="Women">Women Only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">Default gender selection in booking forms</p>
                         <FormMessage />
                       </FormItem>
                     )}

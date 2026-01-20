@@ -68,6 +68,7 @@ const signupSchema = z.object({
   longitude: z.coerce.number().min(-180, "Invalid longitude").max(180, "Invalid longitude"),
   walkInTokenAllotment: z.coerce.number().min(2, "Value must be at least 2.").max(10, "Value cannot exceed 10."),
   tokenDistribution: z.enum(['classic', 'advanced'], { required_error: "Please select a token distribution method." }),
+  genderPreference: z.enum(['None', 'Men', 'Women'], { required_error: "Please select a gender preference." }),
 
   // Step 2
   ownerName: z.string()
@@ -137,6 +138,7 @@ const defaultFormData: SignUpFormData = {
   longitude: 0,
   walkInTokenAllotment: 5,
   tokenDistribution: 'classic',
+  genderPreference: 'None',
 
   ownerName: "",
   designation: 'Doctor',

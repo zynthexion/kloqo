@@ -223,11 +223,34 @@ export function Step1ClinicProfile() {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="classic">Classic Distribution (FIFO based on Arrival)</SelectItem>
-                  <SelectItem value="advanced">Kloqo Advanced (Optimized Flow)</SelectItem>
+                  <SelectItem value="classic">Kloqo Classic (Best for Walk-ins)</SelectItem>
+                  <SelectItem value="advanced">Kloqo Advanced (Strict Slot Timing)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">Classic: Arrived patients are served in order of arrival. Advanced: Optimized scheduling for minimum wait time.</p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={control}
+          name="genderPreference"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Clinic Gender Preference <span className="text-destructive">*</span></FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select gender preference" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="None">No Preference</SelectItem>
+                  <SelectItem value="Men">Men Only</SelectItem>
+                  <SelectItem value="Women">Women Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Default gender selection in booking forms</p>
               <FormMessage />
             </FormItem>
           )}

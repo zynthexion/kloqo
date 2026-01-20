@@ -68,6 +68,7 @@ function PhoneBookingDetailsContent() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [doctor, setDoctor] = useState<Doctor | null>(null);
     const [clinicId, setClinicId] = useState<string | null>(null);
+    const [clinicDetails, setClinicDetails] = useState<any | null>(null);
 
     const [phoneNumber, setPhoneNumber] = useState('');
     const [isSearchingPatient, setIsSearchingPatient] = useState(false);
@@ -87,7 +88,7 @@ function PhoneBookingDetailsContent() {
         reValidateMode: 'onChange',
         defaultValues: {
             patientName: '',
-            age: 0,
+            age: undefined,
             phone: '',
             place: '',
             sex: undefined,
@@ -101,6 +102,19 @@ function PhoneBookingDetailsContent() {
             return;
         }
         setClinicId(id);
+
+        const fetchClinic = async () => {
+            try {
+                const clinicRef = doc(db, 'clinics', id);
+                const clinicSnap = await getDoc(clinicRef);
+                if (clinicSnap.exists()) {
+                    setClinicDetails(clinicSnap.id ? { id: clinicSnap.id, ...clinicSnap.data() } : clinicSnap.data());
+                }
+            } catch (error) {
+                console.error("Error fetching clinic:", error);
+            }
+        };
+        fetchClinic();
     }, [router]);
 
 
@@ -297,6 +311,13 @@ function PhoneBookingDetailsContent() {
                 setSearchedPatients([]);
                 setShowForm(true);
                 form.setValue('phone', phone);
+
+                // Default gender based on clinic preference
+                if (clinicDetails?.genderPreference === 'Men') {
+                    form.setValue('sex', 'Male');
+                } else if (clinicDetails?.genderPreference === 'Women') {
+                    form.setValue('sex', 'Female');
+                }
                 return;
             }
 
@@ -341,11 +362,27 @@ function PhoneBookingDetailsContent() {
     const selectPrimaryPatient = async (patient: Patient) => {
         setPrimaryPatient(patient);
         setSelectedPatient(patient);
+        const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
+            if (!val) {
+                if (clinicDetails?.genderPreference === 'Men') return 'Male';
+                if (clinicDetails?.genderPreference === 'Women') return 'Female';
+                return undefined;
+            }
+            const s = val.toString().toLowerCase();
+            if (s === 'male' || s === 'm') return 'Male';
+            if (s === 'female' || s === 'f') return 'Female';
+            if (s === 'other' || s === 'o') return 'Other';
+
+            // Fallback to clinic preference if normalized value is still unclear
+            if (clinicDetails?.genderPreference === 'Men') return 'Male';
+            if (clinicDetails?.genderPreference === 'Women') return 'Female';
+            return undefined;
+        };
         form.reset({
             patientName: patient.name || '',
-            age: patient.age ?? undefined,
+            age: patient.age === 0 ? undefined : (patient.age ?? undefined),
             place: patient.place || '',
-            sex: patient.sex || undefined,
+            sex: normalizeSex(patient.sex || (patient as any).gender),
             phone: patient.phone.replace('+91', ''),
         });
         setShowForm(true);
@@ -444,11 +481,26 @@ function PhoneBookingDetailsContent() {
 
     const handleSelectRelative = (relative: Patient) => {
         setSelectedPatient(relative);
+        const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
+            if (!val) {
+                if (clinicDetails?.genderPreference === 'Men') return 'Male';
+                if (clinicDetails?.genderPreference === 'Women') return 'Female';
+                return undefined;
+            }
+            const s = val.toString().toLowerCase();
+            if (s === 'male' || s === 'm') return 'Male';
+            if (s === 'female' || s === 'f') return 'Female';
+            if (s === 'other' || s === 'o') return 'Other';
+
+            if (clinicDetails?.genderPreference === 'Men') return 'Male';
+            if (clinicDetails?.genderPreference === 'Women') return 'Female';
+            return undefined;
+        };
         form.reset({
             patientName: relative.name || '',
-            age: relative.age ?? undefined,
+            age: relative.age === 0 ? undefined : (relative.age ?? undefined),
             place: relative.place || '',
-            sex: relative.sex || undefined,
+            sex: normalizeSex(relative.sex || (relative as any).gender),
             phone: (relative.phone || primaryPatient?.phone || '').replace('+91', ''),
         });
         setShowForm(true);

@@ -155,6 +155,7 @@ export type Clinic = {
     logoUrl?: string;
     clinicRegNumber?: string;
     tokenDistribution?: 'classic' | 'advanced';
+    genderPreference?: 'None' | 'Men' | 'Women';
     [key: string]: any;
 };
 

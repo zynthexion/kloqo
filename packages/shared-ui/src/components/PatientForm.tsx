@@ -107,6 +107,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
     const [isUnlinking, setIsUnlinking] = useState(false);
     const [primaryPatient, setPrimaryPatient] = useState<Patient | null>(null);
     const [relatedPatients, setRelatedPatients] = useState<Patient[]>([]);
+    const [clinicDetails, setClinicDetails] = useState<any | null>(null);
     const [walkInData, setWalkInData] = useState<any>(null); // To store data before confirmation
     const [hasRecalculated, setHasRecalculated] = useState(false); // Track if we've recalculated before confirmation
     const lastResetIdRef = useRef<string | null>(null);
@@ -115,6 +116,22 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
     const firestore = useFirestore();
     const { toast } = useToast();
     const { t } = useLanguage();
+
+    useEffect(() => {
+        const fetchClinicDetails = async () => {
+            if (!selectedDoctor?.clinicId || !firestore) return;
+            try {
+                const clinicRef = doc(firestore, 'clinics', selectedDoctor.clinicId);
+                const clinicSnap = await getDoc(clinicRef);
+                if (clinicSnap.exists()) {
+                    setClinicDetails({ id: clinicSnap.id, ...clinicSnap.data() });
+                }
+            } catch (error) {
+                console.error("Error fetching clinic details in PatientForm:", error);
+            }
+        };
+        fetchClinicDetails();
+    }, [selectedDoctor?.clinicId, firestore]);
 
     const resolveSlotDetails = useCallback(
         (targetSlotIndex: number, appointmentDate: Date) => {
@@ -130,7 +147,6 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
 
             const slotDuration = selectedDoctor.averageConsultingTime || 15;
             let globalSlotIndex = 0;
-
             for (let sessionIdx = 0; sessionIdx < availabilityForDay.timeSlots.length; sessionIdx++) {
                 const session = availabilityForDay.timeSlots[sessionIdx];
                 let currentTime = parse(session.from, 'hh:mm a', appointmentDate);
@@ -173,13 +189,30 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
     const formSchema = useMemo(() => createFormSchema(t), [t]);
     type FormData = z.infer<typeof formSchema>;
 
+    const normalizeSex = useCallback((val: any): "Male" | "Female" | "Other" | undefined => {
+        if (!val) {
+            if (clinicDetails?.genderPreference === 'Men') return 'Male';
+            if (clinicDetails?.genderPreference === 'Women') return 'Female';
+            return undefined;
+        }
+        const s = val.toString().toLowerCase();
+        if (s === 'male' || s === 'm') return 'Male';
+        if (s === 'female' || s === 'f') return 'Female';
+        if (s === 'other' || s === 'o') return 'Other';
+
+        // Fallback to clinic preference if normalized value is still unclear
+        if (clinicDetails?.genderPreference === 'Men') return 'Male';
+        if (clinicDetails?.genderPreference === 'Women') return 'Female';
+        return undefined;
+    }, [clinicDetails]);
+
     const form = useForm<FormData>({
         resolver: zodResolver(formSchema),
         mode: 'onBlur',
         defaultValues: {
             name: '',
             age: undefined,
-            sex: undefined,
+            sex: normalizeSex(undefined),
             place: '',
             phone: user?.phoneNumber || '',
             selectedPatient: ''
@@ -203,7 +236,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     selectedPatient: 'new',
                     name: '',
                     age: undefined,
-                    sex: undefined,
+                    sex: normalizeSex(undefined),
                     place: '',
                     phone: user.phoneNumber,
                 });
@@ -214,14 +247,6 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
 
                 // Auto-select primary patient if no selection exists
                 if (!form.getValues('selectedPatient')) {
-                    const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
-                        if (!val) return undefined;
-                        const s = val.toString().toLowerCase();
-                        if (s === 'male' || s === 'm') return 'Male';
-                        if (s === 'female' || s === 'f') return 'Female';
-                        if (s === 'other' || s === 'o') return 'Other';
-                        return undefined;
-                    };
                     form.reset({
                         selectedPatient: primaryData.id,
                         name: primaryData.name || '',
@@ -260,7 +285,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     selectedPatient: 'new',
                     name: '',
                     age: undefined,
-                    sex: undefined,
+                    sex: normalizeSex(undefined),
                     place: '',
                     phone: user.phoneNumber,
                 });
@@ -273,14 +298,6 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
             setRelatedPatients(Array.isArray(relatives) ? relatives : []);
 
             if (!form.getValues('selectedPatient')) {
-                const normalizeSex = (val: any): "Male" | "Female" | "Other" | undefined => {
-                    if (!val) return undefined;
-                    const s = val.toString().toLowerCase();
-                    if (s === 'male' || s === 'm') return 'Male';
-                    if (s === 'female' || s === 'f') return 'Female';
-                    if (s === 'other' || s === 'o') return 'Other';
-                    return undefined;
-                };
                 form.reset({
                     selectedPatient: primaryData.id,
                     name: primaryData.name || '',
@@ -298,7 +315,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
         } finally {
             setIsLoading(false);
         }
-    }, [user?.phoneNumber, form, t, toast]);
+    }, [user?.phoneNumber, form, t, toast, normalizeSex]);
 
     // Start fetching patient data immediately when component mounts or user changes
     // Don't wait for doctor - patient data is independent
@@ -321,7 +338,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 selectedPatient: 'new',
                 name: '',
                 age: undefined,
-                sex: undefined,
+                sex: normalizeSex(undefined),
                 place: '',
                 phone: primaryPatient ? '' : user?.phoneNumber || '', // If adding relative, clear phone. If new primary, use their phone.
             }, {
@@ -1171,7 +1188,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
             selectedPatient: 'new',
             name: '',
             age: undefined,
-            sex: undefined,
+            sex: normalizeSex(undefined),
             place: '',
             phone: primaryPatient ? '' : user?.phoneNumber || '', // If adding relative, clear phone. If new primary, use their phone.
         }, {

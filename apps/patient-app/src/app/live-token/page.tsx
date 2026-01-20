@@ -102,9 +102,9 @@ function LiveTokenEntryPage() {
                             />
                         </div>
                         <h2 className="text-xl font-bold">{t.liveToken.noAppointments}</h2>
-                        <p className="text-muted-foreground">{t.liveToken.noAppointmentsDescription}</p>
-                        <Button asChild>
-                            <Link href="/appointments">{t.appointments.myAppointments}</Link>
+                        <p className="text-muted-foreground mb-6">{t.liveToken.noAppointmentsDescription}</p>
+                        <Button asChild className="w-full">
+                            <Link href="/clinics">{t.appointments.bookNew}</Link>
                         </Button>
                     </CardContent>
                 </Card>

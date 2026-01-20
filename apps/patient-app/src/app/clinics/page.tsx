@@ -33,15 +33,49 @@ function ClinicSkeleton() {
     );
 }
 
+import { calculateDistance } from '@/lib/utils';
+
 function ClinicCard({ clinic, doctors, t }: { clinic: Clinic; doctors: Doctor[]; t: any }) {
     const router = useRouter();
-    
+
     const clinicDoctors = doctors.filter(doctor => doctor.clinicId === clinic.id);
-    
+
+    const handleClick = () => {
+        if (clinic.latitude && clinic.longitude && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    const distance = calculateDistance(
+                        latitude,
+                        longitude,
+                        clinic.latitude!,
+                        clinic.longitude!
+                    );
+
+                    // If within 150m, redirect to consult-today (walk-in flow)
+                    if (distance <= 150) {
+                        router.push(`/consult-today?clinicId=${clinic.id}`);
+                    } else {
+                        router.push(`/clinics/${clinic.id}`);
+                    }
+                },
+                (error) => {
+                    console.error('Geolocation error:', error);
+                    // Fallback to normal flow if geolocation fails
+                    router.push(`/clinics/${clinic.id}`);
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        } else {
+            // Normal flow if no coordinates or no geolocation support
+            router.push(`/clinics/${clinic.id}`);
+        }
+    };
+
     return (
-        <Card 
+        <Card
             className="mb-4 cursor-pointer hover:shadow-lg transition-shadow"
-            onClick={() => router.push(`/clinics/${clinic.id}`)}
+            onClick={handleClick}
         >
             <CardContent className="p-6">
                 <div className="flex gap-4">
@@ -60,14 +94,14 @@ function ClinicCard({ clinic, doctors, t }: { clinic: Clinic; doctors: Doctor[];
                             <h3 className="text-lg font-bold">{clinic.name}</h3>
                             <p className="text-sm text-muted-foreground">{clinic.type}</p>
                         </div>
-                        
+
                         {clinic.address && (
                             <div className="flex items-start gap-2 text-sm text-muted-foreground">
                                 <MapPin className="w-4 h-4 mt-0.5" />
                                 <span>{clinic.address}</span>
                             </div>
                         )}
-                        
+
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                             <div className="flex items-center gap-1">
                                 <Building2 className="w-4 h-4" />
@@ -126,9 +160,9 @@ function ClinicsPage() {
     // Filter clinics based on search query
     const filteredClinics = useMemo(() => {
         if (!searchQuery) return clinics;
-        
+
         const query = searchQuery.toLowerCase();
-        return clinics.filter(clinic => 
+        return clinics.filter(clinic =>
             clinic.name.toLowerCase().includes(query) ||
             clinic.type?.toLowerCase().includes(query) ||
             clinic.address?.toLowerCase().includes(query)
@@ -146,9 +180,9 @@ function ClinicsPage() {
         <div className="flex min-h-screen w-full flex-col bg-background font-body">
             <div className="sticky top-0 bg-background border-b z-10">
                 <div className="flex items-center p-4">
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
+                    <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-8 w-8"
                         onClick={() => router.back()}
                     >
@@ -158,7 +192,7 @@ function ClinicsPage() {
                     <h1 className="text-xl font-bold text-center flex-grow ml-4">{t.clinics.allClinics}</h1>
                     <div className="w-8"></div>
                 </div>
-                
+
                 <div className="px-4 pb-4">
                     <div className="relative">
                         <input

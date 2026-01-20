@@ -118,6 +118,7 @@ function PhoneBookingDetailsContent() {
     }, [router]);
 
 
+
     useEffect(() => {
         const fetchDoctor = async () => {
             if (!clinicId || !doctorId) return;
@@ -333,7 +334,7 @@ function PhoneBookingDetailsContent() {
         } finally {
             setIsSearchingPatient(false);
         }
-    }, [clinicId, toast, form]);
+    }, [clinicId, toast, form, clinicDetails]);
 
     useEffect(() => {
         const debounceTimer = setTimeout(() => {
@@ -695,7 +696,16 @@ function PhoneBookingDetailsContent() {
                         )}
                         {phoneNumber.length === 10 && searchedPatients.length === 0 && !showForm && !isSearchingPatient && (
                             <p className="text-sm text-center text-muted-foreground py-2">
-                                No patient found. <Button variant="link" className="px-1" onClick={() => { setShowForm(true); form.setValue('phone', phoneNumber) }}>Add manually</Button>.
+                                No patient found. <Button variant="link" className="px-1" onClick={() => {
+                                    setShowForm(true);
+                                    form.setValue('phone', phoneNumber);
+                                    // Default gender based on clinic preference
+                                    if (clinicDetails?.genderPreference === 'Men') {
+                                        form.setValue('sex', 'Male');
+                                    } else if (clinicDetails?.genderPreference === 'Women') {
+                                        form.setValue('sex', 'Female');
+                                    }
+                                }}>Add manually</Button>.
                             </p>
                         )}
                     </div>
@@ -797,7 +807,7 @@ function PhoneBookingDetailsContent() {
                                         render={({ field }) => (
                                             <FormItem>
                                                 <FormLabel>Sex</FormLabel>
-                                                <Select onValueChange={field.onChange} value={field.value ?? undefined}>
+                                                <Select onValueChange={field.onChange} value={field.value || ''}>
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder="Select gender" />
@@ -883,6 +893,7 @@ function PhoneBookingDetailsContent() {
                     primaryPatientPhone={phoneNumber}
                     clinicId={clinicId}
                     onRelativeAdded={handleNewRelativeAdded}
+                    genderPreference={clinicDetails?.genderPreference}
                 />
             )}
         </AppFrameLayout>

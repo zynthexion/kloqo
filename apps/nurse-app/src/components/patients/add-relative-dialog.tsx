@@ -67,6 +67,7 @@ type AddRelativeDialogProps = {
   primaryPatientPhone: string;
   clinicId: string | null;
   onRelativeAdded: (newRelative: Patient) => void;
+  genderPreference?: 'Men' | 'Women' | 'None';
 };
 
 export function AddRelativeDialog({
@@ -75,6 +76,7 @@ export function AddRelativeDialog({
   primaryPatientPhone,
   onRelativeAdded,
   clinicId,
+  genderPreference,
 }: AddRelativeDialogProps) {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
@@ -86,7 +88,7 @@ export function AddRelativeDialog({
     defaultValues: {
       name: "",
       age: undefined,
-      sex: undefined,
+      sex: genderPreference === 'Men' ? 'Male' : (genderPreference === 'Women' ? 'Female' : undefined),
       phone: "",
       place: "",
     },

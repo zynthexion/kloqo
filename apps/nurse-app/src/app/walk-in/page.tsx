@@ -246,7 +246,7 @@ function WalkInRegistrationContent() {
     } finally {
       setIsSearchingPatient(false);
     }
-  }, [clinicId, toast, form]);
+  }, [clinicId, toast, form, clinicDetails]);
 
 
   useEffect(() => {
@@ -1341,6 +1341,7 @@ function WalkInRegistrationContent() {
             primaryPatientPhone={primaryPatient.phone?.replace('+91', '') || ''}
             clinicId={clinicId}
             onRelativeAdded={onRelativeAdded}
+            genderPreference={clinicDetails?.genderPreference}
           />
         )}
 

@@ -244,6 +244,18 @@ export default function ProfilePage() {
     }
   }, [clinicDetails, clinicForm]);
 
+  // Separate effect to handle settings form reset when clinicDetails changes
+  useEffect(() => {
+    if (clinicDetails && settingsForm) {
+      const settingsResetData = {
+        walkInTokenAllotment: clinicDetails.walkInTokenAllotment || 5,
+        tokenDistribution: clinicDetails.tokenDistribution || 'classic',
+        genderPreference: clinicDetails.genderPreference || 'None',
+      };
+      settingsForm.reset(settingsResetData);
+    }
+  }, [clinicDetails, settingsForm]);
+
   const onSettingsSubmit = async (values: SettingsFormValues) => {
     if (!userProfile?.clinicId) return;
 

@@ -391,6 +391,7 @@ export default function SignupPage() {
       longitude: formData.longitude,
       walkInTokenAllotment: formData.walkInTokenAllotment,
       tokenDistribution: formData.tokenDistribution,
+      genderPreference: formData.genderPreference,
       numDoctors: formData.numDoctors,
       currentDoctorCount: 0,
       clinicRegNumber: formData.clinicRegNumber,

@@ -137,7 +137,7 @@ function LoginContent() {
         if (!userLoading && user && user.patientId) {
             // Only use explicit redirect query param, always default to /home
             // Ignore localStorage redirectAfterLogin to prevent redirecting to generic pages like /profile
-            const redirectUrl = searchParams.get('redirect') || '/home';
+            const redirectUrl = searchParams.get('redirect') || '/live-token';
 
             // Clean up redirectAfterLogin if it exists (clear stale values)
             if (localStorage.getItem('redirectAfterLogin')) {
@@ -369,7 +369,7 @@ function LoginContent() {
             // Force page reload to ensure user state is updated
             // Only use explicit redirect query param, always default to /home
             // Ignore localStorage redirectAfterLogin to prevent redirecting to generic pages like /profile
-            const redirectUrl = searchParams.get('redirect') || '/home';
+            const redirectUrl = searchParams.get('redirect') || '/live-token';
 
             // Clean up redirectAfterLogin if it exists (clear stale values)
             if (localStorage.getItem('redirectAfterLogin')) {

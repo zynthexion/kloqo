@@ -521,7 +521,7 @@ export default function ClinicDashboard() {
   }, [appointments, searchTerm]);
 
   const pendingAppointments = useMemo(() => {
-    const pending = filteredAppointments.filter(a => (a.status === 'Pending' || a.status === 'Confirmed'));
+    const pending = filteredAppointments.filter(a => (a.status === 'Pending' || a.status === 'Confirmed' || a.status === 'Skipped'));
 
     // Sort by unified logic
     return pending.sort(clinicDetails?.tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);

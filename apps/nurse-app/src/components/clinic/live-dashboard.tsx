@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { parseTime } from '@/lib/utils';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession } from '@kloqo/shared-core';
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -445,26 +445,9 @@ export default function LiveDashboard() {
         return;
       }
 
-      // Get current session index based on time
-      const dayOfWeek = format(new Date(), 'EEEE');
-      const availabilityForDay = currentDoctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-      let sessionIndex = 0;
-
-      if (availabilityForDay?.timeSlots) {
-        const now = new Date();
-        for (let i = 0; i < availabilityForDay.timeSlots.length; i++) {
-          const slot = availabilityForDay.timeSlots[i];
-          const start = parseTime(slot.from, now);
-          const end = parseTime(slot.to, now);
-          // If we are within the session or it's upcoming, use it
-          if (now <= end) {
-            sessionIndex = i;
-            break;
-          }
-          // If it's the last session, use it anyway if we are past it
-          sessionIndex = i;
-        }
-      }
+      // Get current/next session using shared utility
+      const sessionInfo = getCurrentActiveSession(currentDoctor, new Date(), new Date());
+      const sessionIndex = sessionInfo?.sessionIndex ?? 0;
 
       try {
         const queueState = await computeQueues(
@@ -507,30 +490,8 @@ export default function LiveDashboard() {
   const nextSessionIndex = useMemo(() => {
     if (!currentDoctor?.availabilitySlots) return undefined;
 
-    const now = currentTime;
-    const todayDay = format(now, 'EEEE');
-    const todayAvailability = currentDoctor.availabilitySlots.find(slot => slot.day === todayDay);
-
-    if (!todayAvailability?.timeSlots) return undefined;
-
-    // Find the next session (first session that hasn't ended yet)
-    for (let i = 0; i < todayAvailability.timeSlots.length; i++) {
-      const session = todayAvailability.timeSlots[i];
-      try {
-        const sessionStart = parseTime(session.from, now);
-        const sessionEnd = parseTime(session.to, now);
-
-        // If current time is before session end, this is the next session
-        if (isBefore(now, sessionEnd) || now.getTime() === sessionEnd.getTime()) {
-          return i;
-        }
-      } catch {
-        // Skip if parsing fails
-        continue;
-      }
-    }
-
-    return undefined;
+    const sessionInfo = getCurrentActiveSession(currentDoctor, currentTime, currentTime);
+    return sessionInfo?.sessionIndex;
   }, [currentDoctor, currentTime]);
 
   const pendingAppointments = useMemo(() => {

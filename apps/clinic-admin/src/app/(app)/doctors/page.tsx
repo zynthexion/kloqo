@@ -876,7 +876,7 @@ export default function DoctorsPage() {
 
       // Get available slots (current + upcoming sessions)
       // Pass the session we found/created so it works even when no active session exists
-      const slots = getAvailableBreakSlots(selectedDoctor, now, leaveCalDate, session, appointments);
+      const slots = getAvailableBreakSlots(selectedDoctor, now, leaveCalDate, session, appointments, selectedDoctor.consultationStatus as 'In' | 'Out');
       setAvailableSlots(slots);
     } else {
       setCurrentSession(null);
@@ -1365,7 +1365,7 @@ export default function DoctorsPage() {
       if (recalculatedSession) {
         setCurrentSession(recalculatedSession);
         setExistingBreaks(getSessionBreaks(updatedDoctor, leaveCalDate, recalculatedSession.sessionIndex));
-        setAvailableSlots(getAvailableBreakSlots(updatedDoctor, now, leaveCalDate, recalculatedSession, appointments));
+        setAvailableSlots(getAvailableBreakSlots(updatedDoctor, now, leaveCalDate, recalculatedSession, appointments, updatedDoctor.consultationStatus as 'In' | 'Out'));
       }
 
       setBreakStartSlot(null);

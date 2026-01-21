@@ -242,11 +242,16 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
             const now = new Date();
 
+            const isDoctorWorking = currentDoctor?.consultationStatus === 'In';
+
             for (const bp of breaks) {
                 const end = parseISO(bp.endTime);
                 const start = parseISO(bp.startTime);
                 // Check if current time is WITHIN the break period (after start AND before end)
                 if (isAfter(now, start) && isBefore(now, end)) {
+                    // Sync Break Cancellation: If doctor is 'Working', ignore active break
+                    if (isDoctorWorking) return 0;
+
                     // Skip if the appointment was scheduled before this break started
                     if (isBefore(appointmentDateTime, start)) {
                         continue;
@@ -826,16 +831,17 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     for (const brk of relevantBreaks) {
                         if (remainingConsultationMinutes <= 0) break;
 
-                        // Calculate available time until this break starts
-                        // If simulationTime is already past start (e.g. inside break), this might be negative, 
-                        // but logic below handles jump if we are 'at' start.
-                        // However, if we simulated hopping current break in step 1, we should be at brk.end.
+                        // Sync Break Cancellation: If doctor is 'In' during an ACTIVE break, don't hop it
+                        const nowTime = currentTime.getTime();
+                        const isThisBreakActive = nowTime >= brk.start.getTime() && nowTime < brk.end.getTime();
+                        if (isDoctorIn && isThisBreakActive) {
+                            continue;
+                        }
 
                         let timeUntilBreak = differenceInMinutes(brk.start, simulationTime);
 
                         if (timeUntilBreak < 0) {
-                            // We are inside this break (and didn't hop it yet? Unlikely if step 1 worked for current break)
-                            // Or this is a overlapping break scenario. Just hop it.
+                            // We are inside this break (and it's not the active one or doctor isn't 'In')
                             const remainingBreak = differenceInMinutes(brk.end, simulationTime);
                             simulationTime = addMinutes(simulationTime, Math.max(0, remainingBreak));
                             continue;

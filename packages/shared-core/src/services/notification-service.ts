@@ -733,8 +733,11 @@ export async function notifyNextPatientsWhenCompleted(params: {
         );
         const doctorsSnapshot = await getDocs(doctorsQuery);
         let averageConsultingTime = 15;
+        let doctorStatus: 'In' | 'Out' = 'Out';
         if (!doctorsSnapshot.empty) {
-            averageConsultingTime = doctorsSnapshot.docs[0].data()?.averageConsultingTime || 15;
+            const doctorData = doctorsSnapshot.docs[0].data();
+            averageConsultingTime = doctorData?.averageConsultingTime || 15;
+            doctorStatus = doctorData?.consultationStatus || 'Out';
         }
 
         const { compareAppointments, compareAppointmentsClassic } = await import('./appointment-service');
@@ -773,17 +776,32 @@ export async function notifyNextPatientsWhenCompleted(params: {
             if (patientSlotIndex !== -1) {
                 // Sum up durations of dummy break appointments that appear before this patient 
                 // but after the completed one
-                const breaksBeforePatient = breaks.filter(b =>
-                    typeof b.slotIndex === 'number' &&
-                    b.slotIndex > completedSlotIndex &&
-                    b.slotIndex < patientSlotIndex
-                );
+                const now = getClinicNow();
+                const breaksBeforePatient = breaks.filter(b => {
+                    if (typeof b.slotIndex !== 'number') return false;
+                    const indexMatch = b.slotIndex > completedSlotIndex && b.slotIndex < patientSlotIndex;
+                    if (!indexMatch) return false;
 
-                // Each dummy appointment usually represents one slot (e.g., 15 mins)
-                // We'll assume a standard 15 min or we can try to find session avgConsultingTime if needed.
-                // For now, let's use a safe assumption or try to infer from data if available.
-                // Actually, the most accurate way is to sum up the slots.
-                breakDuration = breaksBeforePatient.length * 15; // Assuming 15 mins per slot
+                    // Sync Break Cancellation: If doctor is 'In', ignore active breaks
+                    if (doctorStatus === 'In') {
+                        try {
+                            const appointmentDateObj = parse(b.date, 'd MMMM yyyy', new Date());
+                            const breakTime = parseTime(b.time, appointmentDateObj);
+                            const breakEndTime = addMinutes(breakTime, averageConsultingTime);
+
+                            // If currently within THIS break slot, ignore it if doctor is 'In'
+                            if (now >= breakTime && now < breakEndTime) {
+                                return false;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing break time for notification filter:', e);
+                        }
+                    }
+                    return true;
+                });
+
+                // Calculate duration based on remaining valid dummy appointments
+                breakDuration = breaksBeforePatient.length * averageConsultingTime;
             }
 
             try {

@@ -433,7 +433,8 @@ export function getAvailableBreakSlots(
   now: Date,
   referenceDate: Date,
   currentSessionOverride?: SessionInfo | null,
-  appointments?: Appointment[]
+  appointments?: Appointment[],
+  doctorStatus: 'In' | 'Out' = 'Out'
 ): {
   currentSessionSlots: SlotInfo[];
   upcomingSessionSlots: Map<number, SlotInfo[]>;
@@ -484,7 +485,33 @@ export function getAvailableBreakSlots(
           (apt.date === referenceDateStr) &&
           apt.time === getClinicTimeString(currentTime)
         );
-        if (appointmentAtSlot) isBlocked = true;
+
+        if (appointmentAtSlot) {
+          // If doctor is 'In', we ignore blocked dummy appointments for the ACTIVE break only
+          const isDummy = appointmentAtSlot.patientId === 'dummy-break-patient' || (appointmentAtSlot as any).cancelledByBreak;
+
+          if (isDummy && doctorStatus === 'In') {
+            // Find if this slot falls within an active break period
+            const breakForSlot = doctor?.breakPeriods?.[referenceDateStr]?.find(bp => {
+              const start = new Date(bp.startTime);
+              const end = new Date(bp.endTime);
+              return currentTime.getTime() >= start.getTime() && currentTime.getTime() < end.getTime();
+            });
+
+            // Is THIS specific break active right now?
+            const isBreakCurrentlyActive = breakForSlot &&
+              now.getTime() >= new Date(breakForSlot.startTime).getTime() &&
+              now.getTime() < new Date(breakForSlot.endTime).getTime();
+
+            if (isBreakCurrentlyActive) {
+              isBlocked = false;
+            } else {
+              isBlocked = true;
+            }
+          } else {
+            isBlocked = true;
+          }
+        }
       }
 
       result.currentSessionSlots.push({
@@ -528,7 +555,29 @@ export function getAvailableBreakSlots(
             (apt.date === referenceDateStr) &&
             apt.time === getClinicTimeString(slotTime)
           );
-          if (appointmentAtSlot) isBlocked = true;
+
+          if (appointmentAtSlot) {
+            const isDummy = appointmentAtSlot.patientId === 'dummy-break-patient' || (appointmentAtSlot as any).cancelledByBreak;
+            if (isDummy && doctorStatus === 'In') {
+              const breakForSlot = doctor?.breakPeriods?.[referenceDateStr]?.find(bp => {
+                const start = new Date(bp.startTime);
+                const end = new Date(bp.endTime);
+                return slotTime.getTime() >= start.getTime() && slotTime.getTime() < end.getTime();
+              });
+
+              const isBreakCurrentlyActive = breakForSlot &&
+                now.getTime() >= new Date(breakForSlot.startTime).getTime() &&
+                now.getTime() < new Date(breakForSlot.endTime).getTime();
+
+              if (isBreakCurrentlyActive) {
+                isBlocked = false;
+              } else {
+                isBlocked = true;
+              }
+            } else {
+              isBlocked = true;
+            }
+          }
         }
 
         sessionSlots.push({

@@ -190,7 +190,7 @@ function ScheduleBreakContent() {
             console.log('[ScheduleBreak] Breaks for day (filtered):', allBreaks);
             setExistingBreaks(allBreaks);
 
-            const slots = getAvailableBreakSlots(doctor, now, selectedDate, session, appointments);
+            const slots = getAvailableBreakSlots(doctor, now, selectedDate, session, appointments, doctor.consultationStatus as 'In' | 'Out');
             setAvailableSlots(slots);
         } else {
             console.log('[ScheduleBreak] No session detected');

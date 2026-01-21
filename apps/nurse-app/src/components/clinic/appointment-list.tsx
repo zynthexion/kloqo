@@ -313,6 +313,17 @@ function AppointmentList({
                   // RENDER BREAK
                   if (item.type === 'break') {
                     const brk = item.data;
+
+                    // Sync Break Cancellation: If doctor is 'In' during an ACTIVE break, hide it
+                    const now = currentTime.getTime();
+                    const breakStart = new Date(brk.startTime).getTime();
+                    const breakEnd = new Date(brk.endTime).getTime();
+                    const isBreakActive = now >= breakStart && now < breakEnd;
+
+                    if (clinicStatus === 'In' && isBreakActive) {
+                      return null;
+                    }
+
                     const startLabel = format(new Date(brk.startTime), 'h:mm a');
                     const endLabel = format(new Date(brk.endTime), 'h:mm a');
                     return (

@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, setDoc, updateDoc, increment, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@kloqo/shared-firebase';
-import { parse, format } from 'date-fns';
+import { parse, format, addMinutes } from 'date-fns';
 import type { Appointment } from '@kloqo/shared-types';
 import { parseTime } from '../utils/break-helpers';
 import { compareAppointments, compareAppointmentsClassic } from './appointment-service';
@@ -147,36 +147,46 @@ export async function computeQueues(
     // Current Consultation: First appointment in Buffer Queue (if any)
     const currentConsultation = bufferQueue.length > 0 ? bufferQueue[0] : null;
 
-    // Next Break Duration: Calculate duration of the first block of dummy break appointments 
-    // that appear in this session AND are currently active (current time is within break period)
-    // IMPORTANT: If doctor status is 'In', break is considered over regardless of scheduled time
+    // Next Break Duration: Calculate duration of the active break block (if any)
+    // that appears in this session AND is currently active (current time is within break period)
+    // IMPORTANT: If doctor status is 'In', active break is ignored
     const breakAppointments = relevantAppointments
         .filter(apt => apt.status === 'Completed' && apt.patientId === 'dummy-break-patient')
         .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
 
     let nextBreakDuration: number | null = null;
 
-    // If doctor is 'In', they're actively consulting, so no break should be shown
     if (doctorConsultationStatus !== 'In' && breakAppointments.length > 0) {
-        // Check if we're currently within the break period
         const now = new Date();
-        const firstBreak = breakAppointments[0];
-        const lastBreak = breakAppointments[breakAppointments.length - 1];
+        const slotDuration = 15; // Standard dummy slot duration
 
-        try {
-            const breakStartTime = parseAppointmentTime(firstBreak);
-            const breakEndTime = parseAppointmentTime(lastBreak);
-            // Add slot duration (5 mins) to get actual end time
-            breakEndTime.setMinutes(breakEndTime.getMinutes() + 5);
+        // Group break appointments into contiguous blocks
+        const blocks: Array<{ start: Date; end: Date }> = [];
+        let currentBlock: { start: Date; end: Date } | null = null;
+        let lastSlotIndex: number | null = null;
 
-            // Only show break duration if current time is within the break period
-            if (now >= breakStartTime && now < breakEndTime) {
-                // Calculate remaining minutes until break ends
-                const remainingMinutes = Math.ceil((breakEndTime.getTime() - now.getTime()) / (1000 * 60));
-                nextBreakDuration = Math.max(0, remainingMinutes);
+        for (const apt of breakAppointments) {
+            try {
+                const aptStart = parseAppointmentTime(apt);
+                const aptEnd = addMinutes(aptStart, slotDuration);
+
+                if (currentBlock && typeof apt.slotIndex === 'number' && lastSlotIndex !== null && apt.slotIndex === lastSlotIndex + 1) {
+                    currentBlock.end = aptEnd;
+                } else {
+                    currentBlock = { start: aptStart, end: aptEnd };
+                    blocks.push(currentBlock);
+                }
+                lastSlotIndex = apt.slotIndex ?? null;
+            } catch (e) {
+                console.error('Error parsing break appointment time:', e);
             }
-        } catch (error) {
-            console.error('Error calculating break duration:', error);
+        }
+
+        // Find the active block
+        const activeBlock = blocks.find(b => now >= b.start && now < b.end);
+        if (activeBlock) {
+            const remainingMinutes = Math.ceil((activeBlock.end.getTime() - now.getTime()) / (1000 * 60));
+            nextBreakDuration = Math.max(0, remainingMinutes);
         }
     }
 

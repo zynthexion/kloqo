@@ -64,6 +64,12 @@ export function calculateEstimatedTimes(
                 const breakStart = parseClinicTime(breakPeriod.startTimeFormatted, currentTime);
                 const breakEnd = parseClinicTime(breakPeriod.endTimeFormatted, currentTime);
 
+                // Sync Break Cancellation: If doctor is 'In' during an active break, skip the jump
+                const isActiveBreak = currentTime.getTime() >= breakStart.getTime() && currentTime.getTime() < breakEnd.getTime();
+                if (doctor.consultationStatus === 'In' && isActiveBreak) {
+                    continue;
+                }
+
                 // If runningTime is within [breakStart, breakEnd)
                 if (
                     (runningTime.getTime() >= breakStart.getTime() && runningTime.getTime() < breakEnd.getTime()) ||

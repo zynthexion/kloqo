@@ -31,17 +31,12 @@ export function calculateEstimatedTimes(
     if (doctor.consultationStatus === 'In') {
         referenceTime = new Date(currentTime);
     } else {
-        // Doctor is "Out", use the start of the earliest availability session for today
-        if (availabilityForDay && availabilityForDay.timeSlots.length > 0) {
-            // Sort time slots to find the earliest
-            const sortedSlots = [...availabilityForDay.timeSlots].sort((a, b) => {
-                const timeA = parseClinicTime(a.from, currentTime).getTime();
-                const timeB = parseClinicTime(b.from, currentTime).getTime();
-                return timeA - timeB;
-            });
-            referenceTime = parseClinicTime(sortedSlots[0].from, currentTime);
+        // Doctor is "Out", use the start of the current/upcoming session
+        const sessionInfo = getCurrentActiveSession(doctor, currentTime, currentTime);
+        if (sessionInfo) {
+            referenceTime = sessionInfo.sessionStart;
         } else {
-            // Fallback if no availability found (should not happen in practice)
+            // Fallback if no active/upcoming session found
             referenceTime = new Date(currentTime);
         }
     }

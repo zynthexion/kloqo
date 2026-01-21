@@ -177,8 +177,17 @@ function ScheduleBreakContent() {
 
             // Fetch ALL breaks for the selected date to show in UI
             const dateKey = format(selectedDate, 'd MMMM yyyy');
-            const allBreaks = doctor.breakPeriods?.[dateKey] || [];
-            console.log('[ScheduleBreak] All breaks for day:', allBreaks);
+            let allBreaks = doctor.breakPeriods?.[dateKey] || [];
+
+            // Filter out past breaks if today
+            if (isToday(selectedDate)) {
+                allBreaks = allBreaks.filter((bp: BreakPeriod) => {
+                    const breakEnd = bp.endTime ? parseISO(bp.endTime) : null;
+                    return breakEnd ? isAfter(breakEnd, now) : true;
+                });
+            }
+
+            console.log('[ScheduleBreak] Breaks for day (filtered):', allBreaks);
             setExistingBreaks(allBreaks);
 
             const slots = getAvailableBreakSlots(doctor, now, selectedDate, session, appointments);
@@ -1304,15 +1313,17 @@ function ScheduleBreakContent() {
                                                                 "h-auto py-3 flex-col gap-0.5",
                                                                 isSelected && 'bg-destructive/80 hover:bg-destructive text-white',
                                                                 slot.isTaken && 'bg-red-200 text-red-800 border-red-300 cursor-not-allowed',
-                                                                !isSelected && !slot.isTaken && 'hover:bg-accent'
+                                                                slot.isBlocked && !isSelected && 'bg-amber-100 text-amber-800 border-amber-200 cursor-not-allowed',
+                                                                !isSelected && !slot.isTaken && !slot.isBlocked && 'hover:bg-accent'
                                                             )}
                                                             onClick={() => handleSlotClick(slot)}
-                                                            disabled={slot.isTaken}
+                                                            disabled={slot.isTaken || slot.isBlocked}
                                                         >
                                                             <span className="font-semibold text-xs">{slot.timeFormatted}</span>
                                                             <span className="text-[10px] opacity-70">to</span>
                                                             <span className="font-semibold text-xs">{format(addMinutes(slot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}</span>
                                                             {slot.isTaken && <span className="text-xs mt-1">Break</span>}
+                                                            {slot.isBlocked && !slot.isTaken && <span className="text-xs mt-1">Blocked</span>}
                                                         </Button>
                                                     );
                                                 })}

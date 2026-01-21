@@ -30,6 +30,7 @@ export interface SlotInfo {
   isoString: string;
   isAvailable: boolean;
   isTaken: boolean;
+  isBlocked?: boolean; // True if slot is blocked by an appointment but not in a breakPeriod
   sessionIndex: number;
 }
 
@@ -475,6 +476,7 @@ export function getAvailableBreakSlots(
       const isoString = currentTime.toISOString();
       let isTaken = takenSlots.has(isoString);
 
+      let isBlocked = false;
       if (!isTaken && appointments) {
         const referenceDateStr = getClinicDateString(referenceDate);
         const appointmentAtSlot = appointments.find(apt =>
@@ -482,15 +484,16 @@ export function getAvailableBreakSlots(
           (apt.date === referenceDateStr) &&
           apt.time === getClinicTimeString(currentTime)
         );
-        if (appointmentAtSlot) isTaken = true;
+        if (appointmentAtSlot) isBlocked = true;
       }
 
       result.currentSessionSlots.push({
         time: new Date(currentTime),
         timeFormatted: getClinicTimeString(currentTime),
         isoString,
-        isAvailable: !isTaken,
+        isAvailable: !isTaken && !isBlocked,
         isTaken,
+        isBlocked,
         sessionIndex: currentSession.sessionIndex
       });
     }
@@ -516,6 +519,7 @@ export function getAvailableBreakSlots(
         const isoString = slotTime.toISOString();
         let isTaken = takenSlotsForSession.has(isoString);
 
+        let isBlocked = false;
         // Also check against appointments if provided
         if (!isTaken && appointments) {
           const referenceDateStr = getClinicDateString(referenceDate);
@@ -524,15 +528,16 @@ export function getAvailableBreakSlots(
             (apt.date === referenceDateStr) &&
             apt.time === getClinicTimeString(slotTime)
           );
-          if (appointmentAtSlot) isTaken = true;
+          if (appointmentAtSlot) isBlocked = true;
         }
 
         sessionSlots.push({
           time: new Date(slotTime),
           timeFormatted: getClinicTimeString(slotTime),
           isoString,
-          isAvailable: !isTaken,
+          isAvailable: !isTaken && !isBlocked,
           isTaken,
+          isBlocked,
           sessionIndex: i
         });
       }

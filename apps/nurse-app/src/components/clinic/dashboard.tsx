@@ -520,12 +520,43 @@ export default function ClinicDashboard() {
     return filtered.filter(a => !((a.status === 'Completed' || a.status === 'Cancelled') && a.cancelledByBreak !== undefined));
   }, [appointments, searchTerm]);
 
+  // Helper to check if an appointment's session has ended
+  const isSessionEnded = useCallback((appointment: Appointment): boolean => {
+    if (appointment.sessionIndex === undefined) return false;
+
+    const doctor = doctors.find(d => d.name === appointment.doctor);
+    if (!doctor?.availabilitySlots) return false;
+
+    try {
+      const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+      const dayOfWeek = format(appointmentDate, 'EEEE');
+      const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
+
+      if (!availabilityForDay?.timeSlots?.[appointment.sessionIndex]) return false;
+
+      const sessionSlot = availabilityForDay.timeSlots[appointment.sessionIndex];
+      const sessionEnd = parseTime(sessionSlot.to, appointmentDate);
+
+      return currentTime > sessionEnd;
+    } catch {
+      return false;
+    }
+  }, [doctors, currentTime]);
+
   const pendingAppointments = useMemo(() => {
-    const pending = filteredAppointments.filter(a => (a.status === 'Pending' || a.status === 'Confirmed' || a.status === 'Skipped'));
+    const pending = filteredAppointments.filter(a => {
+      // Include Pending, Confirmed, Skipped
+      if (a.status === 'Pending' || a.status === 'Confirmed' || a.status === 'Skipped') return true;
+
+      // Include No-show only if their session is still active/upcoming
+      if (a.status === 'No-show' && !isSessionEnded(a)) return true;
+
+      return false;
+    });
 
     // Sort by unified logic
     return pending.sort(clinicDetails?.tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
-  }, [filteredAppointments, clinicDetails]);
+  }, [filteredAppointments, clinicDetails, isSessionEnded]);
 
   const skippedAppointments = useMemo(() => {
     const skipped = filteredAppointments.filter(a => a.status === 'Skipped');
@@ -534,7 +565,17 @@ export default function ClinicDashboard() {
     return skipped.sort(clinicDetails?.tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
   }, [filteredAppointments, clinicDetails]);
 
-  const pastAppointments = useMemo(() => filteredAppointments.filter(a => a.status === 'Completed' || a.status === 'Cancelled' || a.status === 'No-show'), [filteredAppointments]);
+  const pastAppointments = useMemo(() => {
+    return filteredAppointments.filter(a => {
+      // Always include Completed and Cancelled
+      if (a.status === 'Completed' || a.status === 'Cancelled') return true;
+
+      // Include No-show only if their session has ended
+      if (a.status === 'No-show' && isSessionEnded(a)) return true;
+
+      return false;
+    });
+  }, [filteredAppointments, isSessionEnded]);
 
 
   return (

@@ -971,8 +971,8 @@ function WalkInRegistrationContent() {
 
         setTimeout(() => {
           setIsTokenModalOpen(false);
-          router.push('/appointments');
-        }, 5000);
+          router.push('/dashboard');
+        }, 2000);
       }
     } catch (error: any) {
       console.error('Failed to confirm walk-in registration:', error);

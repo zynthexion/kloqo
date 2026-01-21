@@ -4,7 +4,11 @@
 import { useState, useMemo, useEffect, useCallback, useTransition } from 'react';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { format, isPast, addMinutes, parse, isAfter } from 'date-fns';
+import { format, isPast, addMinutes, parse, isAfter, isSameDay, addDays, subDays } from 'date-fns';
+import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { cn } from '@/lib/utils';
 import { collection, getDocs, query, onSnapshot, doc, updateDoc, Query, where, writeBatch, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -44,9 +48,33 @@ export default function ClinicDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
   const [isPhoneMode, setIsPhoneMode] = useState(false);
-  const { toast } = useToast();
 
   const isAppointmentsPage = pathname === '/appointments';
+  const [selectedDate, setSelectedDate] = useState<Date | null>(isAppointmentsPage ? null : new Date());
+  const [api, setApi] = useState<any>();
+  const [currentMonth, setCurrentMonth] = useState(format(selectedDate || new Date(), 'MMMM yyyy'));
+  const { toast } = useToast();
+
+  // Generate a range of dates (90 days before and 275 days after today)
+  const dates = useMemo(() => {
+    const today = new Date();
+    return Array.from({ length: 365 }, (_, i) => addDays(subDays(today, 90), i));
+  }, []);
+
+  // Scroll to selected date whenever it changes, or today if none selected
+  useEffect(() => {
+    if (!api) return;
+    const targetDate = selectedDate || new Date();
+    const dateIndex = dates.findIndex(d => isSameDay(d, targetDate));
+    if (dateIndex !== -1) {
+      api.scrollTo(dateIndex, true);
+    }
+  }, [api, dates, selectedDate]);
+
+  // Update current month display when selected date changes
+  useEffect(() => {
+    setCurrentMonth(format(selectedDate || new Date(), 'MMMM yyyy'));
+  }, [selectedDate]);
 
   // Update current time every minute
   useEffect(() => {
@@ -190,20 +218,24 @@ export default function ClinicDashboard() {
 
     let q: Query;
 
-    const today = format(new Date(), 'd MMMM yyyy');
+    const todayStr = format(new Date(), 'd MMMM yyyy');
+    const selectedDateStr = selectedDate ? format(selectedDate, 'd MMMM yyyy') : null;
 
     if (isAppointmentsPage) {
-      q = query(
-        collection(db, "appointments"),
+      const constraints = [
         where('doctor', '==', doctor.name),
         where('clinicId', '==', clinicId)
-      );
+      ];
+      if (selectedDateStr) {
+        constraints.push(where('date', '==', selectedDateStr));
+      }
+      q = query(collection(db, "appointments"), ...constraints);
     } else {
       q = query(
         collection(db, "appointments"),
         where('doctor', '==', doctor.name),
         where('clinicId', '==', clinicId),
-        where('date', '==', today)
+        where('date', '==', todayStr)
       );
     }
 
@@ -216,7 +248,7 @@ export default function ClinicDashboard() {
     });
 
     return () => unsubscribe();
-  }, [processAppointments, toast, selectedDoctor, doctors, isAppointmentsPage, clinicId]);
+  }, [processAppointments, toast, selectedDoctor, doctors, isAppointmentsPage, clinicId, selectedDate]);
 
   const handleUpdateStatus = (id: string, status: 'completed' | 'Cancelled' | 'No-show' | 'Skipped') => {
     startTransition(async () => {
@@ -520,6 +552,69 @@ export default function ClinicDashboard() {
       />
 
       <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">
+        {isAppointmentsPage && (
+          <div className="p-4 border-b">
+            <div className="flex justify-between items-center mb-4 px-2">
+              <h2 className="font-black text-sm text-slate-800 uppercase tracking-tight">Select Date</h2>
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full uppercase tracking-wider hover:bg-blue-100 transition-colors flex items-center gap-1.5">
+                    {currentMonth}
+                    <div className="w-1 h-1 rounded-full bg-blue-400" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate || undefined}
+                    onSelect={(date) => setSelectedDate(prev => prev && date && isSameDay(prev, date) ? null : (date || null))}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <Carousel
+              setApi={setApi}
+              opts={{ align: "center", dragFree: true }}
+              className="w-full"
+            >
+              <CarouselContent className="-ml-2">
+                {dates.map((d, index) => {
+                  const isSelected = selectedDate ? isSameDay(d, selectedDate) : false;
+                  const isToday = isSameDay(d, new Date());
+                  return (
+                    <CarouselItem key={index} className="basis-1/5 pl-2">
+                      <div className="p-1">
+                        <button
+                          onClick={() => setSelectedDate(prev => prev && isSameDay(prev, d) ? null : d)}
+                          className={cn(
+                            "w-full h-auto flex flex-col items-center justify-center p-3 rounded-2xl gap-1 transition-all duration-300 border-2",
+                            isSelected
+                              ? "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200 scale-105"
+                              : "bg-slate-50 border-slate-100 text-slate-600 hover:bg-slate-100 hover:border-slate-200",
+                            isToday && !isSelected && "border-blue-400 border-dashed"
+                          )}
+                        >
+                          <span className={cn("text-[10px] font-bold uppercase", isSelected ? "text-blue-100" : "text-slate-400")}>
+                            {format(d, 'EEE')}
+                          </span>
+                          <span className="text-lg font-black tracking-tighter">
+                            {format(d, 'dd')}
+                          </span>
+                          {isToday && (
+                            <div className={cn("w-1 h-1 rounded-full translate-y-1", isSelected ? "bg-white" : "bg-blue-600")} />
+                          )}
+                        </button>
+                      </div>
+                    </CarouselItem>
+                  )
+                })}
+              </CarouselContent>
+            </Carousel>
+          </div>
+        )}
         <div className="p-4 border-b space-y-4">
           <div className="flex gap-2">
             <div className="relative flex-grow">

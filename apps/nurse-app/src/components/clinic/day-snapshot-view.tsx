@@ -306,14 +306,16 @@ export default function DaySnapshotView() {
                             </Card>
                         )}
 
-                        {isPastDate && (
+                        {(isPastDate || isSameDay(selectedDate, new Date())) && (
                             <Card className="border-none shadow-sm bg-red-50/50 rounded-2xl overflow-hidden ring-1 ring-red-100/50">
                                 <CardContent className="p-4 flex flex-col items-center justify-center">
                                     <div className="bg-red-100 p-2.5 rounded-2xl mb-3 shadow-sm shadow-red-100">
                                         <XCircle className="h-5 w-5 text-red-600" />
                                     </div>
-                                    <p className="text-3xl font-black text-red-700 tracking-tighter">{stats.cancelled + stats.noshow}</p>
-                                    <p className="text-[10px] uppercase font-black text-red-400 tracking-wider mt-1">Missed/Cancelled</p>
+                                    <p className="text-3xl font-black text-red-700 tracking-tighter">{stats.cancelled + stats.noshow + stats.skipped}</p>
+                                    <p className="text-[10px] uppercase font-black text-red-400 tracking-wider mt-1">
+                                        {isPastDate ? "Missed/Cancelled" : "Skipped/Missed"}
+                                    </p>
                                 </CardContent>
                             </Card>
                         )}

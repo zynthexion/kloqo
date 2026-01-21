@@ -973,11 +973,12 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const isConfirmedAppointment = yourAppointment?.status === 'Confirmed';
     const isPendingAppointment = yourAppointment?.status === 'Pending';
+    const isSkippedAppointment = yourAppointment?.status === 'Skipped';
     const shouldHideArriveByDetails = isPendingAppointment && isReportingPastDue;
 
     // Show queue info only for confirmed appointments once the doctor is "In"
     const shouldShowQueueInfo = isDoctorIn && isAppointmentToday && isConfirmedAppointment;
-    const shouldShowQueueVisualization = isDoctorIn && isAppointmentToday && (isConfirmedAppointment || isPendingAppointment);
+    const shouldShowQueueVisualization = isDoctorIn && isAppointmentToday && (isConfirmedAppointment || isPendingAppointment || (isSkippedAppointment && clinicData?.tokenDistribution === 'classic'));
 
     // scheduledPatientsAhead: Use the same simulated queue logic as patientsAhead
     // This ensures consistent counting for both queue visualization and queue info display
@@ -1918,20 +1919,27 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             <div className="relative flex flex-col items-center justify-center space-y-4">
                 {shouldShowQueueVisualization && !isYourTurn && displayedPatientsAhead > 0 && masterQueue.length > 0 && (
                     <>
-                        <div className="text-center">
-                            <p className="text-sm text-muted-foreground">{t.liveToken.currentToken}</p>
-                            <p className="text-6xl font-bold" style={{ color: 'hsl(var(--token-current))' }}>{currentTokenAppointment?.tokenNumber || 'N/A'}</p>
-                        </div>
+                        {!(isSkippedAppointment && clinicData?.tokenDistribution === 'classic') && (
+                            <>
+                                <div className="text-center">
+                                    <p className="text-sm text-muted-foreground">{t.liveToken.currentToken}</p>
+                                    <p className="text-6xl font-bold" style={{ color: 'hsl(var(--token-current))' }}>{currentTokenAppointment?.tokenNumber || 'N/A'}</p>
+                                </div>
 
-                        <div className="relative h-24 w-4 flex items-end justify-center">
-                            <div className="absolute h-full w-2 rounded-full bg-gray-200"></div>
-                            <div className="absolute bottom-0 w-2 rounded-full" style={{
-                                height: `${Math.min(100, (displayedPatientsAhead / 5) * 100)}%`, // Example visualization
-                                backgroundColor: 'hsl(var(--token-current))'
-                            }}></div>
-                        </div>
+                                <div className="relative h-24 w-4 flex items-end justify-center">
+                                    <div className="absolute h-full w-2 rounded-full bg-gray-200"></div>
+                                    <div className="absolute bottom-0 w-2 rounded-full" style={{
+                                        height: `${Math.min(100, (displayedPatientsAhead / 5) * 100)}%`, // Example visualization
+                                        backgroundColor: 'hsl(var(--token-current))'
+                                    }}></div>
+                                </div>
+                            </>
+                        )}
 
-                        <div className="absolute right-0 top-1/2 -translate-y-1/2 transform flex flex-col items-center justify-center bg-gray-100 rounded-lg p-3 shadow-md w-20 h-20">
+                        <div className={(isSkippedAppointment && clinicData?.tokenDistribution === 'classic')
+                            ? "relative flex flex-col items-center justify-center bg-gray-100 rounded-lg p-3 shadow-md w-20 h-20 mx-auto"
+                            : "absolute right-0 top-1/2 -translate-y-1/2 transform flex flex-col items-center justify-center bg-gray-100 rounded-lg p-3 shadow-md w-20 h-20"
+                        }>
                             <p className="text-sm font-semibold">{t.liveToken.patientsAhead}</p>
                             <p className="text-3xl font-bold">{displayedPatientsAhead}</p>
                             <Users className="w-5 h-5 text-muted-foreground" />

@@ -1827,7 +1827,9 @@ export default function DoctorsPage() {
             clinicName,
             doctorName: selectedDoctor.name,
             date: today,
-            sessionIndex
+            sessionIndex,
+            tokenDistribution: clinicDoc?.data()?.tokenDistribution,
+            averageConsultingTime: selectedDoctor.averageConsultingTime,
           });
         }
       }

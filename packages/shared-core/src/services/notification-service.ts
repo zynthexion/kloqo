@@ -4,7 +4,7 @@
  */
 
 import { Firestore, doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
-import { parse, format, subMinutes } from 'date-fns';
+import { parse, format, subMinutes, addMinutes } from 'date-fns';
 import { parseTime } from '../utils/break-helpers';
 import { getClinicTimeString, getClinicISOString, getClinicNow } from '../utils/date-utils';
 import { compareAppointments } from './appointment-service';
@@ -475,21 +475,34 @@ export async function sendPeopleAheadNotification(params: {
     appointmentDate: string;
     cancelledByBreak?: boolean;
     breakDuration?: number;
-}): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak, breakDuration } = params;
+    tokenDistribution?: 'classic' | 'advanced';
+    averageConsultingTime?: number;
+} | any): Promise<boolean> {
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak, breakDuration, tokenDistribution, averageConsultingTime } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping people ahead notification for appointment ${appointmentId} because it was cancelled by a break.`);
         return true;
     }
 
-    // Calculate display time (arriveByTime - 15 minutes)
+    // Calculate display time
+    // For Advanced: (arriveByTime - 15 minutes)
+    // For Classic: (CurrentTime + (peopleAhead * averageConsultingTime))
     let displayTime = appointmentTime;
+    const isClassic = tokenDistribution === 'classic';
+
     try {
-        const appointmentDateObj = parse(appointmentDate, 'd MMMM yyyy', new Date());
-        const appointmentDateTime = parseTime(appointmentTime, appointmentDateObj);
-        const displayDateTime = subMinutes(appointmentDateTime, 15);
-        displayTime = getClinicTimeString(displayDateTime);
+        if (isClassic) {
+            const now = getClinicNow();
+            const waitTime = peopleAhead * (averageConsultingTime || 15);
+            const estimatedTurnTime = addMinutes(now, waitTime);
+            displayTime = getClinicTimeString(estimatedTurnTime);
+        } else {
+            const appointmentDateObj = parse(appointmentDate, 'd MMMM yyyy', new Date());
+            const appointmentDateTime = parseTime(appointmentTime, appointmentDateObj);
+            const displayDateTime = subMinutes(appointmentDateTime, 15);
+            displayTime = getClinicTimeString(displayDateTime);
+        }
     } catch (error) {
         console.error('Error calculating display time:', error);
     }
@@ -502,16 +515,16 @@ export async function sendPeopleAheadNotification(params: {
     if (peopleAhead === 0) {
         title = 'You are Next!';
         if (breakDuration && breakDuration > 0) {
-            body = `The doctor is on a ${breakDuration}-minute break. You will be next to see Dr. ${doctorName} at ${clinicName} after the break. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+            body = `The doctor is on a ${breakDuration}-minute break. You will be next to see Dr. ${doctorName} at ${clinicName} after the break.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
         } else {
-            body = `There is ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+            body = `There is ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
         }
     } else {
         title = `Queue Update: ${peopleAheadText} Ahead`;
         if (breakDuration && breakDuration > 0) {
-            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. A ${breakDuration}-minute break is also scheduled before your turn. You will see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. A ${breakDuration}-minute break is also scheduled before your turn. You will see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
         } else {
-            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`;
+            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
         }
     }
 
@@ -548,38 +561,54 @@ export async function sendDoctorConsultationStartedNotification(params: {
     appointmentDate: string;
     arriveByTime?: string;
     cancelledByBreak?: boolean;
-}): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak } = params;
+    tokenDistribution?: 'classic' | 'advanced';
+    averageConsultingTime?: number;
+    peopleAhead?: number; // Optional: used for classic estimated time calculation
+} | any): Promise<boolean> {
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak, tokenDistribution, averageConsultingTime, peopleAhead } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping consultation started notification for appointment ${appointmentId} because it was cancelled by a break.`);
         return true;
     }
 
-    // Calculate display time (arriveByTime - 15 minutes if available, otherwise appointmentTime - 15)
+    // Calculate display time
+    // For Advanced: (arriveByTime - 15 minutes if available, otherwise appointmentTime - 15)
+    // For Classic: (CurrentTime + (peopleAhead * averageConsultingTime))
     let displayTime = appointmentTime;
+    const isClassic = tokenDistribution === 'classic';
+
     try {
-        const appointmentDateObj = parse(appointmentDate, 'd MMMM yyyy', new Date());
-        if (arriveByTime) {
-            const arriveByDateTime = parseTime(arriveByTime, appointmentDateObj);
-            const displayDateTime = subMinutes(arriveByDateTime, 15);
-            displayTime = getClinicTimeString(displayDateTime);
+        if (isClassic && typeof peopleAhead === 'number') {
+            const now = getClinicNow();
+            const waitTime = peopleAhead * (averageConsultingTime || 15);
+            const estimatedTurnTime = addMinutes(now, waitTime);
+            displayTime = getClinicTimeString(estimatedTurnTime);
         } else {
-            const appointmentDateTime = parseTime(appointmentTime, appointmentDateObj);
-            const displayDateTime = subMinutes(appointmentDateTime, 15);
-            displayTime = getClinicTimeString(displayDateTime);
+            const appointmentDateObj = parse(appointmentDate, 'd MMMM yyyy', new Date());
+            if (arriveByTime) {
+                const arriveByDateTime = parseTime(arriveByTime, appointmentDateObj);
+                const displayDateTime = subMinutes(arriveByDateTime, 15);
+                displayTime = getClinicTimeString(displayDateTime);
+            } else {
+                const appointmentDateTime = parseTime(appointmentTime, appointmentDateObj);
+                const displayDateTime = subMinutes(appointmentDateTime, 15);
+                displayTime = getClinicTimeString(displayDateTime);
+            }
         }
     } catch (error) {
         console.error('Error calculating display time:', error);
     }
 
+    const timeLabel = isClassic ? 'Expected turn time' : 'Your appointment time';
+
     return sendNotificationToPatient({
         firestore,
         patientId,
         title: 'Doctor Consultation Started',
-        body: `Dr. ${doctorName} has started consultation at ${clinicName}. Your appointment time: ${displayTime}. Token: ${tokenNumber}`,
+        body: `Dr. ${doctorName} has started consultation at ${clinicName}.${displayTime ? ` ${timeLabel}: ${displayTime}.` : ''} Token: ${tokenNumber}`,
         data: {
-            type: 'doctor_consultation_started',
+            type: 'token_distribution_started',
             appointmentId,
             clinicName,
             tokenNumber,
@@ -600,6 +629,8 @@ type NotifySessionPatientsParams = {
     doctorName: string;
     date: string;
     sessionIndex: number | undefined;
+    tokenDistribution?: 'classic' | 'advanced';
+    averageConsultingTime?: number;
 };
 
 export async function notifySessionPatientsOfConsultationStart({
@@ -609,6 +640,8 @@ export async function notifySessionPatientsOfConsultationStart({
     doctorName,
     date,
     sessionIndex,
+    tokenDistribution,
+    averageConsultingTime,
 }: NotifySessionPatientsParams): Promise<void> {
     if (sessionIndex === undefined) {
         console.warn('Cannot notify consultation start without session index');
@@ -630,16 +663,20 @@ export async function notifySessionPatientsOfConsultationStart({
         return;
     }
 
+    const { compareAppointments, compareAppointmentsClassic } = await import('./appointment-service');
+    const sortedAppointments = appointmentsSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Appointment))
+        .sort(tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+
     await Promise.all(
-        appointmentsSnapshot.docs.map(async (docSnap) => {
-            const appointment = docSnap.data() as Appointment;
+        sortedAppointments.map(async (appointment, index) => {
             if (!appointment.patientId) return;
 
             try {
                 await sendDoctorConsultationStartedNotification({
                     firestore,
                     patientId: appointment.patientId,
-                    appointmentId: docSnap.id,
+                    appointmentId: appointment.id,
                     clinicName,
                     tokenNumber: appointment.tokenNumber || 'N/A',
                     doctorName: appointment.doctor,
@@ -647,9 +684,12 @@ export async function notifySessionPatientsOfConsultationStart({
                     appointmentDate: appointment.date,
                     arriveByTime: appointment.arriveByTime,
                     cancelledByBreak: appointment.cancelledByBreak,
+                    tokenDistribution,
+                    averageConsultingTime,
+                    peopleAhead: index,
                 });
             } catch (error) {
-                console.error(`Failed to notify patient ${appointment.patientId} for appointment ${docSnap.id}`, error);
+                console.error(`Failed to notify patient ${appointment.patientId} for appointment ${appointment.id}`, error);
             }
         })
     );
@@ -680,14 +720,34 @@ export async function notifyNextPatientsWhenCompleted(params: {
             .map(doc => ({ id: doc.id, ...doc.data() } as Appointment))
             .filter(apt => apt.id !== completedAppointmentId);
 
-        // Sort using standardized comparison logic
-        const sortedAppointments = allAppointments.sort(compareAppointments);
+        // Get clinic data for tokenDistribution
+        const clinicDoc = await getDoc(doc(firestore, 'clinics', completedAppointment.clinicId));
+        const tokenDistribution = clinicDoc.exists() ? clinicDoc.data()?.tokenDistribution : 'advanced';
+
+        // Get doctor data for averageConsultingTime
+        // We'll use doctor name to find the doctor doc (consistent with other logic)
+        const doctorsQuery = query(
+            collection(firestore, 'doctors'),
+            where('clinicId', '==', completedAppointment.clinicId),
+            where('name', '==', completedAppointment.doctor)
+        );
+        const doctorsSnapshot = await getDocs(doctorsQuery);
+        let averageConsultingTime = 15;
+        if (!doctorsSnapshot.empty) {
+            averageConsultingTime = doctorsSnapshot.docs[0].data()?.averageConsultingTime || 15;
+        }
+
+        const { compareAppointments, compareAppointmentsClassic } = await import('./appointment-service');
+
+        // Sort using appropriate logic
+        const sortedAppointments = allAppointments.sort(tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
 
         // Get appointments that come after the completed one
-        const completedSlotIndex = typeof completedAppointment.slotIndex === 'number' ? completedAppointment.slotIndex : -1;
-        // Get appointments that come after the completed one using the same comparison logic
         const nextAppointments = sortedAppointments.filter(apt => {
-            return compareAppointments(apt, completedAppointment) > 0;
+            const comparison = tokenDistribution === 'classic'
+                ? compareAppointmentsClassic(apt, completedAppointment)
+                : compareAppointments(apt, completedAppointment);
+            return comparison > 0;
         });
 
         // Send notifications to next patients (limit to first 3 to avoid spam)
@@ -697,6 +757,8 @@ export async function notifyNextPatientsWhenCompleted(params: {
 
         // Find existing break gaps
         const breaks = nextAppointments.filter(apt => apt.status === 'Completed' && apt.patientId === 'dummy-break-patient');
+
+        const completedSlotIndex = completedAppointment.slotIndex || -1;
 
         for (let i = 0; i < appointmentsToNotify.length; i++) {
             const appointment = appointmentsToNotify[i];
@@ -737,6 +799,8 @@ export async function notifyNextPatientsWhenCompleted(params: {
                     appointmentDate: appointment.date,
                     cancelledByBreak: appointment.cancelledByBreak,
                     breakDuration,
+                    tokenDistribution,
+                    averageConsultingTime,
                 });
             } catch (error) {
                 console.error(`Failed to send notification to patient ${appointment.patientId}:`, error);

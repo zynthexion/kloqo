@@ -200,6 +200,8 @@ export default function HomePage() {
         doctorName: currentDoctor.name,
         date: today,
         sessionIndex,
+        tokenDistribution: clinicDoc?.data()?.tokenDistribution,
+        averageConsultingTime: currentDoctor.averageConsultingTime,
       });
     } catch (notificationError) {
       console.error('Failed to send consultation started notifications:', notificationError);

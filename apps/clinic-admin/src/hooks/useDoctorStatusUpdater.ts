@@ -123,16 +123,16 @@ export function useDoctorStatusUpdater() {
               });
               batchHasWrites = true;
               // Treated as inactive since we are completing it
-            } else {
-              // Check if active (any pending/confirmed/skipped for today)
-              // Note: We deliberately exclude stale appointments (>= 120 mins ago) from being "active"
-              // The 'isStale' check above handles Confirmed ones.
+              // Check if active (any pending/confirmed/skipped for TODAY)
+              // Only appointments for today that are in the past or within the next 30 mins count as "active"
+              // to keep the doctor "In". Future sessions shouldn't keep them "In" during breaks.
+              const isTodayAppt = appointment.date === todayStr;
+              const isDueSoon = appointmentDateTime.getTime() <= addMinutes(now, 30).getTime();
 
-              if (appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
+              if (isTodayAppt && isDueSoon && appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
                 hasActiveAppointments = true;
               }
-            }
-          });
+            });
 
           if (doctor.consultationStatus !== 'In') {
             continue;

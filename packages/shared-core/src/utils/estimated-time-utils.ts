@@ -1,6 +1,7 @@
 import { Appointment, Doctor, BreakPeriod } from '@kloqo/shared-types';
 import { addMinutes, isAfter, isBefore, parse, format } from 'date-fns';
 import { getClinicDayOfWeek, parseClinicTime } from './date-utils';
+import { getCurrentActiveSession } from './break-helpers';
 
 export interface EstimatedTimeResult {
     appointmentId: string;

@@ -27,11 +27,103 @@ const toRelativeIndex = (idx: number, sessionBase: number) => {
 
 import { generateOnlineTokenNumber, generateWalkInTokenNumber } from '../utils/token-utils';
 
+const ONGOING_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped']);
+
 function getTaggedId(appt: any): string {
   if (appt.id === '__new_walk_in__') return appt.id;
   if (appt.cancelledByBreak || appt.bookedVia === 'BreakBlock') return `__break_${appt.id}`;
   if (appt.status === 'Completed' || appt.status === 'No-show') return `__blocked_${appt.id}`;
   return `__shiftable_${appt.id}`;
+}
+
+/**
+ * Robustly identifies the active session based on time, doctor status, and gaps.
+ * Implements "Sticky" vs "Jumping" logic for Classic distribution.
+ */
+export function findActiveSessionIndex(
+  doctor: Doctor,
+  allSlots: DailySlot[],
+  appointments: Appointment[],
+  now: Date,
+  tokenDistribution: 'classic' | 'advanced' = 'advanced'
+): number | null {
+  if (allSlots.length === 0) return 0;
+  const isClassic = tokenDistribution === 'classic';
+
+  // 1. Group slots into session ranges
+  const sessionMap = new Map<number, { idx: number; start: Date; end: Date }>();
+  allSlots.forEach((s) => {
+    const current = sessionMap.get(s.sessionIndex);
+    if (!current) {
+      sessionMap.set(s.sessionIndex, { idx: s.sessionIndex, start: s.time, end: s.time });
+    } else {
+      if (isBefore(s.time, current.start)) current.start = s.time;
+      if (isAfter(s.time, current.end)) current.end = s.time;
+    }
+  });
+  const sessionRanges = Array.from(sessionMap.values()).sort((a, b) => a.idx - b.idx);
+
+  for (let i = 0; i < sessionRanges.length; i++) {
+    const session = sessionRanges[i];
+    const nextSession = sessionRanges[i + 1];
+
+    if (isClassic) {
+      // RULE: Session 0 is always open until it formally ends (or stays sticky)
+      if (i === 0 && isBefore(now, session.end)) {
+        return session.idx;
+      }
+
+      // RULE: Sticky Logic for past sessions
+      const hasOngoingAppts = appointments.some(a => a.sessionIndex === session.idx && ONGOING_STATUSES.has(a.status));
+      const isDocIn = doctor.consultationStatus === 'In';
+      const isStickyCandidate = isAfter(now, session.end) && (hasOngoingAppts || isDocIn);
+
+      if (isStickyCandidate) {
+        if (nextSession) {
+          const gap = differenceInMinutes(nextSession.start, session.end);
+          if (gap > 60) {
+            // Large Gap: Stay sticky until Doc OUT + Appts Done, BUT respect 30m fail-safe
+            if (isBefore(now, subMinutes(nextSession.start, 30))) {
+              return session.idx;
+            }
+          }
+          // Small Gap: Hand off immediately to next session check
+        } else {
+          // Last session stays sticky as long as active
+          return session.idx;
+        }
+      }
+
+      // RULE: Opening next sessions (S1+)
+      if (i > 0) {
+        const prevSession = sessionRanges[i - 1];
+        const gapWithPrev = differenceInMinutes(session.start, prevSession.end);
+
+        if (gapWithPrev > 60) {
+          // Large Gap: Open only if Prev is Done OR at 30m Fail-safe
+          const isPrevDone = !appointments.some(a => a.sessionIndex === prevSession.idx && ONGOING_STATUSES.has(a.status)) && doctor.consultationStatus === 'Out';
+          const isFailSafe = !isBefore(now, subMinutes(session.start, 30));
+          if ((isPrevDone || isFailSafe) && !isAfter(now, session.end)) {
+            return session.idx;
+          }
+        } else {
+          // Small Gap: Jump immediately when Prev formally ends
+          if (!isBefore(now, prevSession.end) && !isAfter(now, session.end)) {
+            return session.idx;
+          }
+        }
+      }
+    } else {
+      // ADVANCED: Strict 30m start window
+      const standardStart = subMinutes(session.start, 30);
+      if (!isAfter(now, session.end) && !isBefore(now, standardStart)) {
+        return session.idx;
+      }
+    }
+  }
+
+  // Fallback: If we are deep into the future past all sessions, return null
+  return null;
 }
 
 export interface DailySlot {
@@ -1852,26 +1944,41 @@ export async function calculateWalkInDetails(
   }
 
   // 1. Identify "Active Session" for this walk-in.
-  const activeSessionIndex = (() => {
-    if (allSlots.length === 0) return 0;
-    const sessionMap = new Map<number, { start: Date; end: Date }>();
-    allSlots.forEach((s: any) => {
-      const current = sessionMap.get(s.sessionIndex);
-      if (!current) {
-        sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
-      } else {
-        if (isBefore(s.time, current.start)) current.start = s.time;
-        if (isAfter(s.time, current.end)) current.end = s.time;
-      }
-    });
-    const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
-    for (const [sIdx, range] of sortedSessions) {
-      if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-        return sIdx;
+  let tokenDistribution: 'classic' | 'advanced' = 'advanced';
+  if (clinicSnap?.exists()) {
+    tokenDistribution = clinicSnap.data()?.tokenDistribution || 'classic';
+  }
+
+  const activeSessionIndex = findActiveSessionIndex(
+    doctor,
+    allSlots,
+    appointments,
+    now,
+    tokenDistribution
+  );
+
+  // Determine if this is a "liberated" booking (force-book)
+  let isForceBooked = forceBook;
+  if (activeSessionIndex !== null && tokenDistribution === 'classic') {
+    const session = allSlots.find(s => s.sessionIndex === activeSessionIndex);
+    if (session) {
+      // If we are outside the nominal session range, it's a force book
+      const sessionMap = new Map<number, { start: Date; end: Date }>();
+      allSlots.forEach((s: any) => {
+        const current = sessionMap.get(s.sessionIndex);
+        if (!current) {
+          sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
+        } else {
+          if (isBefore(s.time, current.start)) current.start = s.time;
+          if (isAfter(s.time, current.end)) current.end = s.time;
+        }
+      });
+      const range = sessionMap.get(activeSessionIndex);
+      if (range && (isAfter(now, range.end) || isBefore(now, range.start))) {
+        isForceBooked = true;
       }
     }
-    return null;
-  })();
+  }
 
   const targetSessionIndex = activeSessionIndex ?? 0;
   const sessionBaseIndex = targetSessionIndex * 1000;
@@ -2135,7 +2242,8 @@ export async function calculateWalkInDetails(
       numericToken,
       slotIndex: toGlobal(slots.length),
       sessionIndex: targetSessionIndex,
-      actualSlotTime: now
+      actualSlotTime: now,
+      isForceBooked: isForceBooked
     };
   }
 
@@ -2191,6 +2299,7 @@ export async function calculateWalkInDetails(
     slotIndex: toGlobal(relativeIdx), // DENORMALIZE
     sessionIndex: targetSessionIndex,
     actualSlotTime: estimatedTime,
+    isForceBooked: isForceBooked
   };
 }
 export interface WalkInPreviewShift {

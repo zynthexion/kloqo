@@ -118,6 +118,24 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
     const { toast } = useToast();
     const { t } = useLanguage();
 
+    const [tokenDistribution, setTokenDistribution] = useState<'classic' | 'advanced'>('classic');
+
+    useEffect(() => {
+        const fetchClinicDist = async () => {
+            if (!firestore || !selectedDoctor.clinicId) return;
+            try {
+                const clinicRef = doc(firestore, 'clinics', selectedDoctor.clinicId);
+                const clinicSnap = await getDoc(clinicRef);
+                if (clinicSnap.exists()) {
+                    setTokenDistribution(clinicSnap.data()?.tokenDistribution || 'classic');
+                }
+            } catch (e) {
+                console.warn('Failed to fetch clinic distribution in PatientForm:', e);
+            }
+        };
+        fetchClinicDist();
+    }, [firestore, selectedDoctor.clinicId]);
+
     useEffect(() => {
         const fetchClinicDetails = async () => {
             if (!selectedDoctor?.clinicId || !firestore) return;
@@ -650,8 +668,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     return;
                 }
 
-                if (!isWithinBookingWindow(selectedDoctor)) {
-                    console.log('[PF:SUBMIT] Not within booking window', { selectedDoctor });
+                if (!isWithinBookingWindow(selectedDoctor, tokenDistribution)) {
+                    console.log('[PF:SUBMIT] Not within booking window', { selectedDoctor, tokenDistribution });
                     toast({
                         variant: "destructive",
                         title: t.consultToday.bookingFailed,
@@ -922,7 +940,8 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     // If it returns a result, we allow it even if it overflows the nominal session.
                     const isOutside = availabilityEnd ? isAfter(apptEnd, availabilityEnd) : false;
                     // Enforce availability check for Patient App
-                    const canProceed = !isOutside;
+                    // LIBERATED: For Classic, we ALWAYS let it proceed if we have a valid estimate.
+                    const canProceed = tokenDistribution === 'classic' || !isOutside;
 
                     console.log('[PF:ESTIMATE] Availability Check (RELAXED)', {
                         apptEnd: getClinicTimeString(apptEnd),

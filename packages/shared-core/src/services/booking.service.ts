@@ -28,7 +28,8 @@ import {
     buildOccupiedSlotSet,
     buildCandidateSlots,
     calculatePerSessionReservedSlots,
-    fetchDayAppointments
+    fetchDayAppointments,
+    findActiveSessionIndex
 } from './walk-in.service';
 import { getClinicNow, getClinicDateString, getClinicTimeString } from '../utils/date-utils';
 import { parseTime } from '../utils/break-helpers';
@@ -101,26 +102,14 @@ export async function completeStaffWalkInBooking(
     // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
     // Original logic: Picks first session starting within 30 minutes.
     // Testing logic: Picks first session that hasn't ended and has capacity.
-    activeSessionIndex = (() => {
-        if (allSlots.length === 0) return 0;
-        const sessionMap = new Map<number, { start: Date; end: Date }>();
-        allSlots.forEach((s) => {
-            const current = sessionMap.get(s.sessionIndex);
-            if (!current) {
-                sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
-            } else {
-                if (isBefore(s.time, current.start)) current.start = s.time;
-                if (isAfter(s.time, current.end)) current.end = s.time;
-            }
-        });
-        const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
-        for (const [sIdx, range] of sortedSessions) {
-            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-                return sIdx;
-            }
-        }
-        return null;
-    })();
+    activeSessionIndex = findActiveSessionIndex(
+        doctorDataRaw.doctor,
+        allSlots,
+        appointments,
+        now,
+        tokenDistribution
+    );
+
 
     if (activeSessionIndex === null) {
         throw new Error('No walk-in slots are available. The next session has not started yet.');
@@ -139,6 +128,8 @@ export async function completeStaffWalkInBooking(
         0,
         isForceBooked || false
     );
+
+    const finalForceBook = isForceBooked || walkInDetails.isForceBooked || false;
 
     if (!walkInDetails || walkInDetails.slotIndex == null) {
         throw new Error('No walk-in slots are available.');
@@ -223,7 +214,7 @@ export async function completeStaffWalkInBooking(
             effectiveAppointments: sessionFilteredAppointments,
             totalSlots: doctorData.slots.length,
             newWalkInNumericToken: nextWalkInNumericToken,
-            forceBook: isForceBooked,
+            forceBook: finalForceBook,
         });
 
         if (!shiftPlan.newAssignment) {
@@ -297,7 +288,7 @@ export async function completeStaffWalkInBooking(
             createdAt: serverTimestamp(),
             cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
-            isForceBooked: isForceBooked || false,
+            isForceBooked: finalForceBook,
             ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
         };
         transaction.set(newDocRef, appointmentData);
@@ -404,26 +395,14 @@ export async function completePatientWalkInBooking(
     // TODO: RESTORE ORIGINAL LOGIC AFTER TESTING.
     // Original logic: Picks first session starting within 30 minutes.
     // Testing logic: Picks first session that hasn't ended and has capacity.
-    activeSessionIndex = (() => {
-        if (allSlots.length === 0) return 0;
-        const sessionMap = new Map<number, { start: Date; end: Date }>();
-        allSlots.forEach((s) => {
-            const current = sessionMap.get(s.sessionIndex);
-            if (!current) {
-                sessionMap.set(s.sessionIndex, { start: s.time, end: s.time });
-            } else {
-                if (isBefore(s.time, current.start)) current.start = s.time;
-                if (isAfter(s.time, current.end)) current.end = s.time;
-            }
-        });
-        const sortedSessions = Array.from(sessionMap.entries()).sort((a, b) => a[0] - b[0]);
-        for (const [sIdx, range] of sortedSessions) {
-            if (!isAfter(now, range.end) && !isBefore(now, subMinutes(range.start, 30))) {
-                return sIdx;
-            }
-        }
-        return null;
-    })();
+    activeSessionIndex = findActiveSessionIndex(
+        doctorDataRaw.doctor,
+        allSlots,
+        appointments,
+        now,
+        tokenDistribution
+    );
+
 
     if (activeSessionIndex === null) {
         throw new Error('No walk-in slots are available. The next session has not started yet.');
@@ -465,6 +444,8 @@ export async function completePatientWalkInBooking(
         doctorData.doctor,
         walkInTokenAllotment
     );
+
+    const finalForceBook = walkInDetails.isForceBooked || false;
     console.log('[BOOKING:SERVER] Server calculation result:', {
         slotIndex: walkInDetails.slotIndex,
         estimated: walkInDetails.estimatedTime,
@@ -552,7 +533,7 @@ export async function completePatientWalkInBooking(
             effectiveAppointments: sessionFilteredAppointments,
             totalSlots: doctorData.slots.length,
             newWalkInNumericToken: nextWalkInNumericToken,
-            forceBook: false,
+            forceBook: finalForceBook,
         });
 
         if (!shiftPlan.newAssignment) {
@@ -623,6 +604,7 @@ export async function completePatientWalkInBooking(
             createdAt: serverTimestamp(),
             cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
+            isForceBooked: finalForceBook,
             patientProfile: patientProfile ?? null,
             walkInPatientsAhead: walkInDetails.patientsAhead,
             ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),

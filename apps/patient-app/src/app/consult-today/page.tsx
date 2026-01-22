@@ -24,7 +24,7 @@ import { AuthGuard } from '@/components/auth-guard';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 // Lazy load QR scanner - only load when needed (mobile optimization)
 const loadQRScanner = () => import('html5-qrcode').then(module => module.Html5Qrcode);
-import { format, addMinutes, isBefore, isAfter, subMinutes, isWithinInterval, set } from 'date-fns';
+import { format, addMinutes, isBefore, isAfter, subMinutes, isWithinInterval, set, differenceInMinutes } from 'date-fns';
 import { parseTime } from '@/lib/utils';
 import { getSessionEnd, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
 import { BottomNav } from '@/components/bottom-nav';
@@ -173,6 +173,7 @@ interface Clinic {
     name: string;
     latitude: number;
     longitude: number;
+    tokenDistribution?: 'classic' | 'advanced';
 }
 
 function ConsultTodayContent() {
@@ -217,7 +218,8 @@ function ConsultTodayContent() {
                         id: clinicSnap.id,
                         name: clinicData.name || '',
                         latitude: clinicData.latitude || 0,
-                        longitude: clinicData.longitude || 0
+                        longitude: clinicData.longitude || 0,
+                        tokenDistribution: clinicData.tokenDistribution || 'classic'
                     });
                 }
             } catch (error) {
@@ -392,29 +394,90 @@ function ConsultTodayContent() {
         return R * c;
     };
 
-    // Check if walk-in is available (30 minutes before EACH session starts, closes 15 minutes before EACH session effective end)
-    const isWalkInAvailable = (doctor: Doctor): boolean => {
-        if (!doctor.availabilitySlots?.length) return false;
+    // Check for walk-in availability state
+    const getWalkInAvailabilityState = (doctor: Doctor): { state: 'available' | 'waiting' | 'closed', startTime?: Date } => {
+        if (!doctor.availabilitySlots?.length) return { state: 'closed' };
 
         const now = getClinicNow();
         const todayDay = getClinicDayOfWeek(now);
         const todaysAvailability = doctor.availabilitySlots.find(s => s.day === todayDay);
 
-        if (!todaysAvailability || !todaysAvailability.timeSlots || todaysAvailability.timeSlots.length === 0) return false;
+        if (!todaysAvailability || !todaysAvailability.timeSlots || todaysAvailability.timeSlots.length === 0) return { state: 'closed' };
 
-        return todaysAvailability.timeSlots.some((session, index) => {
+        const isClassic = clinic?.tokenDistribution === 'classic';
+
+        // Check each session
+        for (let i = 0; i < todaysAvailability.timeSlots.length; i++) {
+            const session = todaysAvailability.timeSlots[i];
             const startTime = parseTime(session.from, now);
+            const effectiveEnd = getSessionEnd(doctor, now, i) || parseTime(session.to, now);
 
-            // Use session-aware effective end (includes extensions). Fallback to original end.
-            const effectiveEnd = getSessionEnd(doctor, now, index) || parseTime(session.to, now);
+            if (isClassic) {
+                // S0 is always open until end
+                if (i === 0 && isBefore(now, effectiveEnd)) {
+                    return { state: 'available' };
+                }
 
-            // Walk-in opens 30 minutes before session starts
-            const walkInStartTime = subMinutes(startTime, 30);
-            // Walk-in closes 15 minutes before consultation end
-            const walkInEndTime = subMinutes(effectiveEnd, 15);
+                // Sticky Logic for past sessions (Check if technically available via force book)
+                // In the frontend, we don't have appointment statuses easily, but we can assume
+                // it's available if it's before the next session's fail-safe.
+                if (isAfter(now, effectiveEnd)) {
+                    const nextSession = todaysAvailability.timeSlots[i + 1];
+                    if (nextSession) {
+                        const nextStart = parseTime(nextSession.from, now);
+                        const gap = differenceInMinutes(nextStart, effectiveEnd);
+                        if (gap > 60) {
+                            // Large Gap: Sticky until 30m Fail-safe
+                            if (isBefore(now, subMinutes(nextStart, 30))) {
+                                return { state: 'available' };
+                            }
+                        }
+                    } else {
+                        // Last session sticky for 4 hours
+                        if (isBefore(now, addMinutes(effectiveEnd, 240))) {
+                            return { state: 'available' };
+                        }
+                    }
+                }
 
-            return isWithinInterval(now, { start: walkInStartTime, end: walkInEndTime });
-        });
+                // Next session opening
+                if (i > 0) {
+                    const prevSession = todaysAvailability.timeSlots[i - 1];
+                    const prevEnd = getSessionEnd(doctor, now, i - 1) || parseTime(prevSession.to, now);
+                    const gapWithPrev = differenceInMinutes(startTime, prevEnd);
+
+                    if (gapWithPrev > 60) {
+                        // Large Gap: Lock until 30m before start
+                        const failSafeTrigger = subMinutes(startTime, 30);
+                        if (isBefore(now, failSafeTrigger) && isAfter(now, prevEnd)) {
+                            // This is the "Waiting" zone
+                            return { state: 'waiting', startTime };
+                        }
+                        if (!isBefore(now, failSafeTrigger) && !isAfter(now, effectiveEnd)) {
+                            return { state: 'available' };
+                        }
+                    } else {
+                        // Small Gap: Jump immediately when prev ends
+                        if (!isBefore(now, prevEnd) && !isAfter(now, effectiveEnd)) {
+                            return { state: 'available' };
+                        }
+                    }
+                }
+            } else {
+                // Advanced: Strict 30m window
+                const walkInStartTime = subMinutes(startTime, 30);
+                const walkInEndTime = subMinutes(effectiveEnd, 15);
+                if (isWithinInterval(now, { start: walkInStartTime, end: walkInEndTime })) {
+                    return { state: 'available' };
+                }
+            }
+        }
+
+        return { state: 'closed' };
+    };
+
+    const isWalkInAvailable = (doctor: Doctor): boolean => {
+        return getWalkInAvailabilityState(doctor).state === 'available';
     };
 
     const handleScanQR = async () => {
@@ -510,8 +573,13 @@ function ConsultTodayContent() {
     }, [user, userLoading, router, clinicId]);
 
     const handleSelectDoctor = (doctor: Doctor) => {
-        if (!isWalkInAvailable(doctor)) {
-            setLocationError(`Dr. ${doctor.name} ${t.consultToday.doctorNotAvailableWalkIn}`);
+        const availability = getWalkInAvailabilityState(doctor);
+        if (availability.state !== 'available') {
+            if (availability.state === 'waiting') {
+                setLocationError(`Dr. ${doctor.name} ${t.consultToday.waitingForPreviousSession || 'is currently finishing the previous session. Bookings for the next session will open shortly.'}`);
+            } else {
+                setLocationError(`Dr. ${doctor.name} ${t.consultToday.doctorNotAvailableWalkIn}`);
+            }
             return;
         }
         setSelectedDoctor(doctor);

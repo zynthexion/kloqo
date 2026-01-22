@@ -10,7 +10,8 @@ import {
   getClinicDayOfWeek,
   getClinicTimeString,
   buildBreakIntervalsFromPeriods,
-  applyBreakOffsets as applySharedBreakOffsets
+  applyBreakOffsets as applySharedBreakOffsets,
+  getSessionEnd
 } from "@kloqo/shared-core";
 
 export function cn(...inputs: ClassValue[]) {
@@ -142,7 +143,7 @@ export const parseAppointmentDateTime = (dateStr: string, timeStr: string): Date
 };
 
 
-export const isWithinBookingWindow = (doctor: Doctor): boolean => {
+export const isWithinBookingWindow = (doctor: Doctor, tokenDistribution: 'classic' | 'advanced' = 'advanced'): boolean => {
   const now = getClinicNow();
   const todayStr = getClinicDayOfWeek(now);
   const todaysAvailability = doctor.availabilitySlots?.find(slot => slot.day === todayStr);
@@ -151,20 +152,58 @@ export const isWithinBookingWindow = (doctor: Doctor): boolean => {
     return false;
   }
 
-  // Get first session start time
-  const firstSession = todaysAvailability.timeSlots[0];
-  const lastSession = todaysAvailability.timeSlots[todaysAvailability.timeSlots.length - 1];
-  const firstSessionStart = parseTime(firstSession.from, now);
-  const lastSessionStart = parseTime(lastSession.from, now);
-  const lastSessionEnd = parseTime(lastSession.to, now);
+  const isClassic = tokenDistribution === 'classic';
 
-  // Walk-in opens 30 minutes before the first session starts
-  const walkInWindowStart = subMinutes(firstSessionStart, 30);
+  // Get session ranges
+  const sessions = todaysAvailability.timeSlots.map((session, index) => {
+    const start = parseTime(session.from, now);
+    const end = getSessionEnd(doctor, now, index) || parseTime(session.to, now);
+    return { start, end };
+  });
 
-  // Walk-in closes 15 minutes before consultation end
-  const walkInWindowEnd = subMinutes(lastSessionEnd, 15);
+  const firstSession = sessions[0];
+  const lastSession = sessions[sessions.length - 1];
 
-  return isWithinInterval(now, { start: walkInWindowStart, end: walkInWindowEnd });
+  // 1. RULE: Session 0 is always open if Classic.
+  if (isClassic && isBefore(now, firstSession.end)) {
+    return true;
+  }
+
+  // 2. STICKY / LIBERATED RULE
+  // If Classic, we allow booking as long as we are within the unified active session logic.
+  // Since this utility is a simple boolean guard, we check if ANY session is active.
+  const anySessionActive = sessions.some((session, index) => {
+    const isS0 = index === 0;
+
+    // Start Window
+    const startWindow = (isClassic && isS0) ? set(now, { hours: 0, minutes: 0 }) : subMinutes(session.start, 30);
+
+    // End Window (with sticky logic)
+    let endWindow = subMinutes(session.end, 15);
+    if (isClassic) {
+      // If Classic, we allow "Force Book" past the end if doctor is IN or appts exist.
+      // But for this simple utility, we'll just check if it's before the next session's fail-safe.
+      const nextSession = sessions[index + 1];
+      if (nextSession) {
+        endWindow = subMinutes(nextSession.start, 30); // Fail-safe window
+      } else {
+        endWindow = addMinutes(session.end, 240); // 4 hours past end for last session
+      }
+    }
+
+    return !isBefore(now, startWindow) && !isAfter(now, endWindow);
+  });
+
+  if (anySessionActive) return true;
+
+  // Fallback to strict interval for Advanced
+  if (!isClassic) {
+    const walkInWindowStart = subMinutes(firstSession.start, 30);
+    const walkInWindowEnd = subMinutes(lastSession.end, 15);
+    return isWithinInterval(now, { start: walkInWindowStart, end: walkInWindowEnd });
+  }
+
+  return false;
 };
 
 // Re-export shared-core break helpers for compatibility with PatientForm in shared-ui

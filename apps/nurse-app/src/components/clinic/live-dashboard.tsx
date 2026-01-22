@@ -38,7 +38,7 @@ export default function LiveDashboard() {
   const [selectedDoctor, setSelectedDoctor] = useState<string>('');
   const [isOnline, setIsOnline] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState('arrived');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [clinicId, setClinicId] = useState<string | null>(null);
   const [clinicDetails, setClinicDetails] = useState<any>(null);
@@ -570,15 +570,14 @@ export default function LiveDashboard() {
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="w-full grid grid-cols-2">
-                <TabsTrigger value="pending">Pending ({pendingAppointments.length})</TabsTrigger>
-                <TabsTrigger value="skipped" data-state-active-yellow>Skipped ({skippedAppointments.length})</TabsTrigger>
+                <TabsTrigger value="arrived">Arrived ({confirmedAppointments.length})</TabsTrigger>
+                <TabsTrigger value="pending" data-state-active-yellow>Pending ({pendingAppointments.length + skippedAppointments.length})</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
           <div className="flex-1 overflow-y-auto">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-              <TabsContent value="pending" className="flex-1 overflow-y-auto m-0 p-4 space-y-6">
-                {/* Arrived Section (Confirmed) */}
+              <TabsContent value="arrived" className="flex-1 overflow-y-auto m-0 p-4 space-y-6">
                 <div>
                   <div className="mb-3 flex items-center gap-2 px-2">
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -601,7 +600,9 @@ export default function LiveDashboard() {
                     breaks={todayBreaks}
                   />
                 </div>
+              </TabsContent>
 
+              <TabsContent value="pending" className="flex-1 overflow-y-auto m-0 p-4 space-y-6">
                 {/* Pending Section */}
                 <div>
                   <div className="mb-3 flex items-center gap-2 px-2">
@@ -620,18 +621,26 @@ export default function LiveDashboard() {
                     enableSwipeCompletion={false}
                   />
                 </div>
-              </TabsContent>
-              <TabsContent value="skipped" className="flex-1 overflow-y-auto m-0">
-                <AppointmentList
-                  appointments={skippedAppointments}
-                  onUpdateStatus={handleUpdateStatus}
-                  onRejoinQueue={handleRejoinQueue}
-                  onAddToQueue={handleAddToQueue}
-                  showTopRightActions={false}
-                  clinicStatus={consultationStatus}
-                  showStatusBadge={false}
-                  enableSwipeCompletion={false}
-                />
+
+                {/* Skipped Section - Now merged into Pending tab */}
+                {skippedAppointments.length > 0 && (
+                  <div>
+                    <div className="mb-3 mt-6 flex items-center gap-2 px-2">
+                      <Clock className="h-4 w-4 text-amber-600" />
+                      <h3 className="font-semibold text-sm">Skipped ({skippedAppointments.length})</h3>
+                    </div>
+                    <AppointmentList
+                      appointments={skippedAppointments}
+                      onUpdateStatus={handleUpdateStatus}
+                      onRejoinQueue={handleRejoinQueue}
+                      onAddToQueue={handleAddToQueue}
+                      showTopRightActions={false}
+                      clinicStatus={consultationStatus}
+                      showStatusBadge={false}
+                      enableSwipeCompletion={false}
+                    />
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
           </div>

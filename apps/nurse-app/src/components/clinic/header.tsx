@@ -33,6 +33,8 @@ type ClinicHeaderProps = {
     showPhoneModeToggle?: boolean;
     isPhoneMode?: boolean;
     onPhoneModeToggle?: () => void;
+    className?: string;
+    style?: React.CSSProperties;
 };
 
 export default function ClinicHeader({
@@ -51,6 +53,8 @@ export default function ClinicHeader({
     showPhoneModeToggle = false,
     isPhoneMode = false,
     onPhoneModeToggle,
+    className,
+    style,
 }: ClinicHeaderProps) {
     const currentDoctor = doctors.find(d => d.id === selectedDoctor);
 
@@ -121,7 +125,7 @@ export default function ClinicHeader({
     )
 
     return (
-        <header className="relative p-4 pb-8 text-theme-blue-foreground bg-theme-blue rounded-b-3xl">
+        <header className={`relative p-4 pb-8 text-theme-blue-foreground rounded-b-3xl ${className || 'bg-theme-blue'}`} style={style}>
             <div className="absolute top-[-50px] left-[-50px] w-[150px] h-[150px] bg-white/20 rounded-full" />
             <div className="absolute top-[30px] right-[-80px] w-[200px] h-[200px] border-[20px] border-white/20 rounded-full" />
             <div className="relative z-10 w-full flex flex-col gap-3">

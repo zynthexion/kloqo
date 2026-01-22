@@ -36,6 +36,7 @@ body {
     --theme-blue: 210 80% 26%;
     --theme-blue-foreground: 210 40% 98%;
   }
+
   .dark {
     --background: 137 10% 20%;
     --foreground: 180 5% 95%;
@@ -70,12 +71,15 @@ body {
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-muted/20 text-foreground;
   }
+
   .day-available {
     @apply bg-[#92CAA1] text-white rounded-md;
   }
+
   .day-available.day_today {
     @apply bg-[#92CAA1] text-white rounded-md border-2 border-primary;
   }

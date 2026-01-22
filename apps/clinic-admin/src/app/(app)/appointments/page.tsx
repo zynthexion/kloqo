@@ -328,7 +328,7 @@ export default function AppointmentsPage() {
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [drawerSearchTerm, setDrawerSearchTerm] = useState("");
   const [selectedDrawerDoctor, setSelectedDrawerDoctor] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("upcoming");
+  const [activeTab, setActiveTab] = useState("arrived");
   const currentYearStart = startOfYear(new Date());
   const currentYearEnd = endOfYear(new Date());
   const [drawerDateRange, setDrawerDateRange] = useState<DateRange | undefined>({ from: currentYearStart, to: currentYearEnd });
@@ -3047,19 +3047,14 @@ export default function AppointmentsPage() {
       );
     }
 
-    if (activeTab === 'upcoming') {
-      filtered = filtered.filter(apt => {
-        try {
-          const aptDate = parse(apt.date, 'd MMMM yyyy', new Date());
-          // Show Pending, Skipped, and Confirmed appointments for today and future dates
-          return (apt.status === 'Pending' || apt.status === 'Skipped' || apt.status === 'Confirmed') && (isFuture(aptDate) || isToday(aptDate));
-        } catch (e) {
-          return false;
-        }
-      });
+    if (activeTab === 'arrived') {
+      filtered = filtered.filter(apt => apt.status === 'Confirmed');
+    } else if (activeTab === 'pending') {
+      filtered = filtered.filter(apt => ['Pending', 'Skipped', 'No-show'].includes(apt.status));
     } else if (activeTab === 'completed') {
       filtered = filtered.filter(apt => apt.status === 'Completed' || apt.status === 'Cancelled');
     } else if (activeTab === 'no-show') {
+      // This likely won't be reached if we don't have a specific no-show tab anymore, kept for safety
       filtered = filtered.filter(apt => apt.status === 'No-show');
     } else if (activeTab !== 'all') {
       filtered = filtered.filter(apt => apt.status.toLowerCase() === activeTab);
@@ -3209,10 +3204,9 @@ export default function AppointmentsPage() {
   // Calculate tab counts separately to ensure they're always available regardless of active tab
   // Count ALL pending and skipped appointments for today from base appointments array
   // Respect selectedDrawerDoctor filter but NOT activeTab filter
-  const pendingCount = useMemo(() => {
-    let filtered = appointments.filter(apt => apt.date === today && apt.status === 'Pending');
+  const arrivedCount = useMemo(() => {
+    let filtered = appointments.filter(apt => apt.date === today && apt.status === 'Confirmed');
 
-    // Apply doctor filter if selected (but not activeTab filter)
     if (selectedDrawerDoctor && selectedDrawerDoctor !== 'all') {
       filtered = filtered.filter(apt => apt.doctor === selectedDrawerDoctor);
     }
@@ -3220,8 +3214,10 @@ export default function AppointmentsPage() {
     return filtered.length;
   }, [appointments, today, selectedDrawerDoctor]);
 
-  const skippedCount = useMemo(() => {
-    let filtered = appointments.filter(apt => apt.date === today && (apt.status === 'Skipped' || apt.status === 'No-show'));
+  const pendingCount = useMemo(() => {
+    let filtered = appointments.filter(apt => apt.date === today &&
+      (apt.status === 'Pending' || apt.status === 'Skipped' || apt.status === 'No-show')
+    );
 
     // Apply doctor filter if selected (but not activeTab filter)
     if (selectedDrawerDoctor && selectedDrawerDoctor !== 'all') {
@@ -4097,9 +4093,9 @@ export default function AppointmentsPage() {
                           <Tabs value={activeTab} onValueChange={setActiveTab}>
                             <TabsList>
                               <TabsTrigger value="all">All</TabsTrigger>
-                              <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+                              <TabsTrigger value="arrived">Arrived</TabsTrigger>
+                              <TabsTrigger value="pending">Pending</TabsTrigger>
                               <TabsTrigger value="completed">Completed</TabsTrigger>
-                              <TabsTrigger value="no-show">No-show</TabsTrigger>
                             </TabsList>
                           </Tabs>
                         </div>
@@ -4204,11 +4200,11 @@ export default function AppointmentsPage() {
                         </div>
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                           <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="upcoming">
-                              Pending ({pendingCount})
+                            <TabsTrigger value="arrived">
+                              Arrived ({arrivedCount})
                             </TabsTrigger>
-                            <TabsTrigger value="skipped">
-                              Skipped ({skippedCount})
+                            <TabsTrigger value="pending">
+                              Pending ({pendingCount})
                             </TabsTrigger>
                           </TabsList>
                         </Tabs>
@@ -4288,13 +4284,15 @@ export default function AppointmentsPage() {
                                           appointment.status === 'Cancelled' ? (appointment.isRescheduled ? 'warning' : 'destructive') :
                                             appointment.status === 'No-show' ? 'secondary' :
                                               appointment.status === 'Confirmed' ? 'default' :
-                                                'secondary'
+                                                appointment.status === 'Skipped' ? 'destructive' :
+                                                  'secondary'
                                       }
                                       className={cn(
-                                        appointment.status === 'Cancelled' && appointment.isRescheduled && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100"
+                                        appointment.status === 'Cancelled' && appointment.isRescheduled && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100",
+                                        appointment.status === 'Skipped' && "bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600"
                                       )}
                                     >
-                                      {appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status}
+                                      {appointment.status === 'Skipped' ? 'Late' : (appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status)}
                                     </Badge>
                                   )}
                                 </TableCell>

@@ -83,10 +83,9 @@ function AppointmentList({
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
 
-  // Check if Confirm Arrival button should be shown (show for all pending appointments)
+  // Check if Confirm Arrival button should be shown (show for pending, skipped, no-show)
   const shouldShowConfirmArrival = (appointment: Appointment): boolean => {
-    // Show confirm arrival icon for all pending appointments
-    return appointment.status === 'Pending';
+    return ['Pending', 'Skipped', 'No-show'].includes(appointment.status);
   };
   const [swipeState, setSwipeState] = useState<SwipeState>(createSwipeState);
   const swipeDataRef = useRef<SwipeState>(createSwipeState());
@@ -352,6 +351,7 @@ function AppointmentList({
                         "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
                         isSwiping && 'text-white',
                         !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
+                        !isSwiping && appt.status === 'Confirmed' && "bg-green-50 border-green-200",
                         !isSwiping && isBuffer && "bg-blue-50/80 border-blue-400",
                         !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
                       )}
@@ -396,16 +396,19 @@ function AppointmentList({
                                   );
                                 })()}
                                 {showStatusBadge && getStatusBadge(appt)}
+                                {!showStatusBadge && appt.status === 'Skipped' && (
+                                  <Badge variant="destructive" className="ml-2 bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600">Late</Badge>
+                                )}
                                 {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
                                   <div className="flex items-center gap-2">
-                                    {appt.status === 'Pending' && onAddToQueue && shouldShowConfirmArrival(appt) && (
+                                    {(appt.status === 'Pending' || appt.status === 'Skipped' || appt.status === 'No-show') && (onAddToQueue || onRejoinQueue) && shouldShowConfirmArrival(appt) && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button
                                             variant="outline"
                                             size="icon"
                                             className="h-7 w-7 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
-                                            onClick={() => onAddToQueue(appt)}
+                                            onClick={() => (onRejoinQueue && (appt.status === 'Skipped' || appt.status === 'No-show')) ? onRejoinQueue(appt) : onAddToQueue?.(appt)}
                                           >
                                             <CheckCircle2 className="h-4 w-4" />
                                           </Button>
@@ -433,16 +436,6 @@ function AppointmentList({
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {(appt.status === 'Skipped' || appt.status === 'No-show') && onRejoinQueue ? (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 px-2 bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
-                                        onClick={() => onRejoinQueue(appt)}
-                                      >
-                                        <Check className="mr-1 h-3 w-3" /> Rejoin
-                                      </Button>
-                                    ) : null}
                                   </div>
                                 )}
                               </div>

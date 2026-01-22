@@ -543,9 +543,11 @@ export default function LiveDashboard() {
         onStatusChange={handleStatusChange}
         currentTime={currentTime}
         isBreakMode={true}
+        className="text-white"
+        style={{ backgroundColor: '#61896D' }}
       />
       {isOnline ? (
-        <main className="flex-1 flex flex-col min-h-0 bg-card rounded-t-3xl -mt-4 z-10">
+        <main className="flex-1 flex flex-col min-h-0 bg-slate-50 rounded-t-3xl -mt-4 z-10 relative overflow-hidden">
           <div className="p-4 border-b space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div className="relative flex-1">
@@ -579,10 +581,7 @@ export default function LiveDashboard() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
               <TabsContent value="arrived" className="flex-1 overflow-y-auto m-0 p-4 space-y-6">
                 <div>
-                  <div className="mb-3 flex items-center gap-2 px-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    <h3 className="font-semibold text-sm">Arrived ({confirmedAppointments.length})</h3>
-                  </div>
+
                   <AppointmentList
                     appointments={confirmedAppointments}
                     onUpdateStatus={handleUpdateStatus}
@@ -603,44 +602,17 @@ export default function LiveDashboard() {
               </TabsContent>
 
               <TabsContent value="pending" className="flex-1 overflow-y-auto m-0 p-4 space-y-6">
-                {/* Pending Section */}
-                <div>
-                  <div className="mb-3 flex items-center gap-2 px-2">
-                    <Clock className="h-4 w-4 text-orange-600" />
-                    <h3 className="font-semibold text-sm">Pending ({pendingAppointments.length})</h3>
-                  </div>
-                  <AppointmentList
-                    appointments={pendingAppointments}
-                    onUpdateStatus={handleUpdateStatus}
-                    onRejoinQueue={handleRejoinQueue}
-                    onAddToQueue={handleAddToQueue}
-                    showTopRightActions={false}
-                    clinicStatus={consultationStatus}
-                    currentTime={currentTime}
-                    showStatusBadge={false}
-                    enableSwipeCompletion={false}
-                  />
-                </div>
-
-                {/* Skipped Section - Now merged into Pending tab */}
-                {skippedAppointments.length > 0 && (
-                  <div>
-                    <div className="mb-3 mt-6 flex items-center gap-2 px-2">
-                      <Clock className="h-4 w-4 text-amber-600" />
-                      <h3 className="font-semibold text-sm">Skipped ({skippedAppointments.length})</h3>
-                    </div>
-                    <AppointmentList
-                      appointments={skippedAppointments}
-                      onUpdateStatus={handleUpdateStatus}
-                      onRejoinQueue={handleRejoinQueue}
-                      onAddToQueue={handleAddToQueue}
-                      showTopRightActions={false}
-                      clinicStatus={consultationStatus}
-                      showStatusBadge={false}
-                      enableSwipeCompletion={false}
-                    />
-                  </div>
-                )}
+                <AppointmentList
+                  appointments={[...pendingAppointments, ...skippedAppointments]}
+                  onUpdateStatus={handleUpdateStatus}
+                  onRejoinQueue={handleRejoinQueue}
+                  onAddToQueue={handleAddToQueue}
+                  showTopRightActions={false}
+                  clinicStatus={consultationStatus}
+                  currentTime={currentTime}
+                  showStatusBadge={false}
+                  enableSwipeCompletion={false}
+                />
               </TabsContent>
             </Tabs>
           </div>

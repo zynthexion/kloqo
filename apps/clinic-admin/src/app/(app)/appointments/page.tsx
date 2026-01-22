@@ -2866,7 +2866,7 @@ export default function AppointmentsPage() {
           slotTime,
           status,
           isBeforeNow: isBefore(slotTimeIterator, now),
-          isOneHourSkipped: isToday(selectedDate) && appointmentType === 'Advanced Booking' && !isAfter(slotTimeIterator, addMinutes(now, 60)),
+          is15MinSkipped: isToday(selectedDate) && appointmentType === 'Advanced Booking' && !isAfter(slotTimeIterator, addMinutes(now, 15)),
           isWinReserved: sessionReservedSlots.has(sessionStartGlobalIndex + currentSlotIndexInSession),
           globalIndex: sessionStartGlobalIndex + currentSlotIndexInSession,
           isLeave: isSlotBlockedByLeave(selectedDoctor, slotTimeIterator)
@@ -2891,15 +2891,15 @@ export default function AppointmentsPage() {
         // 2. Actual leave days would make the entire session unavailable
         // 3. The isSlotBlockedByLeave function was incorrectly treating breaks as leave
 
-        // For same-day bookings, skip slots within 1-hour window from current time
-        // Slots within 1 hour are reserved for W tokens only - don't show them for A tokens
+        // For same-day bookings, skip slots within 15-minute window from current time
+        // Slots within 15 minutes are reserved for W tokens only - don't show them for A tokens
         if (isToday(selectedDate) && appointmentType === 'Advanced Booking') {
           const slotDateTime = slotTimeIterator; // Current slot time
-          const oneHourFromNow = addMinutes(now, 60);
+          const bookingBuffer = addMinutes(now, 15);
 
-          // Skip slot if it's within 1 hour from now (reserved for walk-in tokens)
-          // Check: slot time must be AFTER oneHourFromNow (not equal or before)
-          if (!isAfter(slotDateTime, oneHourFromNow)) {
+          // Skip slot if it's within 15 minutes from now (reserved for walk-in tokens)
+          // Check: slot time must be AFTER bookingBuffer (not equal or before)
+          if (!isAfter(slotDateTime, bookingBuffer)) {
             oneHourWindowSlotsSkipped++;
             slotTimeIterator = new Date(slotTimeIterator.getTime() + selectedDoctor.averageConsultingTime! * 60000);
             continue; // Skip this slot entirely
@@ -4284,15 +4284,15 @@ export default function AppointmentsPage() {
                                           appointment.status === 'Cancelled' ? (appointment.isRescheduled ? 'warning' : 'destructive') :
                                             appointment.status === 'No-show' ? 'secondary' :
                                               appointment.status === 'Confirmed' ? 'default' :
-                                                appointment.status === 'Skipped' ? 'destructive' :
+                                                (appointment.status as any) === 'Skipped' ? 'destructive' :
                                                   'secondary'
                                       }
                                       className={cn(
                                         appointment.status === 'Cancelled' && appointment.isRescheduled && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100",
-                                        appointment.status === 'Skipped' && "bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600"
+                                        (appointment.status as any) === 'Skipped' && "bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600"
                                       )}
                                     >
-                                      {appointment.status === 'Skipped' ? 'Late' : (appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status)}
+                                      {(appointment.status as any) === 'Skipped' ? 'Late' : (appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status)}
                                     </Badge>
                                   )}
                                 </TableCell>

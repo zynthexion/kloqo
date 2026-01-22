@@ -234,7 +234,7 @@ export function buildCandidateSlots(
   preferredSlotIndex?: number,
   options: CandidateOptions = {}
 ): number[] {
-  const oneHourFromNow = addMinutes(now, 60);
+  const bookingBuffer = addMinutes(now, 15);
   const candidates: number[] = [];
 
   // Calculate reserved walk-in slots per session (15% of FUTURE slots only in each session)
@@ -267,7 +267,7 @@ export function buildCandidateSlots(
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
         console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - reserved for walk-ins in session ${preferredSessionIndex}`);
-      } else if (slotTime && isAfter(slotTime, oneHourFromNow)) {
+      } else if (slotTime && isAfter(slotTime, bookingBuffer)) {
         addCandidate(preferredSlotIndex);
       } else {
         console.log(`[SLOT FILTER] Rejecting preferred slot ${preferredSlotIndex} - within 1 hour from now`);
@@ -280,7 +280,7 @@ export function buildCandidateSlots(
           // Only consider slots in the same session as the preferred slot
           if (
             slot.sessionIndex === preferredSessionIndex &&
-            isAfter(slot.time, oneHourFromNow) &&
+            isAfter(slot.time, bookingBuffer) &&
             !reservedWSlots.has(slot.index)
           ) {
             addCandidate(slot.index);
@@ -291,7 +291,7 @@ export function buildCandidateSlots(
       // No preferred slot - look across all sessions
       slots.forEach(slot => {
         // CRITICAL: Only add slots that are after 1 hour AND not reserved for walk-ins (per session)
-        if (isAfter(slot.time, oneHourFromNow) && !reservedWSlots.has(slot.index)) {
+        if (isAfter(slot.time, bookingBuffer) && !reservedWSlots.has(slot.index)) {
           addCandidate(slot.index);
         }
       });
@@ -334,7 +334,7 @@ export function buildCandidateSlots(
     };
 
     slots.forEach(slot => {
-      if (!isBefore(slot.time, now) && !isAfter(slot.time, oneHourFromNow)) {
+      if (!isBefore(slot.time, now) && !isAfter(slot.time, bookingBuffer)) {
         addCandidate(slot.index);
       }
     });
@@ -344,7 +344,7 @@ export function buildCandidateSlots(
     }
 
     const availableAfterHour = slots.filter(
-      slot => isAfter(slot.time, oneHourFromNow) && !occupied.has(slot.index),
+      slot => isAfter(slot.time, bookingBuffer) && !occupied.has(slot.index),
     );
 
     if (availableAfterHour.length === 0) {
@@ -1115,7 +1115,7 @@ export async function generateNextTokenAndReserveSlot(
               reservedSlotsCount,
               occupiedSlotsCount: occupiedSlots.size,
               occupiedSlots: Array.from(occupiedSlots),
-              oneHourFromNow: addMinutes(now, 60).toISOString(),
+              bookingBuffer: addMinutes(now, 15).toISOString(),
               timestamp: new Date().toISOString()
             });
             // If a preferred slot was provided, check if it's in a specific session

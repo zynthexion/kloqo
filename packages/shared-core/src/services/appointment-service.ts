@@ -264,7 +264,7 @@ function buildCandidateSlots(
   options: CandidateOptions = {},
   blockedIndices: Set<number> = new Set() // New param
 ): number[] {
-  const oneHourFromNow = addMinutes(now, 60);
+  const bookingBuffer = addMinutes(now, 15);
   const candidates: number[] = [];
 
   // Calculate reserved walk-in slots per session (15% of FUTURE slots only in each session)
@@ -298,7 +298,7 @@ function buildCandidateSlots(
       // This prevents booking cancelled slots that are in the reserved walk-in range (last 15% of session)
       if (reservedWSlots.has(preferredSlotIndex)) {
 
-      } else if (isAfter(slotTime, oneHourFromNow)) {
+      } else if (isAfter(slotTime, bookingBuffer)) {
         addCandidate(preferredSlotIndex);
       } else {
 
@@ -311,7 +311,7 @@ function buildCandidateSlots(
           // Only consider slots in the same session as the preferred slot
           if (
             slot.sessionIndex === preferredSessionIndex &&
-            isAfter(slot.time, oneHourFromNow) &&
+            isAfter(slot.time, bookingBuffer) &&
             !reservedWSlots.has(slot.index)
           ) {
             addCandidate(slot.index);
@@ -325,7 +325,7 @@ function buildCandidateSlots(
           slots.forEach(slot => {
             // Search across all sessions for any available slot
             if (
-              isAfter(slot.time, oneHourFromNow) &&
+              isAfter(slot.time, bookingBuffer) &&
               !reservedWSlots.has(slot.index)
             ) {
               addCandidate(slot.index);
@@ -337,7 +337,7 @@ function buildCandidateSlots(
       // No preferred slot - look across all sessions
       slots.forEach(slot => {
         // CRITICAL: Only add slots that are after 1 hour AND not reserved for walk-ins (per session)
-        if (isAfter(slot.time, oneHourFromNow) && !reservedWSlots.has(slot.index)) {
+        if (isAfter(slot.time, bookingBuffer) && !reservedWSlots.has(slot.index)) {
           addCandidate(slot.index);
         }
       });
@@ -380,7 +380,7 @@ function buildCandidateSlots(
     };
 
     slots.forEach(slot => {
-      if (!isBefore(slot.time, now) && !isAfter(slot.time, oneHourFromNow)) {
+      if (!isBefore(slot.time, now) && !isAfter(slot.time, bookingBuffer)) {
         addCandidate(slot.index);
       }
     });
@@ -390,7 +390,7 @@ function buildCandidateSlots(
     }
 
     const availableAfterHour = slots.filter(
-      slot => isAfter(slot.time, oneHourFromNow) && !occupied.has(slot.index),
+      slot => isAfter(slot.time, bookingBuffer) && !occupied.has(slot.index),
     );
 
     if (availableAfterHour.length === 0) {

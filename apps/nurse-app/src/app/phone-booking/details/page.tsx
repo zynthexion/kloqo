@@ -190,7 +190,7 @@ function PhoneBookingDetailsContent() {
 
                 const slotDuration = doctor.averageConsultingTime || 15;
                 const extensions = doctor.availabilityExtensions?.[dateStr];
-                const oneHourFromNow = addMinutes(now, 60);
+                const bookingBuffer = addMinutes(now, 15);
                 const isCheckToday = isSameDay(checkDate, now);
 
                 let foundSlot: Date | null = null;
@@ -251,7 +251,7 @@ function PhoneBookingDetailsContent() {
                     // D. Find the first available slot in this session
                     for (const { time: slotTime, globalIdx } of sessionSlots) {
                         // 1. Must be in future (and >1 hour if today)
-                        const timingValid = isCheckToday ? isAfter(slotTime, oneHourFromNow) : isAfter(slotTime, now);
+                        const timingValid = isCheckToday ? isAfter(slotTime, bookingBuffer) : isAfter(slotTime, now);
                         if (!timingValid) continue;
 
                         // 2. Not blocked by leave or break placeholder

@@ -286,7 +286,7 @@ export default function SlotVisualizerPage() {
   const appointmentsBySlot = useMemo(() => {
     const map = new Map<number, Appointment>();
     const now = new Date();
-    const oneHourAhead = addMinutes(now, 60);
+    const bookingBuffer = addMinutes(now, 15);
     const slotTimeMap = new Map<number, Date>();
     fullDaySlots.forEach(slot => {
       slotTimeMap.set(slot.slotIndex, slot.time);
@@ -309,7 +309,7 @@ export default function SlotVisualizerPage() {
       const isBlockedCancelled =
         appointment.status === "Cancelled" &&
         slotTime &&
-        !isAfter(slotTime, oneHourAhead);
+        !isAfter(slotTime, bookingBuffer);
 
       const isBlockedNoShow = appointment.status === "No-show";
 
@@ -317,7 +317,7 @@ export default function SlotVisualizerPage() {
       if (
         appointment.status === "Cancelled" &&
         slotTime &&
-        isAfter(slotTime, oneHourAhead) &&
+        isAfter(slotTime, bookingBuffer) &&
         !isBlockedCancelled
       ) {
         return;
@@ -399,7 +399,7 @@ export default function SlotVisualizerPage() {
   // Subtract walk-ins placed outside availability (they're "using" bucket slots)
   const bucketCount = useMemo(() => {
     const now = new Date();
-    const oneHourAhead = addMinutes(now, 60);
+    const bookingBuffer = addMinutes(now, 15);
     let count = 0;
 
     // Get active walk-ins with their slot times
@@ -472,7 +472,7 @@ export default function SlotVisualizerPage() {
         if (slot) {
           // For bucket count: Include past slots (within 1 hour window)
           // Only check upper bound (1 hour ahead), don't filter out past slots
-          const isInBucketWindow = !isAfter(slot.time, oneHourAhead);
+          const isInBucketWindow = !isAfter(slot.time, bookingBuffer);
           const hasActiveAppt = slotsWithActiveAppointments.has(appointment.slotIndex);
 
           if (isInBucketWindow && !hasActiveAppt) {
@@ -511,7 +511,7 @@ export default function SlotVisualizerPage() {
 
   const cancelledAndNoShowSlotIndices = useMemo(() => {
     const now = new Date();
-    const oneHourAhead = addMinutes(now, 60);
+    const bookingBuffer = addMinutes(now, 15);
     const slotIndices = new Set<number>();
 
     appointments.forEach(appointment => {
@@ -529,7 +529,7 @@ export default function SlotVisualizerPage() {
       if (!hasActiveAppointment) {
         if (appointment.status === "Cancelled") {
           const slot = fullDaySlots.find(s => s.slotIndex === appointment.slotIndex);
-          if (slot && !isAfter(slot.time, oneHourAhead)) {
+          if (slot && !isAfter(slot.time, bookingBuffer)) {
             // Cancelled within one-hour window - check if it has walk-ins after
             const activeWalkIns = appointments.filter(appt => {
               return (
@@ -593,7 +593,7 @@ export default function SlotVisualizerPage() {
 
   const blockedSlots = useMemo(() => {
     const now = new Date();
-    const oneHourAhead = addMinutes(now, 60);
+    const bookingBuffer = addMinutes(now, 15);
     const blocked = new Set<number>();
 
     appointments.forEach(appointment => {
@@ -607,7 +607,7 @@ export default function SlotVisualizerPage() {
       // Check if this slot is blocked (cancelled within one-hour window or no-show)
       const isBlockedCancelled =
         appointment.status === "Cancelled" &&
-        !isAfter(slot.time, oneHourAhead);
+        !isAfter(slot.time, bookingBuffer);
       const isBlockedNoShow = appointment.status === "No-show";
 
       // Only mark as blocked if there's no active appointment at this slot
@@ -967,7 +967,7 @@ export default function SlotVisualizerPage() {
     const selectedDayStart = startOfDay(selectedDate);
     const todayStart = startOfDay(new Date());
     const isSelectedToday = isSameDay(selectedDayStart, todayStart);
-    const minimumTime = isSelectedToday ? addMinutes(scheduleReferenceTime, 60) : scheduleReferenceTime;
+    const minimumTime = isSelectedToday ? addMinutes(scheduleReferenceTime, 15) : scheduleReferenceTime;
 
     for (const slot of fullDaySlots) {
       if (isBefore(slot.time, scheduleReferenceTime)) {
@@ -990,7 +990,7 @@ export default function SlotVisualizerPage() {
 
   const cancelledAndNoShowSlots = useMemo(() => {
     const now = new Date();
-    const oneHourAhead = addMinutes(now, 60);
+    const bookingBuffer = addMinutes(now, 15);
 
     // Filter cancelled/no-show appointments
     const relevantAppointments = appointments.filter(appointment => {
@@ -1001,7 +1001,7 @@ export default function SlotVisualizerPage() {
       if (appointment.status === "Cancelled") {
         const slot = fullDaySlots.find(s => s.slotIndex === appointment.slotIndex);
         if (!slot) return false;
-        return !isAfter(slot.time, oneHourAhead);
+        return !isAfter(slot.time, bookingBuffer);
       }
 
       return appointment.status === "No-show";

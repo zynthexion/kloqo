@@ -108,7 +108,6 @@ export function useDoctorStatusUpdater() {
               return;
             }
 
-            const oneHourFromNow = addMinutes(now, 60);
             const twoHoursAgo = subMinutes(now, 120);
             const isStale = appointmentDateTime.getTime() < twoHoursAgo.getTime();
 

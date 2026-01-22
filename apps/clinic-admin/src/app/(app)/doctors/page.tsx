@@ -260,6 +260,7 @@ export default function DoctorsPage() {
     sessionEnd?: Date;
     sessionEffectiveEnd?: Date;
   } | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<'In' | 'Out' | null>(null);
   const [extensionOptions, setExtensionOptions] = useState<{
     hasOverrun: boolean;
     minimalExtension: number;
@@ -797,6 +798,16 @@ export default function DoctorsPage() {
     (currentPage - 1) * doctorsPerPage,
     currentPage * doctorsPerPage
   );
+
+  const hasActiveAppointmentsToday = useMemo(() => {
+    if (!selectedDoctor) return false;
+    const todayStr = format(currentTime, 'd MMMM yyyy');
+    return appointments.some(apt =>
+      apt.doctor === selectedDoctor.name &&
+      apt.date === todayStr &&
+      ['Pending', 'Confirmed', 'Skipped'].includes(apt.status)
+    );
+  }, [appointments, selectedDoctor, currentTime]);
 
   const isDoctorLimitReached = clinicDetails ? doctors.length >= clinicDetails.numDoctors : false;
 
@@ -1779,19 +1790,28 @@ export default function DoctorsPage() {
     return undefined;
   };
 
-  const handleConsultationStatusToggle = useCallback(async (forcedStatus?: 'In' | 'Out') => {
+  const handleConsultationStatusToggle = useCallback((forcedStatus?: 'In' | 'Out') => {
     if (!selectedDoctor) return;
 
     const currentStatus = selectedDoctor.consultationStatus || 'Out';
     const targetStatus = forcedStatus || (currentStatus === 'In' ? 'Out' : 'In');
+    setPendingStatusChange(targetStatus);
+  }, [selectedDoctor]);
+
+  const confirmStatusChange = useCallback(async () => {
+    if (!selectedDoctor || !pendingStatusChange) return;
+
+    const targetStatus = pendingStatusChange;
+    setPendingStatusChange(null);
 
     if (targetStatus === 'In') {
       const sessionIndex = getCurrentSessionIndex();
-      if (sessionIndex === undefined) {
+      // Allow going 'In' IF we are in a session OR we have active appointments for today
+      if (sessionIndex === undefined && !hasActiveAppointmentsToday) {
         toast({
           variant: 'destructive',
           title: 'Outside Session Window',
-          description: 'Consultation can be started only during an active session.',
+          description: 'Consultation can be started only during an active session or if there are pending appointments.',
         });
         return;
       }
@@ -1801,7 +1821,7 @@ export default function DoctorsPage() {
     try {
       await updateDoc(doc(db, 'doctors', selectedDoctor.id), {
         consultationStatus: targetStatus,
-        updatedAt: new Date(),
+        updatedAt: serverTimestamp(), // Use serverTimestamp for consistency
       });
       setSelectedDoctor(prev => {
         if (!prev || prev.id !== selectedDoctor.id) return prev;
@@ -1818,15 +1838,17 @@ export default function DoctorsPage() {
         const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
         const clinicName = clinicDoc?.data()?.name || 'The clinic';
         const { notifySessionPatientsOfConsultationStart } = await import('@kloqo/shared-core');
-        const today = format(new Date(), 'd MMMM yyyy');
+        const todayStr = format(new Date(), 'd MMMM yyyy');
         const sessionIndex = getCurrentSessionIndex();
+
+        // Only send notifications if we're in a scheduled session
         if (sessionIndex !== undefined) {
           await notifySessionPatientsOfConsultationStart({
             firestore: db,
             clinicId: selectedDoctor.clinicId || '',
             clinicName,
             doctorName: selectedDoctor.name,
-            date: today,
+            date: todayStr,
             sessionIndex,
             tokenDistribution: clinicDoc?.data()?.tokenDistribution,
             averageConsultingTime: selectedDoctor.averageConsultingTime,
@@ -1836,7 +1858,9 @@ export default function DoctorsPage() {
 
       toast({
         title: targetStatus === 'In' ? 'Consultation Started' : 'Consultation Paused',
-        description: targetStatus === 'In' ? 'Your consultation session has begun.' : 'Your status has been set to Out.'
+        description: targetStatus === 'In'
+          ? (getCurrentSessionIndex() !== undefined ? 'Your consultation session has begun.' : 'Status set to In. No active session found for automated notifications.')
+          : 'Your status has been set to Out.'
       });
     } catch (error) {
       console.error('Error updating consultation status:', error);
@@ -1844,7 +1868,7 @@ export default function DoctorsPage() {
     } finally {
       setIsUpdatingConsultationStatus(false);
     }
-  }, [selectedDoctor, setDoctors, setSelectedDoctor, toast, getCurrentSessionIndex]);
+  }, [selectedDoctor, setDoctors, setSelectedDoctor, toast, getCurrentSessionIndex, hasActiveAppointmentsToday, pendingStatusChange]);
 
 
   return (
@@ -2070,9 +2094,6 @@ export default function DoctorsPage() {
                         const showBreakToggle = !!activeBreak;
                         const isOnline = selectedDoctor.consultationStatus === 'In';
 
-                        // If NOT on break AND already online, hide the button as per request
-                        if (!showBreakToggle && isOnline) return null;
-
                         return (
                           <>
                             <Button
@@ -2083,7 +2104,7 @@ export default function DoctorsPage() {
                                 'flex items-center gap-3 rounded-full px-4 py-2 text-white border-none shadow-md transition-colors',
                                 isOnline
                                   ? 'bg-amber-500 hover:bg-amber-600'
-                                  : 'bg-red-500 hover:bg-red-600',
+                                  : 'bg-green-600 hover:bg-green-700',
                                 isUpdatingConsultationStatus && 'opacity-70 cursor-not-allowed'
                               )}
                             >
@@ -2098,7 +2119,7 @@ export default function DoctorsPage() {
                                   ? 'Updating...'
                                   : showBreakToggle
                                     ? (isOnline ? 'Start Break' : 'End Break')
-                                    : 'Mark as In'}
+                                    : (isOnline ? 'Mark as Out' : 'Mark as In')}
                               </span>
                             </Button>
                             <span className="text-xs uppercase tracking-wide text-white/80">
@@ -3066,7 +3087,26 @@ export default function DoctorsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={!!pendingStatusChange} onOpenChange={(open: boolean) => !open && setPendingStatusChange(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Doctor Status?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to mark the doctor as <strong>{pendingStatusChange}</strong>?
+              {pendingStatusChange === 'In' && " This will notify patients that consultation has started."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingStatusChange(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={pendingStatusChange === 'In' ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+              onClick={confirmStatusChange}
+            >
+              Yes, Mark {pendingStatusChange}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
-

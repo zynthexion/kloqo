@@ -22,6 +22,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from '@/lib/utils';
 import { parseTime } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -41,6 +51,8 @@ export default function HomePage() {
   const [clinicId, setClinicId] = useState<string | null>(null);
   const [isWalkInAvailable, setIsWalkInAvailable] = useState(false);
   const [isNearClosing, setIsNearClosing] = useState(false);
+  const [hasActiveAppointmentsToday, setHasActiveAppointmentsToday] = useState(false);
+  const [pendingStatusChange, setPendingStatusChange] = useState<'In' | 'Out' | null>(null);
 
 
   useEffect(() => {
@@ -94,6 +106,28 @@ export default function HomePage() {
     }
   }, [clinicId, toast]);
 
+  useEffect(() => {
+    if (!clinicId || !selectedDoctor) return;
+
+    const currentDoctorName = allDoctors.find(d => d.id === selectedDoctor)?.name;
+    if (!currentDoctorName) return;
+
+    const todayStr = format(new Date(), 'd MMMM yyyy');
+    const q = query(
+      collection(db, 'appointments'),
+      where('clinicId', '==', clinicId),
+      where('doctor', '==', currentDoctorName),
+      where('date', '==', todayStr),
+      where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setHasActiveAppointmentsToday(!snapshot.empty);
+    });
+
+    return () => unsubscribe();
+  }, [clinicId, selectedDoctor, allDoctors]);
+
   const currentDoctor = allDoctors.find(d => d.id === selectedDoctor);
   const consultationStatus = currentDoctor?.consultationStatus || 'Out';
 
@@ -122,26 +156,51 @@ export default function HomePage() {
     return undefined;
   };
 
-  const handleGoOnline = async () => {
-    if (!currentDoctor || currentDoctor.consultationStatus === 'In' || !clinicId) {
+  const handleStatusChange = (newStatus: 'In' | 'Out') => {
+    setPendingStatusChange(newStatus);
+  };
+
+  const confirmStatusChange = async () => {
+    if (!currentDoctor || !clinicId || !pendingStatusChange) return;
+
+    const newStatus = pendingStatusChange;
+    setPendingStatusChange(null);
+
+    if (newStatus === 'Out') {
+      try {
+        await updateDoc(doc(db, 'doctors', currentDoctor.id), {
+          consultationStatus: 'Out',
+          updatedAt: serverTimestamp()
+        });
+        toast({ title: 'Doctor marked Out' });
+      } catch (error) {
+        console.error('Error marking doctor out:', error);
+        toast({ variant: 'destructive', title: 'Update Failed' });
+      }
       return;
     }
 
+    // Handing turn 'In'
     const sessionIndex = getCurrentSessionIndex();
-    if (sessionIndex === undefined) {
+
+    // Allow going 'In' IF we are in a session OR we have active appointments for today
+    if (sessionIndex === undefined && !hasActiveAppointmentsToday) {
       toast({
         variant: 'destructive',
         title: 'Outside Session Window',
-        description: 'Consultation can be started only during an active session.',
+        description: 'Consultation can be started only during an active session or if there are pending appointments.',
       });
       return;
     }
 
     const doctorRef = doc(db, 'doctors', currentDoctor.id);
     try {
-      console.log('[BUFFER-DEBUG] handleGoOnline: Setting status to In for doctor', currentDoctor.name);
-      await updateDoc(doctorRef, { consultationStatus: 'In' });
-      console.log('[BUFFER-DEBUG] handleGoOnline: Firestore updated successfully');
+      console.log('[BUFFER-DEBUG] handleStatusChange: Setting status to In for doctor', currentDoctor.name);
+      await updateDoc(doctorRef, {
+        consultationStatus: 'In',
+        updatedAt: serverTimestamp()
+      });
+      console.log('[BUFFER-DEBUG] handleStatusChange: Firestore updated successfully');
     } catch (error) {
       console.error('Error updating doctor status:', error);
       toast({ variant: 'destructive', title: 'Update Failed' });
@@ -187,29 +246,33 @@ export default function HomePage() {
       // Don't fail the status update if buffer fill fails
     }
 
-    try {
-      const clinicDocRef = doc(db, 'clinics', clinicId);
-      const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
-      const clinicName = clinicDoc?.data()?.name || 'The clinic';
-      const today = format(new Date(), 'd MMMM yyyy');
+    if (sessionIndex !== undefined) {
+      try {
+        const clinicDocRef = doc(db, 'clinics', clinicId);
+        const clinicDoc = await getDoc(clinicDocRef).catch(() => null);
+        const clinicName = clinicDoc?.data()?.name || 'The clinic';
+        const todayStr = format(new Date(), 'd MMMM yyyy');
 
-      await notifySessionPatientsOfConsultationStart({
-        firestore: db,
-        clinicId,
-        clinicName,
-        doctorName: currentDoctor.name,
-        date: today,
-        sessionIndex,
-        tokenDistribution: clinicDoc?.data()?.tokenDistribution,
-        averageConsultingTime: currentDoctor.averageConsultingTime,
-      });
-    } catch (notificationError) {
-      console.error('Failed to send consultation started notifications:', notificationError);
+        await notifySessionPatientsOfConsultationStart({
+          firestore: db,
+          clinicId,
+          clinicName,
+          doctorName: currentDoctor.name,
+          date: todayStr,
+          sessionIndex,
+          tokenDistribution: clinicDoc?.data()?.tokenDistribution,
+          averageConsultingTime: currentDoctor.averageConsultingTime,
+        });
+      } catch (notificationError) {
+        console.error('Failed to send consultation started notifications:', notificationError);
+      }
     }
 
     toast({
       title: 'Doctor marked In',
-      description: 'Patients in the current session have been notified.',
+      description: sessionIndex !== undefined
+        ? 'Patients in the current session have been notified.'
+        : 'Status set to In. No active session found for automated notifications.',
     });
   };
 
@@ -328,8 +391,9 @@ export default function HomePage() {
           onDoctorChange={handleDoctorSelect}
           showLogo={true}
           consultationStatus={currentDoctor?.consultationStatus}
-          onStatusChange={handleGoOnline}
+          onStatusChange={handleStatusChange}
           onScheduleBreakClick={handleScheduleBreak}
+          hasActiveAppointments={hasActiveAppointmentsToday}
         />
 
         <main className="relative flex-1 flex flex-col p-6 bg-gradient-to-b from-transparent to-[rgba(37,108,173,0.3)] -mt-12 z-10">
@@ -405,6 +469,27 @@ export default function HomePage() {
             </div>
           </div>
         </main>
+
+        <AlertDialog open={!!pendingStatusChange} onOpenChange={(open: boolean) => !open && setPendingStatusChange(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Change Doctor Status?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to mark the doctor as <strong>{pendingStatusChange}</strong>?
+                {pendingStatusChange === 'In' && " This will notify patients that consultation has started."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setPendingStatusChange(null)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className={pendingStatusChange === 'In' ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+                onClick={confirmStatusChange}
+              >
+                Yes, Mark {pendingStatusChange}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </>
   );

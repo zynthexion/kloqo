@@ -46,6 +46,8 @@ export default function LiveDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isPending, startTransition] = useTransition();
   const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<'In' | 'Out' | null>(null);
+  const [isPhoneMode, setIsPhoneMode] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000); // Update every minute
@@ -176,8 +178,15 @@ export default function LiveDashboard() {
     );
   }, [confirmedAppointments, currentDoctor, currentTime]);
 
-  const handleStatusChange = useCallback(async (newStatus: 'In' | 'Out') => {
-    if (!selectedDoctor) return;
+  const handleStatusChange = useCallback((newStatus: 'In' | 'Out') => {
+    setPendingStatusChange(newStatus);
+  }, []);
+
+  const confirmStatusChange = useCallback(async () => {
+    if (!selectedDoctor || !pendingStatusChange) return;
+
+    const newStatus = pendingStatusChange;
+    setPendingStatusChange(null);
 
     try {
       await updateDoc(doc(db, 'doctors', selectedDoctor), {
@@ -210,7 +219,7 @@ export default function LiveDashboard() {
         description: "Failed to update doctor status."
       });
     }
-  }, [selectedDoctor, toast, confirmedAppointments]);
+  }, [selectedDoctor, toast, confirmedAppointments, pendingStatusChange]);
 
   // Centralized Buffer Refill Logic
   const checkAndRefillBuffer = useCallback(async (currentAppointments: Appointment[]) => {
@@ -347,6 +356,10 @@ export default function LiveDashboard() {
   const handleAddToQueue = (appointment: Appointment) => {
     setAppointmentToAddToQueue(appointment);
   };
+
+  const hasActiveAppointments = useMemo(() => {
+    return appointments.some(a => ['Pending', 'Confirmed', 'Skipped'].includes(a.status));
+  }, [appointments]);
 
   const confirmAddToQueue = () => {
     if (!appointmentToAddToQueue || !clinicId) return;
@@ -543,6 +556,7 @@ export default function LiveDashboard() {
         onStatusChange={handleStatusChange}
         currentTime={currentTime}
         isBreakMode={true}
+        hasActiveAppointments={hasActiveAppointments}
         className="text-white"
         style={{ backgroundColor: '#61896D' }}
       />
@@ -639,6 +653,27 @@ export default function LiveDashboard() {
               onClick={confirmAddToQueue}
             >
               Yes, Confirm Arrival
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingStatusChange} onOpenChange={(open: boolean) => !open && setPendingStatusChange(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Doctor Status?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to mark the doctor as <strong>{pendingStatusChange}</strong>?
+              {pendingStatusChange === 'In' && " This will notify patients that consultation has started."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingStatusChange(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={pendingStatusChange === 'In' ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+              onClick={confirmStatusChange}
+            >
+              Yes, Mark {pendingStatusChange}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

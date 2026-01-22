@@ -123,16 +123,11 @@ export function useDoctorStatusUpdater() {
               batchHasWrites = true;
               // Treated as inactive since we are completing it
             } else {
-              // Check if active (starts within next 60 mins)
+              // Check if active (any pending/confirmed/skipped for today)
               // Note: We deliberately exclude stale appointments (>= 120 mins ago) from being "active"
-              // The 'isStale' check above handles Confirmed ones. 
-              // For other statuses (e.g. Pending) or non-stale Confirmed, we check the time window.
+              // The 'isStale' check above handles Confirmed ones.
 
-              // Active window: Time <= Now + 60 mins AND Time >= Now - 120 mins
-              // (We re-check the lower bound to filter out stale Pending items if any, though they shouldn't exist ideally)
-              const isNotTooOld = appointmentDateTime.getTime() >= twoHoursAgo.getTime();
-
-              if (appointmentDateTime.getTime() <= oneHourFromNow.getTime() && isNotTooOld) {
+              if (appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
                 hasActiveAppointments = true;
               }
             }

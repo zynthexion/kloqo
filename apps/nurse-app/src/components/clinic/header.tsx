@@ -33,6 +33,7 @@ type ClinicHeaderProps = {
     showPhoneModeToggle?: boolean;
     isPhoneMode?: boolean;
     onPhoneModeToggle?: () => void;
+    hasActiveAppointments?: boolean;
     className?: string;
     style?: React.CSSProperties;
 };
@@ -53,6 +54,7 @@ export default function ClinicHeader({
     showPhoneModeToggle = false,
     isPhoneMode = false,
     onPhoneModeToggle,
+    hasActiveAppointments = false,
     className,
     style,
 }: ClinicHeaderProps) {
@@ -104,8 +106,9 @@ export default function ClinicHeader({
     // 1. We are currently IN a scheduled break time (activeBreak)
     // 2. OR Status is OUT, a break had started, AND we are still within a session (prevents showing late at night)
     // 3. OR Status is IN (can start break if in session)
+    // 4. OR We have active appointments TODAY (allows finishing late or starting early)
     const showBreakToggle = isBreakMode
-        ? (!!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted && isSessionActive) || (consultationStatus === 'In' && isSessionActive))
+        ? (hasActiveAppointments || !!activeBreak || (consultationStatus === 'Out' && hasAnyBreakStarted && isSessionActive) || (consultationStatus === 'In' && isSessionActive))
         : true;
 
     const utilityMenuItems = [

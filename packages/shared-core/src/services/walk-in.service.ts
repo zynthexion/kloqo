@@ -2288,7 +2288,14 @@ export async function calculateWalkInDetails(
     // 'Skipped' should be COUNTED per user request.
     if (appt.status === 'Completed' || appt.status === 'No-show' || appt.status === 'Cancelled') return false;
 
-    const apptIdx = toRelative(appt.slotIndex || 0);
+    let apptIdx = toRelative(appt.slotIndex || 0);
+    // FIX: Normalize coordinate system for patientsAhead comparison
+    // If the index is "global small int" (e.g. 3, 4, 5) which is < sessionBaseIndex (e.g. 1000),
+    // we must shift it to be 0-based relative to the preview start (e.g. 3 becomes 0).
+    // Indices >= sessionBaseIndex are already relative (e.g. 1001-1000 = 1) via toRelative().
+    if ((appt.slotIndex || 0) < sessionBaseIndex) {
+      apptIdx = apptIdx - previewFirstSlotIndex;
+    }
     return apptIdx < relativeIdx;
   }).length;
 

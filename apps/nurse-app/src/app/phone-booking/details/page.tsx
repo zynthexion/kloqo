@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, ArrowLeft, UserPlus, Search, Link as LinkIcon, Clock } from 'lucide-react';
+import { Loader2, ArrowLeft, UserPlus, Search, Link as LinkIcon, Clock, Phone } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { collection, getDocs, doc, getDoc, query, where, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
@@ -80,6 +80,7 @@ function PhoneBookingDetailsContent() {
     const [relatives, setRelatives] = useState<Patient[]>([]);
     const [isAddRelativeDialogOpen, setIsAddRelativeDialogOpen] = useState(false);
     const [nextSlotHint, setNextSlotHint] = useState<{ date: string, time: string, reportingTime: string } | null>(null);
+    const [linkPendingPatients, setLinkPendingPatients] = useState<Patient[]>([]);
 
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -115,6 +116,24 @@ function PhoneBookingDetailsContent() {
             }
         };
         fetchClinic();
+
+        // Fetch link-pending patients for this clinic
+        const fetchLinkPendingPatients = async () => {
+            try {
+                const patientsRef = collection(db, 'patients');
+                const q = query(
+                    patientsRef,
+                    where('clinicIds', 'array-contains', id),
+                    where('isLinkPending', '==', true)
+                );
+                const snapshot = await getDocs(q);
+                const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Patient));
+                setLinkPendingPatients(pending);
+            } catch (error) {
+                console.error("Error fetching link-pending patients:", error);
+            }
+        };
+        fetchLinkPendingPatients();
     }, [router]);
 
 
@@ -709,6 +728,41 @@ function PhoneBookingDetailsContent() {
                             </p>
                         )}
                     </div>
+
+                    {/* Link-Pending Patients List - Only show when form is not visible */}
+                    {!showForm && linkPendingPatients.length > 0 && (
+                        <Card className="mt-4 bg-blue-50 border-blue-200">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-sm font-semibold text-blue-900">
+                                    Patients Awaiting Booking ({linkPendingPatients.length})
+                                </CardTitle>
+                                <p className="text-xs text-blue-700">Links sent but booking not completed</p>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                                {linkPendingPatients.map((patient) => (
+                                    <div key={patient.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-100">
+                                        <div className="flex-1">
+                                            <p className="text-sm font-medium text-gray-900">{patient.phone}</p>
+                                            <p className="text-xs text-gray-500">Link sent - awaiting booking</p>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                            onClick={() => {
+                                                if (patient.phone) {
+                                                    window.location.href = `tel:${patient.phone}`;
+                                                }
+                                            }}
+                                        >
+                                            <Phone className="h-4 w-4" />
+                                            Call
+                                        </Button>
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {showForm && (
                         <>

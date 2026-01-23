@@ -135,7 +135,7 @@ type AppointmentFormValues = z.infer<typeof formSchema>;
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MAX_VISIBLE_SLOTS = 6;
-const SWIPE_COOLDOWN_MS = 2 * 60 * 1000;
+const SWIPE_COOLDOWN_MS = 30 * 1000;
 
 type WalkInEstimate = {
   estimatedTime: Date;
@@ -2106,6 +2106,7 @@ export default function AppointmentsPage() {
           relatedPatientIds: [],
           isPrimary: true,
           isKloqoMember: false,
+          isLinkPending: true, // Flag to track that a link was sent but booking not completed
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
@@ -4364,7 +4365,7 @@ export default function AppointmentsPage() {
                                     <Alert className="mb-4 bg-amber-50 border-amber-200">
                                       <Clock className="h-4 w-4 text-amber-600" />
                                       <AlertDescription className="text-amber-800 text-sm">
-                                        Completion button is temporarily disabled for 2 minutes after each completion.
+                                        Completion button is temporarily disabled for 30 seconds after each completion.
                                       </AlertDescription>
                                     </Alert>
                                   )}

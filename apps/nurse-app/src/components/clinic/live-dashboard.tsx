@@ -556,6 +556,9 @@ export default function LiveDashboard() {
         onStatusChange={handleStatusChange}
         currentTime={currentTime}
         isBreakMode={true}
+        showPhoneModeToggle={true}
+        isPhoneMode={isPhoneMode}
+        onPhoneModeToggle={() => setIsPhoneMode(!isPhoneMode)}
         hasActiveAppointments={hasActiveAppointments}
         className="text-white"
         style={{ backgroundColor: '#61896D' }}
@@ -611,6 +614,7 @@ export default function LiveDashboard() {
                     averageConsultingTime={currentDoctor?.averageConsultingTime}
                     estimatedTimes={arrivedEstimates}
                     breaks={todayBreaks}
+                    isPhoneMode={isPhoneMode}
                   />
                 </div>
               </TabsContent>
@@ -626,6 +630,7 @@ export default function LiveDashboard() {
                   currentTime={currentTime}
                   showStatusBadge={false}
                   enableSwipeCompletion={false}
+                  isPhoneMode={isPhoneMode}
                 />
               </TabsContent>
             </Tabs>

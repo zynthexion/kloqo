@@ -155,9 +155,9 @@ export default function ClinicHeader({
                                 variant="ghost"
                                 size="icon"
                                 onClick={onPhoneModeToggle}
-                                className={isPhoneMode ? "text-green-400 bg-green-500/20 hover:bg-green-500/30 animate-pulse" : "text-white/50 hover:bg-white/10 hover:text-white"}
+                                className={isPhoneMode ? "text-slate-900 bg-white hover:bg-white/90 animate-pulse" : "text-slate-900 bg-white/30 hover:bg-white/40 hover:text-white"}
                             >
-                                <Phone className="h-5 w-5" />
+                                <Phone className="h-6 w-6" />
                             </Button>
                         )}
                         {showSettings && (

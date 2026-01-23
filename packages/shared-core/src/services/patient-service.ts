@@ -230,6 +230,11 @@ export async function managePatient(patientData: PatientInput): Promise<string> 
                     updateData.sex = sex;
                 }
 
+                // Clear isLinkPending flag when patient provides their name
+                if (name && name.trim().length > 0) {
+                    updateData.isLinkPending = false;
+                }
+
                 // Remove undefined values - Firestore doesn't allow undefined
                 const cleanedUpdateData = Object.fromEntries(
                     Object.entries(updateData).filter(([_, v]) => v !== undefined)
@@ -274,6 +279,11 @@ export async function managePatient(patientData: PatientInput): Promise<string> 
             }
             if (sex !== undefined && sex !== null && sex !== '') {
                 newPatientData.sex = sex;
+            }
+
+            // Set isLinkPending flag if this is a placeholder patient (no name provided)
+            if (!name || name.trim().length === 0) {
+                newPatientData.isLinkPending = true;
             }
 
             // Remove undefined values - Firestore doesn't allow undefined

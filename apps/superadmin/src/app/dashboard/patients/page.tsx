@@ -581,7 +581,14 @@ export default function PatientsPage() {
                         className="border-b hover:bg-gray-50 transition-colors"
                       >
                         <td className="p-3">
-                          <div className="font-medium">{patient.name || 'N/A'}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{patient.name || '(No Name)'}</span>
+                            {patient.isLinkPending && (
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                Link Sent
+                              </Badge>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 text-sm">{patient.age || 'N/A'}</td>
                         <td className="p-3">

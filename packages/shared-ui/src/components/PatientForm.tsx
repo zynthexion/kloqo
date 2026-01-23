@@ -498,39 +498,10 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                 if (queueDiff > QUEUE_THRESHOLD || timeDiffMinutes > TIME_THRESHOLD) {
                     console.log(`[WALK-IN DEBUG] ${bookingRequestId}: Significant change detected - updating estimate and requiring re-confirmation`);
 
-                    // Update the displayed estimate
+                    // Visual Estimate Override for Classic Distribution - REMOVED
+                    // Using backend calculation (freshDetails) for accuracy
                     let adjustedFreshTime = freshDetails.estimatedTime;
                     let visualPatientsAhead = freshDetails.patientsAhead;
-
-                    // Fetch clinic data for distribution type
-                    const clinicSnap = await getDoc(doc(firestore, 'clinics', selectedDoctor.clinicId));
-                    const clinicData = clinicSnap.data();
-
-                    if (clinicData?.tokenDistribution !== 'advanced') {
-                        // Fetch arrived appointments for visual preview
-                        const arrivedQuery = query(
-                            collection(firestore, "appointments"),
-                            where("doctor", "==", selectedDoctor.name),
-                            where("date", "==", getClinicDateString(getClinicNow())),
-                            where("status", "==", "Arrived")
-                        );
-                        const arrivedSnap = await getDocs(arrivedQuery);
-                        const arrivedApps = arrivedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
-
-                        // Simulation including current candidate
-                        const simulationQueue = [...arrivedApps, { name: walkInData.formData.name, status: 'Confirmed', date: getClinicDateString(getClinicNow()) } as any];
-                        const estimates = calculateEstimatedTimes(
-                            simulationQueue,
-                            selectedDoctor,
-                            getClinicNow(),
-                            selectedDoctor.averageConsultingTime || 15
-                        );
-                        const lastEstimate = estimates[estimates.length - 1];
-                        if (lastEstimate) {
-                            adjustedFreshTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-                            visualPatientsAhead = arrivedApps.length;
-                        }
-                    }
 
                     setPatientsAhead(visualPatientsAhead);
                     setEstimatedConsultationTime(adjustedFreshTime);
@@ -964,45 +935,13 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         return;
                     }
 
-                    // Visual Estimate Override for Classic Distribution
-                    let visualEstimatedTime = adjustedEstimatedTime;
-                    let visualPatientsAhead = estimatedDetails.patientsAhead;
-
-                    if (clinicData?.tokenDistribution !== 'advanced') {
-                        // Fetch arrived appointments for visual preview
-                        const arrivedQuery = query(
-                            collection(firestore, "appointments"),
-                            where("doctor", "==", selectedDoctor.name),
-                            where("date", "==", getClinicDateString(now)),
-                            where("status", "==", "Arrived")
-                        );
-                        const arrivedSnap = await getDocs(arrivedQuery);
-                        const arrivedApps = arrivedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
-
-                        // Simulation including current candidate
-                        const simulationQueue = [...arrivedApps, { name: data.name, status: 'Confirmed', date: getClinicDateString(now) } as any];
-                        const estimates = calculateEstimatedTimes(
-                            simulationQueue,
-                            selectedDoctor,
-                            getClinicNow(),
-                            selectedDoctor.averageConsultingTime || 15
-                        );
-                        const lastEstimate = estimates[estimates.length - 1];
-                        if (lastEstimate) {
-                            visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-                            visualPatientsAhead = arrivedApps.length;
-
-                            console.log('[PF:ESTIMATE] Applying visual estimate override (Classic):', {
-                                original: getClinicTimeString(adjustedEstimatedTime),
-                                visual: lastEstimate.estimatedTime,
-                                visualPatientsAhead
-                            });
-                        }
-                    }
+                    // Visual Estimate Override for Classic Distribution - REMOVED
+                    // We now trust the backend calculateWalkInDetails to provide the correct estimate for both Classic and Advanced modes.
+                    // The previous logic incorrectly filtered for only 'Arrived' patients, ignoring other valid statuses.
 
                     setWalkInData({ patientId: patientForAppointmentId, formData: data, estimatedDetails });
-                    setPatientsAhead(visualPatientsAhead);
-                    setEstimatedConsultationTime(visualEstimatedTime);
+                    setPatientsAhead(estimatedDetails.patientsAhead);
+                    setEstimatedConsultationTime(adjustedEstimatedTime);
                     setEstimatedDelay(0);
                     setHasRecalculated(false); // Reset recalculation flag for new booking
                     setIsEstimateModalOpen(true);
@@ -1512,9 +1451,9 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         <DialogDescription className="text-center">
                             {t.patientForm.walkInEstimate}
                             {hasRecalculated && (
-                                <p className="text-green-600 text-xs mt-2 font-medium">
+                                <div className="text-green-600 text-xs mt-2 font-medium">
                                     ✓ Updated estimate (as of {format(new Date(), 'hh:mm a')})
-                                </p>
+                                </div>
                             )}
                         </DialogDescription>
                     </DialogHeader>

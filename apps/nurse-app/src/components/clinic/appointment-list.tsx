@@ -24,7 +24,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { useRouter } from 'next/navigation';
 
 
-const SWIPE_COOLDOWN_MS = 2 * 60 * 1000;
+const SWIPE_COOLDOWN_MS = 30 * 1000;
 
 type SwipeState = { id: string | null; startX: number; currentX: number; width: number };
 const createSwipeState = (): SwipeState => ({ id: null, startX: 0, currentX: 0, width: 0 });
@@ -301,7 +301,7 @@ function AppointmentList({
           <div className="space-y-3 p-2">
             {swipeEnabled && isSwipeOnCooldown && (
               <div className="text-xs text-amber-600 font-medium px-2">
-                Swipe-to-complete is temporarily disabled for 2 minutes after each completion.
+                Swipe-to-complete is temporarily disabled for 30 seconds after each completion.
               </div>
             )}
 
@@ -458,24 +458,6 @@ function AppointmentList({
                                   </div>
                                 </div>
 
-                                {isPhoneMode && (
-                                  <div className="mt-2 text-white">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (appt.communicationPhone) {
-                                          window.location.href = `tel:${appt.communicationPhone}`;
-                                        }
-                                      }}
-                                    >
-                                      <Phone className="h-3 w-3" />
-                                      <span>{appt.communicationPhone || 'No Number'}</span>
-                                    </Button>
-                                  </div>
-                                )}
                               </div>
 
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -485,6 +467,25 @@ function AppointmentList({
                                   </p>
                                 )}
                               </div>
+
+                              {isPhoneMode && (
+                                <div className="mt-4 pt-4 border-t border-slate-100">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full h-10 gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200 font-bold"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (appt.communicationPhone) {
+                                        window.location.href = `tel:${appt.communicationPhone}`;
+                                      }
+                                    }}
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                    <span>Call {appt.communicationPhone || 'No Number'}</span>
+                                  </Button>
+                                </div>
+                              )}
                             </div>
                           </div>
 

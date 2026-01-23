@@ -10,6 +10,7 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -41,7 +42,8 @@ import Link from "next/link";
 import { useAuth } from "@/firebase";
 
 type EnrichedPatient = Patient & {
-    lastVisit?: Appointment;
+  lastVisit?: Appointment;
+  isLinkPending?: boolean;
 }
 
 export default function PatientsPage() {
@@ -76,34 +78,34 @@ export default function PatientsPage() {
         const allAppointmentIds = clinicPatients.flatMap(p => p.visitHistory || []);
         let allAppointments: Record<string, Appointment> = {};
 
-        if(allAppointmentIds.length > 0) {
-            // Firestore 'in' queries are limited to 30 items, so we might need to batch
-            const appointmentChunks = [];
-            for (let i = 0; i < allAppointmentIds.length; i += 30) {
-                appointmentChunks.push(allAppointmentIds.slice(i, i + 30));
-            }
-            
-            const appointmentPromises = appointmentChunks.map(chunk => 
-                getDocs(query(collection(db, 'appointments'), where(documentId(), 'in', chunk)))
-            );
+        if (allAppointmentIds.length > 0) {
+          // Firestore 'in' queries are limited to 30 items, so we might need to batch
+          const appointmentChunks = [];
+          for (let i = 0; i < allAppointmentIds.length; i += 30) {
+            appointmentChunks.push(allAppointmentIds.slice(i, i + 30));
+          }
 
-            const appointmentSnapshots = await Promise.all(appointmentPromises);
-            appointmentSnapshots.forEach(snapshot => {
-                snapshot.docs.forEach(doc => {
-                    allAppointments[doc.id] = doc.data() as Appointment;
-                });
+          const appointmentPromises = appointmentChunks.map(chunk =>
+            getDocs(query(collection(db, 'appointments'), where(documentId(), 'in', chunk)))
+          );
+
+          const appointmentSnapshots = await Promise.all(appointmentPromises);
+          appointmentSnapshots.forEach(snapshot => {
+            snapshot.docs.forEach(doc => {
+              allAppointments[doc.id] = doc.data() as Appointment;
             });
+          });
         }
-        
+
         const enrichedPatients = clinicPatients.map(patient => {
-            if (patient.visitHistory && patient.visitHistory.length > 0) {
-                const lastAppointmentId = patient.visitHistory[patient.visitHistory.length - 1];
-                return {
-                    ...patient,
-                    lastVisit: allAppointments[lastAppointmentId]
-                };
-            }
-            return patient;
+          if (patient.visitHistory && patient.visitHistory.length > 0) {
+            const lastAppointmentId = patient.visitHistory[patient.visitHistory.length - 1];
+            return {
+              ...patient,
+              lastVisit: allAppointments[lastAppointmentId]
+            };
+          }
+          return patient;
         });
 
         setPatients(enrichedPatients);
@@ -126,8 +128,8 @@ export default function PatientsPage() {
 
   const totalPages = Math.ceil(filteredPatients.length / patientsPerPage);
   const currentPatients = filteredPatients.slice(
-      (currentPage - 1) * patientsPerPage,
-      currentPage * patientsPerPage
+    (currentPage - 1) * patientsPerPage,
+    currentPage * patientsPerPage
   );
 
 
@@ -184,7 +186,7 @@ export default function PatientsPage() {
       if (currentPage < totalPages - 2) {
         pageNumbers.push(<span key="end-ellipsis" className="text-muted-foreground">...</span>);
       }
-       pageNumbers.push(
+      pageNumbers.push(
         <Button
           key={totalPages}
           variant="outline"
@@ -209,16 +211,16 @@ export default function PatientsPage() {
             <CardHeader>
               <CardTitle>Patients</CardTitle>
               <div className="mt-4 flex justify-between items-center">
-                  <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                          type="search"
-                          placeholder="Search patients by name or phone..."
-                          className="w-full rounded-lg bg-background pl-8"
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                  </div>
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Search patients by name or phone..."
+                    className="w-full rounded-lg bg-background pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -250,7 +252,7 @@ export default function PatientsPage() {
                         Last Visit <ArrowUpDown className="ml-2 h-4 w-4" />
                       </Button>
                     </TableHead>
-                     <TableHead>
+                    <TableHead>
                       <Button variant="ghost" size="sm">
                         Last Doctor <ArrowUpDown className="ml-2 h-4 w-4" />
                       </Button>
@@ -274,46 +276,56 @@ export default function PatientsPage() {
                   ) : (
                     currentPatients.map((patient) => {
                       return (
-                      <TableRow key={patient.id}>
-                        <TableCell className="font-medium">{patient.name}</TableCell>
-                        <TableCell>{patient.age}</TableCell>
-                        <TableCell>{patient.sex}</TableCell>
-                        <TableCell>{patient.phone}</TableCell>
-                        <TableCell>{patient.lastVisit ? patient.lastVisit.date : 'N/A'}</TableCell>
-                        <TableCell>{patient.lastVisit ? patient.lastVisit.doctor : 'N/A'}</TableCell>
-                        <TableCell>
-                          <Button asChild variant="link" className="p-0 h-auto text-primary">
-                            <Link href={`/patients/${patient.id}`}>View History</Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )})
+                        <TableRow key={patient.id}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <span>{patient.name || '(No Name)'}</span>
+                              {patient.isLinkPending && (
+                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  Link Sent
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>{patient.age}</TableCell>
+                          <TableCell>{patient.sex}</TableCell>
+                          <TableCell>{patient.phone}</TableCell>
+                          <TableCell>{patient.lastVisit ? patient.lastVisit.date : 'N/A'}</TableCell>
+                          <TableCell>{patient.lastVisit ? patient.lastVisit.doctor : 'N/A'}</TableCell>
+                          <TableCell>
+                            <Button asChild variant="link" className="p-0 h-auto text-primary">
+                              <Link href={`/patients/${patient.id}`}>View History</Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
-               <div className="flex items-center justify-between mt-4">
+              <div className="flex items-center justify-between mt-4">
                 <div className="text-sm text-muted-foreground">
-                    Showing{" "}
-                    <Select value={`${patientsPerPage}`} onValueChange={(value) => setPatientsPerPage(Number(value))}>
-                        <SelectTrigger className="inline-flex w-auto h-auto p-1 text-sm">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="10">10</SelectItem>
-                            <SelectItem value="20">20</SelectItem>
-                            <SelectItem value="50">50</SelectItem>
-                        </SelectContent>
-                    </Select>{" "}
-                    out of {filteredPatients.length}
+                  Showing{" "}
+                  <Select value={`${patientsPerPage}`} onValueChange={(value) => setPatientsPerPage(Number(value))}>
+                    <SelectTrigger className="inline-flex w-auto h-auto p-1 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>{" "}
+                  out of {filteredPatients.length}
                 </div>
-                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>
-                        <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    {renderPageNumbers()}
-                    <Button variant="outline" size="icon" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>
-                        <ChevronRight className="h-4 w-4" />
-                    </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {renderPageNumbers()}
+                  <Button variant="outline" size="icon" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </CardContent>

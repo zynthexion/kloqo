@@ -40,7 +40,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChevronLeft, FileDown, Printer, Search, MoreHorizontal, Eye, Edit, Trash2, ChevronRight, Stethoscope, Phone, Footprints, Loader2, Link as LinkIcon, Crown, UserCheck, UserPlus, Users, Plus, X, Clock, Calendar as CalendarLucide, CheckCircle2, Info, Send, MessageSquare, Smartphone, Hourglass, Repeat, SkipForward, AlertTriangle } from "lucide-react";
+import { ChevronLeft, FileDown, Printer, Search, MoreHorizontal, Eye, Edit, Trash2, ChevronRight, Stethoscope, Phone, Footprints, Loader2, Link as LinkIcon, Crown, UserCheck, UserPlus, Users, Plus, X, Clock, Calendar as CalendarLucide, CheckCircle2, Info, Send, MessageSquare, Smartphone, Hourglass, Repeat, SkipForward, AlertTriangle, Star } from "lucide-react";
 import { DateRange } from "react-day-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -342,6 +342,7 @@ export default function AppointmentsPage() {
   const [appointmentToCancel, setAppointmentToCancel] = useState<Appointment | null>(null);
   const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
   const [appointmentToComplete, setAppointmentToComplete] = useState<Appointment | null>(null);
+  const [appointmentToPrioritize, setAppointmentToPrioritize] = useState<Appointment | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
   const [showVisualView, setShowVisualView] = useState(false);
@@ -3291,6 +3292,55 @@ export default function AppointmentsPage() {
     return !form.formState.isValid || isAdvanceCapacityReached;
   }, [isPending, appointmentType, watchedPatientName, walkInEstimate, isCalculatingEstimate, form.formState.isValid, isAdvanceCapacityReached]);
 
+  const handleTogglePriority = (appointment: Appointment) => {
+    // If we are removing priority, no limit check needed
+    if (appointment.isPriority) {
+      setAppointmentToPrioritize(appointment);
+      return;
+    }
+
+    // If adding priority, check limit
+    const doctorQueue = queuesByDoctor[appointment.doctor];
+    if (doctorQueue?.priorityQueue && doctorQueue.priorityQueue.length >= 3) {
+      toast({
+        variant: "destructive",
+        title: "Priority Queue Full",
+        description: "There are already 3 patients in the priority queue. Please remove one before adding another.",
+      });
+      return;
+    }
+
+    setAppointmentToPrioritize(appointment);
+  };
+
+  const confirmPrioritize = async () => {
+    if (!appointmentToPrioritize || !clinicId) return;
+
+    try {
+      const isAddingPriority = !appointmentToPrioritize.isPriority;
+      const updates: any = {
+        isPriority: isAddingPriority,
+        priorityAt: isAddingPriority ? serverTimestamp() : null
+      };
+
+      await updateDoc(doc(db, "appointments", appointmentToPrioritize.id), updates);
+
+      toast({
+        title: isAddingPriority ? "Marked as Priority" : "Removed from Priority",
+        description: `Patient ${appointmentToPrioritize.patientName} has been ${isAddingPriority ? "added to" : "removed from"} the priority queue.`,
+      });
+    } catch (error) {
+      console.error("Error updating priority status:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update priority status.",
+      });
+    } finally {
+      setAppointmentToPrioritize(null);
+    }
+  };
+
   return (
     <>
       <div className="flex-1 overflow-auto">
@@ -4388,19 +4438,28 @@ export default function AppointmentsPage() {
                                           <TableRow
                                             key={`${appointment.id}-${index}`}
                                             className={cn(
-                                              appointment.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50"
+                                              appointment.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50",
+                                              appointment.isPriority && "bg-amber-50 dark:bg-amber-900/20 border-l-4 border-l-amber-500"
                                             )}
                                           >
                                             <TableCell className="font-medium">
                                               <div className="flex flex-col gap-1">
                                                 <div className="flex items-center gap-2">
-                                                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                                                    {index + 1}
+                                                  <div className={cn(
+                                                    "flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold",
+                                                    appointment.isPriority ? "bg-amber-500 text-white" : "bg-primary text-primary-foreground"
+                                                  )}>
+                                                    {appointment.isPriority ? <Star className="h-3 w-3 fill-current" /> : (index + 1)}
                                                   </div>
                                                   {appointment.patientName}
                                                   {appointment.skippedAt && (
                                                     <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
                                                       Late
+                                                    </Badge>
+                                                  )}
+                                                  {appointment.isPriority && (
+                                                    <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-100 border-amber-300 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                      Priority
                                                     </Badge>
                                                   )}
                                                 </div>
@@ -4422,6 +4481,27 @@ export default function AppointmentsPage() {
                                             <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
                                             <TableCell className="text-right">
                                               <div className="flex justify-end gap-2">
+                                                <TooltipProvider>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className={cn(
+                                                          "p-0 h-auto hover:text-amber-600",
+                                                          appointment.isPriority ? "text-amber-500" : "text-muted-foreground"
+                                                        )}
+                                                        onClick={() => handleTogglePriority(appointment)}
+                                                      >
+                                                        <Star className={cn("h-5 w-5", appointment.isPriority && "fill-current")} />
+                                                      </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                      <p>{appointment.isPriority ? "Remove Priority" : "Mark as Priority"}</p>
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                </TooltipProvider>
+
                                                 {index === 0 && (
                                                   <TooltipProvider>
                                                     <Tooltip>
@@ -4450,6 +4530,26 @@ export default function AppointmentsPage() {
                                                     </Tooltip>
                                                   </TooltipProvider>
                                                 )}
+                                                <TooltipProvider>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className={cn(
+                                                          "p-0 h-auto hover:text-amber-600",
+                                                          appointment.isPriority ? "text-amber-500" : "text-muted-foreground"
+                                                        )}
+                                                        onClick={() => handleTogglePriority(appointment)}
+                                                      >
+                                                        <Star className={cn("h-5 w-5", appointment.isPriority && "fill-current")} />
+                                                      </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                      <p>{appointment.isPriority ? "Remove Priority" : "Mark as Priority"}</p>
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                </TooltipProvider>
                                                 <TooltipProvider>
                                                   <Tooltip>
                                                     <TooltipTrigger asChild>
@@ -4702,6 +4802,36 @@ export default function AppointmentsPage() {
               className="bg-amber-600 hover:bg-amber-700"
             >
               Force Book Patient
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Priority Confirmation Dialog */}
+      <AlertDialog open={!!appointmentToPrioritize} onOpenChange={(open) => {
+        if (!open) {
+          setTimeout(() => setAppointmentToPrioritize(null), 200);
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+              {appointmentToPrioritize?.isPriority ? "Remove Priority Status?" : "Mark as Priority Patient?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {appointmentToPrioritize?.isPriority
+                ? `Are you sure you want to remove priority status from "${appointmentToPrioritize?.patientName}"? They will return to their regular queue position.`
+                : `Are you sure you want to mark "${appointmentToPrioritize?.patientName}" as a priority patient? They will be moved to the top of the queue.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={confirmPrioritize}
+            >
+              Confirm
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

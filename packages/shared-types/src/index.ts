@@ -118,6 +118,8 @@ export type Appointment = {
     isRescheduled?: boolean; // True if appointment was cancelled due to a reschedule or is the result of a reschedule
     isInBuffer?: boolean;
     bufferedAt?: any;
+    isPriority?: boolean;
+    priorityAt?: any;
     confirmedAt?: any;
     updatedAt?: any;
 };

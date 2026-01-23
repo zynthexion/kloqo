@@ -615,7 +615,7 @@ function BookAppointmentContent() {
 
             // For same-day bookings, filter out slots within 1-hour window
             if (isSameDay(selectedDate, currentTime)) {
-                const oneHourFromNow = addMinutes(now, 60);
+                const oneHourFromNow = addMinutes(now, 30);
                 // Filter out slots that are within 1 hour from now
                 // Never show any slots (regular or cancelled) inside the 1-hour window
                 allSlotsWithStatus = allSlotsWithStatus.filter(slot => {
@@ -891,13 +891,13 @@ function BookAppointmentContent() {
         // Validate that the selected slot is outside the 1-hour window for A bookings
         const now = currentTime;
         if (isSameDay(selectedDate, now)) {
-            const oneHourFromNow = addMinutes(now, 60);
+            const oneHourFromNow = addMinutes(now, 30);
             // If slot is within 1 hour from now, don't allow proceeding
             if (isBefore(selectedSlot, oneHourFromNow)) {
                 toast({
                     variant: "destructive",
                     title: t.bookAppointment.error || "Invalid Slot",
-                    description: "Advanced booking slots must be at least 1 hour from now. Please select a different time slot.",
+                    description: "Advanced booking slots must be at least 30 minutes from now. Please select a different time slot.",
                 });
                 setSelectedSlot(null); // Clear invalid selection
                 return;
@@ -999,13 +999,13 @@ function BookAppointmentContent() {
         // Validate that the selected slot is outside the 1-hour window
         const now = currentTime;
         if (isSameDay(selectedDate, now)) {
-            const oneHourFromNow = addMinutes(now, 60);
+            const oneHourFromNow = addMinutes(now, 30);
             // If slot is within 1 hour from now, don't allow selection
             if (isBefore(slot, oneHourFromNow)) {
                 toast({
                     variant: "destructive",
                     title: t.bookAppointment.error || "Invalid Slot",
-                    description: "Advanced booking slots must be at least 1 hour from now.",
+                    description: "Advanced booking slots must be at least 30 minutes from now.",
                 });
                 return;
             }
@@ -1152,7 +1152,7 @@ function BookAppointmentContent() {
                         currentGlobalIndex++;
                         return; // Skip past slots
                     }
-                    const oneHourFromNow = addMinutes(now, 60);
+                    const oneHourFromNow = addMinutes(now, 30);
 
                     // Hide slot if it's within 1 hour from now (slot < oneHourFromNow)
                     // Show slots that are at or after 1 hour from now (slot >= oneHourFromNow)

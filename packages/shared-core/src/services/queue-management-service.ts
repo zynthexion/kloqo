@@ -11,6 +11,7 @@ import { compareAppointments, compareAppointmentsClassic } from './appointment-s
 export interface QueueState {
     arrivedQueue: Appointment[];      // Confirmed appointments sorted by appointment time
     bufferQueue: Appointment[];        // Top 2 from arrived queue (max 2)
+    priorityQueue?: Appointment[];     // Priority appointments (Top of everything)
     skippedQueue: Appointment[];       // Skipped appointments
     currentConsultation: Appointment | null; // Currently consulting (if any)
     consultationCount: number;         // Count of completed consultations for this doctor/session
@@ -132,11 +133,27 @@ export async function computeQueues(
         }
     };
 
-    const arrivedQueue = relevantAppointments
-        .filter(apt => apt.status === 'Confirmed')
+    const allArrived = relevantAppointments
+        .filter(apt => apt.status === 'Confirmed');
+
+    // Separate Priority Queue
+    const priorityQueue = allArrived
+        .filter(apt => apt.isPriority)
+        .sort((a, b) => {
+            // Sort by priorityAt (FIFO)
+            const pA = a.priorityAt?.seconds || 0;
+            const pB = b.priorityAt?.seconds || 0;
+            return pA - pB;
+        });
+
+    // Standard Arrived Queue (excludes priority)
+    const arrivedQueue = allArrived
+        .filter(apt => !apt.isPriority)
         .sort(tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
 
-    // Buffer Queue: Appointments explicitly marked as being in the buffer
+    // Buffer Queue: Appointments explicitly marked as being in the buffer (excludes priority)
+    // Note: Priority patients effectively "skip" the buffer queue visually, but if they were in buffer before,
+    // they are now in priorityQueue. We only show non-priority in buffer queue.
     const bufferQueue = arrivedQueue.filter(apt => apt.isInBuffer);
 
     // Skipped Queue: Skipped appointments sorted by shared logic
@@ -144,8 +161,16 @@ export async function computeQueues(
         .filter(apt => apt.status === 'Skipped')
         .sort(compareAppointments);
 
-    // Current Consultation: First appointment in Buffer Queue (if any)
-    const currentConsultation = bufferQueue.length > 0 ? bufferQueue[0] : null;
+    // Current Consultation:
+    // 1. Priority Queue Top
+    // 2. Buffer Queue Top
+    // 3. Arrived Queue Top (fallback if buffer specific logic isn't used)
+    let currentConsultation: Appointment | null = null;
+    if (priorityQueue.length > 0) {
+        currentConsultation = priorityQueue[0];
+    } else if (bufferQueue.length > 0) {
+        currentConsultation = bufferQueue[0];
+    }
 
     // Next Break Duration: Calculate duration of the active break block (if any)
     // that appears in this session AND is currently active (current time is within break period)
@@ -193,6 +218,7 @@ export async function computeQueues(
     return {
         arrivedQueue,
         bufferQueue,
+        priorityQueue,
         skippedQueue,
         currentConsultation,
         consultationCount,

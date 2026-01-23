@@ -7,7 +7,7 @@ import type { Appointment } from '@/lib/types';
 import { parse, subMinutes, format, addMinutes, isAfter } from 'date-fns';
 import { cn, getDisplayTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { User, XCircle, Edit, Check, CheckCircle2, SkipForward, Phone } from 'lucide-react';
+import { User, XCircle, Edit, Check, CheckCircle2, SkipForward, Phone, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -46,6 +46,7 @@ type AppointmentListProps = {
   averageConsultingTime?: number;
   estimatedTimes?: Array<{ appointmentId: string; estimatedTime: string; isFirst: boolean }>;
   breaks?: Array<{ id: string; startTime: string; endTime: string; note?: string }>;
+  onTogglePriority?: (appointment: Appointment) => void;
 };
 
 // Helper function to parse time
@@ -77,7 +78,8 @@ function AppointmentList({
   showEstimatedTime = false,
   averageConsultingTime = 15,
   estimatedTimes = [],
-  breaks = []
+  breaks = [],
+  onTogglePriority
 }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
@@ -351,8 +353,9 @@ function AppointmentList({
                         "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
                         isSwiping && 'text-white',
                         !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
-                        !isSwiping && appt.status === 'Confirmed' && "bg-green-50 border-green-200",
-                        !isSwiping && isBuffer && "bg-blue-50/80 border-blue-400",
+                        !isSwiping && appt.status === 'Confirmed' && !appt.isPriority && "bg-green-50 border-green-200",
+                        !isSwiping && appt.isPriority && "bg-amber-50 border-amber-400 shadow-md ring-1 ring-amber-400/50",
+                        !isSwiping && isBuffer && !appt.isPriority && "bg-blue-50/80 border-blue-400",
                         !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
                       )}
                       style={getSwipeStyle(appt.id)}
@@ -371,10 +374,11 @@ function AppointmentList({
                           <div className="flex items-start gap-4 flex-1">
                             <div className="flex-1">
                               <div className="flex justify-between items-center">
+                                {/* ... existing time logic ... */}
                                 {(() => {
                                   if (showEstimatedTime) {
+                                    /* ... existing estimated time logic ... */
                                     const est = estimatedTimes.find(e => e.appointmentId === appt.id);
-                                    // Hide 1st person's time if doctor is In
                                     if (est?.isFirst && clinicStatus === 'In') return null;
 
                                     const displayTime = est?.estimatedTime || (index === 0 ? '' : format(addMinutes(currentTime, (averageConsultingTime || 15) * index), 'hh:mm a'));
@@ -396,6 +400,12 @@ function AppointmentList({
                                   );
                                 })()}
                                 {showStatusBadge && getStatusBadge(appt)}
+                                {appt.isPriority && (
+                                  <Badge variant="default" className="ml-2 bg-amber-500 text-white hover:bg-amber-600 border-amber-600 flex gap-1 items-center">
+                                    <Star className="h-3 w-3 fill-current" />
+                                    Priority
+                                  </Badge>
+                                )}
                                 {!showStatusBadge && appt.status === 'Skipped' && (
                                   <Badge variant="destructive" className="ml-2 bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600">Late</Badge>
                                 )}
@@ -501,6 +511,27 @@ function AppointmentList({
                                   <p>Edit Appointment</p>
                                 </TooltipContent>
                               </Tooltip>
+                              {onTogglePriority && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className={cn(
+                                        "h-8 w-8",
+                                        appt.isPriority ? "text-amber-500 hover:text-amber-600" : "text-gray-400 hover:text-amber-500"
+                                      )}
+                                      onClick={() => onTogglePriority(appt)}
+                                      disabled={isClinicOut}
+                                    >
+                                      <Star className={cn("h-5 w-5", appt.isPriority && "fill-current")} />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{appt.isPriority ? "Remove Priority" : "Mark as Priority"}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                               {onUpdateStatus && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>

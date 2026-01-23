@@ -711,7 +711,7 @@ function BookAppointmentContent() {
 
             // For same-day bookings, filter out slots within 1-hour window
             if (isSameDay(selectedDate, new Date())) {
-                const bookingBuffer = addMinutes(now, 15);
+                const bookingBuffer = addMinutes(now, 30);
                 const beforeOneHourFilter = allSlotsWithStatus.length;
                 // Filter out slots that are within 1 hour from now
                 // Never show any slots (regular or cancelled) inside the 1-hour window
@@ -987,7 +987,7 @@ function BookAppointmentContent() {
 
                 // Check same-day booking cutoff
                 if (isSameDay(selectedDate, now)) {
-                    const bookingBuffer = addMinutes(now, 15);
+                    const bookingBuffer = addMinutes(now, 30);
                     if (!isBefore(bookingBuffer, slot)) return;
                 }
 

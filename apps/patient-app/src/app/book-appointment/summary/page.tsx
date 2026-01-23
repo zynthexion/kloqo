@@ -516,7 +516,7 @@ function BookingSummaryPage() {
             // Reduce online booking buffer to 30 mins to allow booking slightly sooner, or keep 60 if policy requires
             // User feedback suggests 60 might be too aggressive if breaks overlap. 
             // However, sticking to the existing rule but applied to CORRECT slots resolves the break overlap issue.
-            const oneHourFromNow = addMinutes(now, 60);
+            const oneHourFromNow = addMinutes(now, 30);
 
             // Calculate reserved slots (passed empty set for blockedIndices as loadDoctorAndSlots handles leaves via filtering if implemented, 
             // or we assume loadedSlots are valid. Ideally we'd pass occupied ones too for precise calculation but for basic reserve valid slots is okay)

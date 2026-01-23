@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { Home, Calendar, User, Users, Radio, Clock, ArrowLeft, Loader2, Info, UserCheck, Forward, Hourglass, AlertCircle, CheckCircle2, Phone } from 'lucide-react';
+import { Home, Calendar, User, Users, Radio, Clock, ArrowLeft, Loader2, Info, UserCheck, Forward, Hourglass, AlertCircle, CheckCircle2, Phone, Star } from 'lucide-react';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useUser } from '@/firebase/auth/use-user';
 import { useAppointments } from '@/firebase/firestore/use-appointments';
@@ -1598,6 +1598,10 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         const defaultBadge = { label: appointment.status || 'Status', className: 'bg-gray-100 text-gray-800' };
         if (!yourAppointment) return defaultBadge;
 
+        if (appointment.isPriority) {
+            return { label: t.liveToken?.priority || 'Priority', className: 'bg-amber-100 text-amber-800 border-amber-200 border' };
+        }
+
         if (queueState?.currentConsultation && queueState.currentConsultation.id === appointment.id) {
             return { label: t.liveToken?.inConsultation || 'In Consultation', className: 'bg-green-100 text-green-800' };
         }
@@ -1752,6 +1756,16 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     return (
         <div className="w-full max-w-sm rounded-2xl bg-card text-card-foreground shadow-xl p-6 sm:p-8 space-y-6 text-center">
+            {/* Priority Status Indicator */}
+            {yourAppointment.isPriority && (
+                <div className="flex justify-center mt-2">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-sm font-semibold border border-amber-200">
+                        <Star className="w-4 h-4 fill-amber-800" />
+                        <span>{language === 'ml' ? 'മുൻഗണന' : 'Priority Patient'}</span>
+                    </div>
+                </div>
+            )}
+
             <div className="text-center">
                 <p className="text-muted-foreground">Dr. {yourAppointment.doctor}</p>
                 <p className="text-lg font-semibold">{getLocalizedDepartmentName(yourAppointment.department, language, departments)}</p>
@@ -1948,15 +1962,20 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                         }>
                             <p className="text-sm font-semibold">{t.liveToken.patientsAhead}</p>
                             <p className="text-3xl font-bold">{displayedPatientsAhead}</p>
-                            <Users className="w-5 h-5 text-muted-foreground" />
+                            {displayedPatientsAhead > 0 && yourAppointment.isPriority ? (
+                                <Star className="w-5 h-5 text-amber-600 fill-amber-600" />
+                            ) : (
+                                <Users className="w-5 h-5 text-muted-foreground" />
+                            )}
                         </div>
                     </>
                 )}
 
                 <div className="text-center">
                     <p className="text-sm text-muted-foreground">{t.liveToken.yourToken} ({yourAppointment.patientName})</p>
-                    <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center gap-2">
                         <p className="text-6xl font-bold" style={{ color: 'hsl(var(--token-your))' }}>{yourAppointment.tokenNumber}</p>
+                        {yourAppointment.isPriority && <Star className="w-8 h-8 text-amber-500 fill-amber-500" />}
                     </div>
                 </div>
             </div>

@@ -326,7 +326,7 @@ export function buildCandidateSlots(
   preferredSlotIndex?: number,
   options: CandidateOptions = {}
 ): number[] {
-  const bookingBuffer = addMinutes(now, 15);
+  const bookingBuffer = addMinutes(now, 30);
   const candidates: number[] = [];
 
   // Calculate reserved walk-in slots per session (15% of FUTURE slots only in each session)

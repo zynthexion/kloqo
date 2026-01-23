@@ -209,7 +209,7 @@ function PhoneBookingDetailsContent() {
 
                 const slotDuration = doctor.averageConsultingTime || 15;
                 const extensions = doctor.availabilityExtensions?.[dateStr];
-                const bookingBuffer = addMinutes(now, 15);
+                const bookingBuffer = addMinutes(now, 30);
                 const isCheckToday = isSameDay(checkDate, now);
 
                 let foundSlot: Date | null = null;

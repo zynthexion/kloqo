@@ -264,7 +264,7 @@ function buildCandidateSlots(
   options: CandidateOptions = {},
   blockedIndices: Set<number> = new Set() // New param
 ): number[] {
-  const bookingBuffer = addMinutes(now, 15);
+  const bookingBuffer = addMinutes(now, 30);
   const candidates: number[] = [];
 
   // Calculate reserved walk-in slots per session (15% of FUTURE slots only in each session)
@@ -2835,7 +2835,16 @@ export async function calculateSkippedTokenRejoinSlot(
  * Tertiary sort: numericToken (ascending)
  */
 export function compareAppointments(a: Appointment, b: Appointment): number {
-  // 1. Buffer priority
+  // 1. Priority check (Top Priority)
+  if (a.isPriority && !b.isPriority) return -1;
+  if (!a.isPriority && b.isPriority) return 1;
+  if (a.isPriority && b.isPriority) {
+    const pA = a.priorityAt?.seconds || 0;
+    const pB = b.priorityAt?.seconds || 0;
+    return pA - pB;
+  }
+
+  // 2. Buffer priority
   if (a.isInBuffer && !b.isInBuffer) return -1;
   if (!a.isInBuffer && b.isInBuffer) return 1;
 
@@ -2888,6 +2897,15 @@ export function compareAppointments(a: Appointment, b: Appointment): number {
  * Secondary sort: original scheduled time (via compareAppointments)
  */
 export function compareAppointmentsClassic(a: Appointment, b: Appointment): number {
+  // 1. Priority check
+  if (a.isPriority && !b.isPriority) return -1;
+  if (!a.isPriority && b.isPriority) return 1;
+  if (a.isPriority && b.isPriority) {
+    const pA = (a.priorityAt?.seconds || 0) * 1000;
+    const pB = (b.priorityAt?.seconds || 0) * 1000;
+    return pA - pB;
+  }
+
   const getMillis = (val: any) => {
     if (!val) return 0;
     if (typeof val.toMillis === 'function') return val.toMillis();
@@ -2898,6 +2916,7 @@ export function compareAppointmentsClassic(a: Appointment, b: Appointment): numb
 
   const confirmedA = getMillis(a.confirmedAt);
   const confirmedB = getMillis(b.confirmedAt);
+  // ... existing logic
 
   if (confirmedA && confirmedB) {
     if (confirmedA !== confirmedB) {

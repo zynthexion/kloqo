@@ -508,6 +508,50 @@ export default function ClinicDashboard() {
     });
   };
 
+  const [appointmentToPrioritize, setAppointmentToPrioritize] = useState<Appointment | null>(null);
+
+  const handleTogglePriority = async (appointment: Appointment) => {
+    if (appointment.isPriority) {
+      // Remove priority immediately
+      try {
+        await updateDoc(doc(db, 'appointments', appointment.id), {
+          isPriority: false,
+          priorityAt: null
+        });
+        toast({ title: "Priority Removed", description: `${appointment.patientName} is no longer priority.` });
+      } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Failed to remove priority." });
+      }
+    } else {
+      // Check limit
+      const currentPriorityCount = appointments.filter(a => a.isPriority && a.status === 'Confirmed').length;
+      if (currentPriorityCount >= 3) {
+        toast({
+          variant: "destructive",
+          title: "Priority Queue Full",
+          description: "Maximum 3 priority patients allowed. Please remove one before adding another."
+        });
+        return;
+      }
+      // Open confirmation
+      setAppointmentToPrioritize(appointment);
+    }
+  };
+
+  const confirmPrioritize = async () => {
+    if (!appointmentToPrioritize) return;
+    try {
+      await updateDoc(doc(db, 'appointments', appointmentToPrioritize.id), {
+        isPriority: true,
+        priorityAt: serverTimestamp()
+      });
+      toast({ title: "Priority Added", description: `${appointmentToPrioritize.patientName} marked as priority.` });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to set priority." });
+    }
+    setAppointmentToPrioritize(null);
+  };
+
   const filteredAppointments = useMemo(() => {
     let filtered = appointments;
     if (searchTerm.trim()) {
@@ -684,6 +728,7 @@ export default function ClinicDashboard() {
                 onUpdateStatus={handleUpdateStatus}
                 onRejoinQueue={handleRejoinQueue}
                 onAddToQueue={setAppointmentToAddToQueue}
+                onTogglePriority={handleTogglePriority}
                 showTopRightActions={isAppointmentsPage}
                 clinicStatus={isAppointmentsPage ? 'In' : (clinicStatus === 'in' ? 'In' : 'Out')}
                 currentTime={currentTime}
@@ -697,6 +742,7 @@ export default function ClinicDashboard() {
                 onUpdateStatus={handleUpdateStatus}
                 onRejoinQueue={handleRejoinQueue}
                 onAddToQueue={setAppointmentToAddToQueue}
+                onTogglePriority={handleTogglePriority}
                 showTopRightActions={isAppointmentsPage}
                 clinicStatus={isAppointmentsPage ? 'In' : (clinicStatus === 'in' ? 'In' : 'Out')}
                 currentTime={currentTime}
@@ -727,6 +773,22 @@ export default function ClinicDashboard() {
               }}
             >
               Yes, Confirm Arrival
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!appointmentToPrioritize} onOpenChange={(open) => !open && setAppointmentToPrioritize(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark as Priority?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will move {appointmentToPrioritize?.patientName} to the TOP of the queue, above all other patients.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-amber-500 hover:bg-amber-600 text-white" onClick={confirmPrioritize}>
+              Yes, Mark as Priority
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -2200,6 +2200,13 @@ export async function calculateWalkInDetails(
       console.log('[FORCE BOOK DEBUG] Overflow calculation:', { lastSlotIndex: slots.length - 1, forceRelativeVals, diff, slotDuration, forceTime });
     }
 
+    // FIX: If force time is in the past (e.g. Session ended), clamp to 'now'
+    // This handles "Overtime" logic where we book into the current moment
+    if (isBefore(forceTime, now)) {
+      console.log('[FORCE BOOK DEBUG] Force time is past, clamping to NOW:', forceTime, '->', now);
+      forceTime = now;
+    }
+
     return {
       estimatedTime: forceTime,
       patientsAhead: activeWalkIns.length, // approximation
@@ -2364,10 +2371,16 @@ export async function calculateWalkInDetails(
         status: 'Confirmed',
         date: getClinicDateString(now),
         time: getClinicTimeString(now),
+        sessionIndex: targetSessionIndex !== -1 ? targetSessionIndex : undefined, // Attach inferred session index
         doctor: doctor.name,
         clinicId: doctor.clinicId
       } as Appointment
-    ];
+    ].sort((a, b) => {
+      // Sort by time to ensure chronological processing
+      const timeA = parseClinicTime(a.time, now);
+      const timeB = parseClinicTime(b.time, now);
+      return timeA.getTime() - timeB.getTime();
+    });
 
     // Sort simulation queue by time for Classic FIFO
     simulationQueue.sort((a, b) => {

@@ -474,11 +474,71 @@ function WalkInRegistrationContent() {
       let details: any;
 
       try {
+        // Correctly identify the target session index
+        let targetSessionIndex = 0;
+        const dayOfWeek = format(currentTime, 'EEEE');
+        const todaysAvailability = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
+
+        if (todaysAvailability?.timeSlots) {
+          // Find the current or next active session
+          const activeSession = todaysAvailability.timeSlots.findIndex((session, index) => {
+            const startTime = parseTime(session.from, currentTime);
+            const endTime = parseTime(session.to, currentTime);
+            // Open 30 mins before session start
+            const openTime = subMinutes(startTime, 30);
+
+            // If it's the last session, extend to check overflow? 
+            // Better logic: Find the first session where "now < end" (future or current)
+            // Or if in overtime of previous session?
+
+            // Simple robust logic: Find first session that hasn't ended significantly ago
+            // OR if we are in the gap before it.
+
+            // Check if we are inside or before this session
+            // If we are after this session, we shouldn't target it unless it's overtime.
+
+            // Let's use the same logic as isDoctorConsultingNow but simpler:
+            // Find the session that "owns" this time block.
+
+            if (isBefore(currentTime, openTime)) return true; // Future session
+            if (isBefore(currentTime, endTime)) return true; // Current session
+
+            // Overtime check: if we are after end, but it's the *last* session?
+            // Or if active appointments exist?
+            // For now, let's pick the first session that ends AFTER now.
+            return false;
+          });
+
+          if (activeSession !== -1) {
+            targetSessionIndex = activeSession;
+          } else {
+            // If all sessions ended, maybe target the last one for overtime?
+            // Or leave as 0? 
+            // If we are at 7:36 PM and sessions were 5:30-6:30 and 9:30-10:30.
+            // 5:30-6:30 ended. 7:36 > 6:30.
+            // 9:30-10:30 is future. 7:36 < 9:30 (and < 9:00 open time).
+            // So findIndex will return index of 9:30 session (1).
+            // So targetSessionIndex = 1. Correct.
+
+            // What if 10:45 PM? Both ended.
+            // activeSession = -1. 
+            // If Overtime is valid, we might want the last one?
+            // Let's stick to -1 fallback to last session if current is late?
+            if (todaysAvailability.timeSlots.length > 0) {
+              const lastIdx = todaysAvailability.timeSlots.length - 1;
+              const lastEnd = parseTime(todaysAvailability.timeSlots[lastIdx].to, currentTime);
+              if (isAfter(currentTime, lastEnd)) {
+                targetSessionIndex = lastIdx;
+              }
+            }
+          }
+        }
+
         details = await calculateWalkInDetails(
           db,
           doctor,
           walkInTokenAllotment,
-          0,
+          targetSessionIndex, // Use calculated index
           false // Initially try without force booking
         );
         estimatedTime = details.estimatedTime;
@@ -812,20 +872,9 @@ function WalkInRegistrationContent() {
       let visualEstimatedTime = estimatedTime;
       let visualPatientsAhead = patientsAhead;
 
-      if (clinicDetails?.tokenDistribution !== 'advanced') {
-        const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as Appointment];
-        const estimates = calculateEstimatedTimes(
-          simulationQueue,
-          doctor,
-          getClinicNow(),
-          doctor.averageConsultingTime || 15
-        );
-        const lastEstimate = estimates[estimates.length - 1];
-        if (lastEstimate) {
-          visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-          visualPatientsAhead = arrivedAppointments.length;
-        }
-      }
+      // REMOVED REDUNDANT OVERRIDE
+      // Ideally, calculateWalkInDetails returns the correct estimatedTime even for Classic mode
+      // which includes proper sorting and session logic.
 
       const previewAppointment: UnsavedAppointment = {
         patientId,

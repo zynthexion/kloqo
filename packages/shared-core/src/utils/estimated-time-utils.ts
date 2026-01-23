@@ -30,7 +30,23 @@ export function calculateEstimatedTimes(
     // 1. Determine the reference start time
     let referenceTime: Date;
 
-    if (doctor.consultationStatus === 'In') {
+    // Check if we have a "Backlog" -> Appointments from a past/active session that are still pending
+    // This handles the "Overtime" case where Doctor might be 'Out' or between sessions, 
+    // but we want estimates to start from NOW, not jump to the next session.
+    const firstActiveAppt = appointments.find(a => a.status === 'Pending' || a.status === 'Confirmed' || a.status === 'Skipped');
+    let hasBacklog = false;
+
+    if (firstActiveAppt && availabilityForDay?.timeSlots && typeof firstActiveAppt.sessionIndex === 'number') {
+        const session = availabilityForDay.timeSlots[firstActiveAppt.sessionIndex];
+        if (session) {
+            const sessionStart = parseClinicTime(session.from, currentTime);
+            // If the appointment's session has already started (is in the past), 
+            // we treat it as backlog/overtime and start estimates from NOW.
+            hasBacklog = isBefore(sessionStart, currentTime);
+        }
+    }
+
+    if (doctor.consultationStatus === 'In' || hasBacklog) {
         referenceTime = new Date(currentTime);
     } else {
         // Doctor is "Out", use the start of the current/upcoming session
@@ -150,11 +166,35 @@ export function calculateEstimatedTimes(
                     }
                 }
 
-                // If we are at the last session and runningTime > sessionEnd
+                // Overtime in the last session
                 if (i === sortedSessions.length - 1 && runningTime.getTime() >= sessionEnd.getTime()) {
-                    // Overtime in the last session
                     detectedSessionIndex = session.originalIdx;
                 }
+            }
+
+            // --- CRITICAL FIX: Session Boundary Enforcement ---
+            // If the appointment explicitly belongs to a specific session (e.g. Session 1 starting at 9:30 PM),
+            // we MUST ensure the estimated time is at least that session's start time.
+            // This prevents "Session 2" appointments from appearing at 8:30 PM just because the backlog ended there.
+            if (typeof appt.sessionIndex === 'number' && availabilityForDay?.timeSlots) {
+                const targetSession = availabilityForDay.timeSlots[appt.sessionIndex];
+                if (targetSession) {
+                    const targetStart = parseClinicTime(targetSession.from, currentTime);
+                    // If runningTime (e.g. 8:33 PM) is BEFORE the session start (e.g. 9:30 PM),
+                    // we jump forward to the session start.
+                    if (isBefore(runningTime, targetStart)) {
+                        runningTime = new Date(targetStart);
+                        runningTime.setSeconds(0, 0);
+                        detectedSessionIndex = appt.sessionIndex;
+                    }
+                }
+            }
+
+            // Logic to CLAMP runningTime to NOW if we are "in session" (or overtime) but lagging behind.
+            // This ensures that if we are processing a queue in real-time (e.g. walk-ins), the estimates start from NOW, not in the past.
+            // We only do this if we are NOT waiting for a future session start (handled by the jump logic above).
+            if (inSession && isBefore(runningTime, currentTime)) {
+                runningTime = currentTime;
             }
         }
 

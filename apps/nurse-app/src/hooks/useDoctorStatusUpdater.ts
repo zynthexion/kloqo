@@ -5,7 +5,7 @@ import { collection, doc, getDocs, query, writeBatch, where } from 'firebase/fir
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Doctor, Appointment } from '@/lib/types';
-import { parse, format, addMinutes, subMinutes } from 'date-fns';
+import { parse, format, addMinutes, subMinutes, isAfter } from 'date-fns';
 
 /**
  * Parses time string to Date object, handling both "hh:mm a" and "HH:mm" formats

@@ -475,23 +475,16 @@ function WalkInRegistrationContent() {
       const appointmentDate = parse(appointmentDateStr, "d MMMM yyyy", new Date());
 
       // Visual Estimate Override for Classic Distribution
-      let visualEstimatedTime = estimatedTime;
-      let visualPatientsAhead = patientsAhead;
+      let visualEstimatedTime = details.perceivedEstimatedTime ?? estimatedTime;
+      let visualPatientsAhead = (details.perceivedPatientsAhead !== undefined) ? details.perceivedPatientsAhead : patientsAhead;
 
-      if (clinicData?.tokenDistribution !== 'advanced') {
-        const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as any];
-        const estimates = calculateEstimatedTimes(
-          simulationQueue,
-          doctor,
-          getClinicNow(),
-          doctor.averageConsultingTime || 15
-        );
-        const lastEstimate = estimates[estimates.length - 1];
-        if (lastEstimate) {
-          visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-          visualPatientsAhead = arrivedAppointments.length;
-        }
-      }
+      console.log('[WALK-IN:ESTIMATE] Using walk-in details:', {
+        original: getClinicTimeString(estimatedTime),
+        perceived: details.perceivedEstimatedTime ? getClinicTimeString(details.perceivedEstimatedTime) : 'N/A',
+        perceivedAhead: details.perceivedPatientsAhead,
+        finalVisual: getClinicTimeString(visualEstimatedTime),
+        finalAhead: visualPatientsAhead
+      });
 
       const newAppointmentData: UnsavedAppointment = {
         patientName: values.patientName,
@@ -621,23 +614,16 @@ function WalkInRegistrationContent() {
       const appointmentDateStr = format(new Date(), "d MMMM yyyy");
 
       // Visual Estimate Override for Classic Distribution (Force Book)
-      let visualEstimatedTime = estimatedTime;
-      let visualPatientsAhead = patientsAhead;
+      let visualEstimatedTime = details.perceivedEstimatedTime ?? estimatedTime;
+      let visualPatientsAhead = (details.perceivedPatientsAhead !== undefined) ? details.perceivedPatientsAhead : patientsAhead;
 
-      if (clinicData?.tokenDistribution !== 'advanced') {
-        const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as any];
-        const estimates = calculateEstimatedTimes(
-          simulationQueue,
-          doctor,
-          getClinicNow(),
-          doctor.averageConsultingTime || 15
-        );
-        const lastEstimate = estimates[estimates.length - 1];
-        if (lastEstimate) {
-          visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-          visualPatientsAhead = arrivedAppointments.length;
-        }
-      }
+      console.log('[WALK-IN:ESTIMATE] Using walk-in details (Force):', {
+        original: getClinicTimeString(estimatedTime),
+        perceived: details.perceivedEstimatedTime ? getClinicTimeString(details.perceivedEstimatedTime) : 'N/A',
+        perceivedAhead: details.perceivedPatientsAhead,
+        finalVisual: getClinicTimeString(visualEstimatedTime),
+        finalAhead: visualPatientsAhead
+      });
 
       const newAppointmentData: UnsavedAppointment = {
         patientId,

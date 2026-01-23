@@ -26,6 +26,7 @@ const toRelativeIndex = (idx: number, sessionBase: number) => {
 };
 
 import { generateOnlineTokenNumber, generateWalkInTokenNumber } from '../utils/token-utils';
+import { calculateEstimatedTimes } from '../utils/estimated-time-utils';
 
 const ONGOING_STATUSES = new Set(['Pending', 'Confirmed', 'Skipped']);
 
@@ -1918,6 +1919,8 @@ export async function calculateWalkInDetails(
   sessionIndex: number;
   actualSlotTime: Date;
   isForceBooked?: boolean;
+  perceivedEstimatedTime?: Date;
+  perceivedPatientsAhead?: number;
 }> {
   const now = getClinicNow();
   const date = now;
@@ -1930,7 +1933,7 @@ export async function calculateWalkInDetails(
   ] = [
       loadDoctorAndSlots(firestore, doctor.clinicId || '', doctor.name, date, doctor.id),
       fetchDayAppointments(firestore, doctor.clinicId || '', doctor.name, date),
-      walkInTokenAllotment === undefined && doctor.clinicId
+      doctor.clinicId
         ? getDoc(doc(firestore, 'clinics', doctor.clinicId))
         : Promise.resolve(null)
     ];
@@ -2309,14 +2312,97 @@ export async function calculateWalkInDetails(
     return apptIdx < relativeIdx;
   }).length;
 
+  // Calculate Perceived Queue for Classic Mode
+  let perceivedEstimatedTime: Date | undefined;
+  let perceivedPatientsAhead: number | undefined;
+  let perceivedSessionIndex: number | undefined;
+
+  if (tokenDistribution !== 'advanced') {
+    // 1. List for Counting (Includes past Confirmed to show "Patients Ahead")
+    const countAppointments = appointments.filter(a =>
+      a.status === 'Confirmed' || (a.status as any) === 'Arrived' || a.status === 'Pending'
+    );
+
+    // 2. List for Time Simulation (Excludes past Confirmed to fix Time Estimate)
+    const arrivedAppointments = countAppointments.filter(a => {
+      // 1. Always include Arrived/Pending (physically present or in-progress)
+      if ((a.status as any) === 'Arrived' || a.status === 'Pending') return true;
+
+      // 2. For 'Confirmed', check if they belong to a PAST session
+      if (a.status === 'Confirmed') {
+        const apptTime = parseClinicTime(a.time, now);
+
+        // Find the session this appointment belongs to
+        const dayOfWeek = getClinicDayOfWeek(now);
+        const dailyAvailability = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
+
+        if (dailyAvailability?.timeSlots) {
+          const session = dailyAvailability.timeSlots.find(s => {
+            const sStart = parseClinicTime(s.from, now);
+            const sEnd = parseClinicTime(s.to, now);
+            return apptTime >= sStart && apptTime < sEnd;
+          });
+
+          if (session) {
+            const sessionEnd = parseClinicTime(session.to, now);
+            // If the session this appointment belongs to has ENDED, and they are only 'Confirmed' (not Arrived),
+            // assume they are a No-Show / Late and do NOT let them block the new session queue.
+            if (isBefore(sessionEnd, now)) {
+              return false;
+            }
+          }
+        }
+        return true; // Default to keeping it if currently valid or session not found
+      }
+      return false;
+    });
+
+    const simulationQueue = [
+      ...arrivedAppointments,
+      {
+        id: 'temp-preview',
+        status: 'Confirmed',
+        date: getClinicDateString(now),
+        time: getClinicTimeString(now),
+        doctor: doctor.name,
+        clinicId: doctor.clinicId
+      } as Appointment
+    ];
+
+    // Sort simulation queue by time for Classic FIFO
+    simulationQueue.sort((a, b) => {
+      const tA = parseClinicTime(a.time, now).getTime();
+      const tB = parseClinicTime(b.time, now).getTime();
+      return tA - tB;
+    });
+
+    const estimates = calculateEstimatedTimes(
+      simulationQueue,
+      doctor,
+      now,
+      doctor.averageConsultingTime || 15
+    );
+
+    const lastEstimate = estimates.find(e => e.appointmentId === 'temp-preview');
+    if (lastEstimate) {
+      perceivedEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', now);
+      perceivedPatientsAhead = countAppointments.length;
+      if (typeof lastEstimate.sessionIndex === 'number') {
+        perceivedSessionIndex = lastEstimate.sessionIndex;
+      }
+    }
+  }
+
   return {
     estimatedTime,
     patientsAhead,
     numericToken,
     slotIndex: toGlobal(relativeIdx), // DENORMALIZE
-    sessionIndex: targetSessionIndex,
+    sessionIndex: perceivedSessionIndex !== undefined ? perceivedSessionIndex : targetSessionIndex,
     actualSlotTime: estimatedTime,
-    isForceBooked: isForceBooked
+    isForceBooked: isForceBooked,
+    perceivedEstimatedTime,
+    perceivedPatientsAhead
   };
 }
 export interface WalkInPreviewShift {

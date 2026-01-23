@@ -471,9 +471,10 @@ function WalkInRegistrationContent() {
       let sessionIndex: number;
       let numericToken: number;
       let isForceBooked = false;
+      let details: any;
 
       try {
-        const details = await calculateWalkInDetails(
+        details = await calculateWalkInDetails(
           db,
           doctor,
           walkInTokenAllotment,
@@ -664,29 +665,16 @@ function WalkInRegistrationContent() {
       const noShowTime = addMinutes(estimatedTime, 15);
 
       // Visual Estimate Override for Classic Distribution
-      let visualEstimatedTime = estimatedTime;
-      let visualPatientsAhead = patientsAhead;
+      let visualEstimatedTime = details.perceivedEstimatedTime ?? estimatedTime;
+      let visualPatientsAhead = (details.perceivedPatientsAhead !== undefined) ? details.perceivedPatientsAhead : patientsAhead;
 
-      if (clinicDetails?.tokenDistribution !== 'advanced') {
-        const simulationQueue = [...arrivedAppointments, { ...values, id: 'temp-preview', status: 'Confirmed', date: appointmentDateStr } as Appointment];
-        const estimates = calculateEstimatedTimes(
-          simulationQueue,
-          doctor,
-          getClinicNow(),
-          doctor.averageConsultingTime || 15
-        );
-        const lastEstimate = estimates[estimates.length - 1];
-        if (lastEstimate) {
-          visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-          visualPatientsAhead = arrivedAppointments.length; // Your position is arrivedAppointments.length + 1, so internal "ahead" is arrivedAppointments.length
-
-          console.log('[NURSE:GET-TOKEN] Applying visual estimate override:', {
-            original: getClinicTimeString(estimatedTime),
-            visual: lastEstimate.estimatedTime,
-            visualPatientsAhead
-          });
-        }
-      }
+      console.log('[NURSE:GET-TOKEN] Using walk-in details:', {
+        original: getClinicTimeString(estimatedTime),
+        perceived: details.perceivedEstimatedTime ? getClinicTimeString(details.perceivedEstimatedTime) : 'N/A',
+        perceivedAhead: details.perceivedPatientsAhead,
+        finalVisual: getClinicTimeString(visualEstimatedTime),
+        finalAhead: visualPatientsAhead
+      });
 
       const previewAppointment: UnsavedAppointment = {
         patientName: values.patientName,

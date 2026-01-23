@@ -961,29 +961,16 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     }
 
                     // Visual Estimate Override for Classic Distribution
-                    let visualEstimatedTime = adjustedEstimatedTime;
-                    let visualPatientsAhead = estimatedDetails.patientsAhead;
+                    let visualEstimatedTime = estimatedDetails.perceivedEstimatedTime ?? adjustedEstimatedTime;
+                    let visualPatientsAhead = (estimatedDetails.perceivedPatientsAhead !== undefined) ? estimatedDetails.perceivedPatientsAhead : estimatedDetails.patientsAhead;
 
-                    if (tokenDistribution !== 'advanced') {
-                        const simulationQueue = [...arrivedAppointments, { ...data, id: 'temp-preview', status: 'Confirmed', date: getClinicDateString(now) } as Appointment];
-                        const estimates = calculateEstimatedTimes(
-                            simulationQueue,
-                            selectedDoctor,
-                            getClinicNow(),
-                            selectedDoctor.averageConsultingTime || 15
-                        );
-                        const lastEstimate = estimates[estimates.length - 1];
-                        if (lastEstimate) {
-                            visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
-                            visualPatientsAhead = arrivedAppointments.length;
-
-                            console.log('[PF:ESTIMATE] Applying visual estimate override:', {
-                                original: getClinicTimeString(adjustedEstimatedTime),
-                                visual: lastEstimate.estimatedTime,
-                                visualPatientsAhead
-                            });
-                        }
-                    }
+                    console.log('[PF:ESTIMATE] Using walk-in details:', {
+                        original: getClinicTimeString(adjustedEstimatedTime),
+                        perceived: estimatedDetails.perceivedEstimatedTime ? getClinicTimeString(estimatedDetails.perceivedEstimatedTime) : 'N/A',
+                        perceivedAhead: estimatedDetails.perceivedPatientsAhead,
+                        finalVisual: getClinicTimeString(visualEstimatedTime),
+                        finalAhead: visualPatientsAhead
+                    });
 
                     setWalkInData({ patientId: patientForAppointmentId, formData: data, estimatedDetails });
                     setPatientsAhead(visualPatientsAhead);

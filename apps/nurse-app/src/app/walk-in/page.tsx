@@ -335,7 +335,7 @@ function WalkInRegistrationContent() {
       where('clinicId', '==', clinicId),
       where('doctor', '==', doctor.name),
       where('date', '==', todayDateStr),
-      where('status', 'in', ['Pending', 'Confirmed', 'Skipped', 'No-show'])
+      where('status', 'in', ['Pending', 'Confirmed', 'Arrived', 'Skipped', 'No-show'])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -349,7 +349,7 @@ function WalkInRegistrationContent() {
             counts[sIndex] = (counts[sIndex] || 0) + 1;
           }
         }
-        if (data.status === 'Confirmed') {
+        if (data.status === 'Confirmed' || data.status === 'Arrived') {
           arrived.push(data);
         }
       });

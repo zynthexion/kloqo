@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { format, getDay, isBefore, addMinutes, isSameDay, subMinutes, parse, differenceInMinutes, parseISO, isAfter } from 'date-fns';
-import { ArrowLeft, Calendar, Clock, Loader2, User, Phone, MapPin } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Loader2, User, Phone, MapPin, Users } from 'lucide-react';
 import Link from 'next/link';
 
 import { useFirestore } from '@/firebase';
@@ -98,6 +98,8 @@ function BookingSummaryPage() {
     const [bookedAppointmentId, setBookedAppointmentId] = useState<string>('');
     const [appointmentArriveByTime, setAppointmentArriveByTime] = useState<string>('');
     const [noShowTime, setNoShowTime] = useState<Date | null>(null);
+    const [patientsAhead, setPatientsAhead] = useState<number | null>(null);
+    const [clinicData, setClinicData] = useState<any | null>(null);
 
     const [hasBookingFailed, setHasBookingFailed] = useState(false);
 
@@ -171,6 +173,15 @@ function BookingSummaryPage() {
                 setDoctor(currentDoctor);
                 // Cache doctor data for faster next visit
                 saveDoctorToCache(doctorId, currentDoctor);
+
+                // Fetch Clinic Data
+                if (currentDoctor.clinicId) {
+                    const clinicDocRef = doc(firestore, 'clinics', currentDoctor.clinicId);
+                    const clinicDoc = await getDoc(clinicDocRef);
+                    if (clinicDoc.exists()) {
+                        setClinicData(clinicDoc.data());
+                    }
+                }
             } else {
                 toast({ variant: 'destructive', title: t.bookAppointment.error, description: t.bookAppointment.doctorNotFound });
             }
@@ -208,6 +219,7 @@ function BookingSummaryPage() {
                         setAppointmentTime(data.time);
                         setAppointmentArriveByTime(data.arriveByTime || data.time);
                         setBookedAppointmentId(appointmentId);
+                        setPatientsAhead(data.walkInPatientsAhead ?? null);
                         if (data.noShowTime) {
                             setNoShowTime(data.noShowTime.toDate());
                         }
@@ -1200,90 +1212,112 @@ function BookingSummaryPage() {
     // No longer blocking the entire page
 
     if (status === 'success') {
+        const isClassicWalkIn = isWalkIn && clinicData?.tokenDistribution === 'classic';
+
         return (
             <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background font-body p-4 text-center">
-                <div className="flex flex-col items-center space-y-4">
-                    <LottieAnimation
-                        animationData={successAnimation}
-                        size={200}
-                        autoplay={true}
-                        loop={false}
-                        className="mb-2"
-                    />
-                    <div className="space-y-2">
-                        <h1 className="text-3xl font-bold">{t.bookAppointment.bookingSuccessful}</h1>
-                        <p className="text-muted-foreground">{t.messages.appointmentBooked}</p>
-                    </div>
-                    <Card className="bg-muted/50 p-6 w-full max-w-xs mt-4">
-                        <CardContent className="p-0 flex flex-col items-center space-y-4">
-                            <div className="flex flex-col items-center">
-                                <p className="text-sm text-muted-foreground">{t.liveToken.yourToken}</p>
-                                <p className="text-4xl font-bold text-primary">{generatedToken}</p>
+                <div className="flex flex-col items-center space-y-4 w-full max-w-sm">
+                    {isClassicWalkIn ? (
+                        <>
+                            <div className="flex flex-col items-center space-y-6 w-full">
+                                <Users className="w-20 h-20 text-primary mb-2" />
+                                <div className="space-y-2">
+                                    <p className="text-6xl font-black text-primary leading-none">{patientsAhead ?? 0}</p>
+                                    <p className="text-xl font-bold tracking-tight">{t.liveToken.confirmedPatientsAhead}</p>
+                                </div>
+                                <p className="text-muted-foreground text-sm px-6">
+                                    {t.liveToken.arriveAtClinicInstruction}
+                                </p>
                             </div>
-                            {appointmentDate && appointmentTime && (
-                                <div className="flex flex-col items-center space-y-2 w-full pt-4 border-t">
-                                    <div className="flex items-center gap-2">
-                                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                                        <p className="text-sm font-medium">{appointmentDate}</p>
+                            <Button className="w-full mt-8 h-12 text-lg font-bold" asChild>
+                                <Link href={`/live-token/${bookedAppointmentId}`}>{t.liveToken.showLiveQueue}</Link>
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <LottieAnimation
+                                animationData={successAnimation}
+                                size={200}
+                                autoplay={true}
+                                loop={false}
+                                className="mb-2"
+                            />
+                            <div className="space-y-2">
+                                <h1 className="text-3xl font-bold">{t.bookAppointment.bookingSuccessful}</h1>
+                                <p className="text-muted-foreground">{t.messages.appointmentBooked}</p>
+                            </div>
+                            <Card className="bg-muted/50 p-6 w-full max-w-xs mt-4">
+                                <CardContent className="p-0 flex flex-col items-center space-y-4">
+                                    <div className="flex flex-col items-center">
+                                        <p className="text-sm text-muted-foreground">{t.liveToken.yourToken}</p>
+                                        <p className="text-4xl font-bold text-primary">{generatedToken}</p>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <Clock className="w-4 h-4 text-muted-foreground" />
-                                        <div className="text-center">
-                                            <span className="text-sm text-muted-foreground block">{isWalkIn ? t.liveToken.yourAppointmentTimeIs : t.home.arriveBy}</span>
-                                            <p className="text-xl font-bold">
-                                                {(() => {
-                                                    try {
-                                                        const timeStr = appointmentArriveByTime || appointmentTime;
-                                                        const dateObj = parse(appointmentDate, "d MMMM yyyy", new Date());
-                                                        const baseTime = parseTime(timeStr, dateObj);
+                                    {appointmentDate && appointmentTime && (
+                                        <div className="flex flex-col items-center space-y-2 w-full pt-4 border-t">
+                                            <div className="flex items-center gap-2">
+                                                <Calendar className="w-4 h-4 text-muted-foreground" />
+                                                <p className="text-sm font-medium">{appointmentDate}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Clock className="w-4 h-4 text-muted-foreground" />
+                                                <div className="text-center">
+                                                    <span className="text-sm text-muted-foreground block">{isWalkIn ? t.liveToken.yourAppointmentTimeIs : t.home.arriveBy}</span>
+                                                    <p className="text-xl font-bold">
+                                                        {(() => {
+                                                            try {
+                                                                const timeStr = appointmentArriveByTime || appointmentTime;
+                                                                const dateObj = parse(appointmentDate, "d MMMM yyyy", new Date());
+                                                                const baseTime = parseTime(timeStr, dateObj);
 
-                                                        // BREAK HANDLING: Shared-core now handles break shifting. 
-                                                        // We just use appointmentArriveByTime/Time as-is.
-                                                        const adjusted = isWalkIn
-                                                            ? baseTime
-                                                            : subMinutes(baseTime, 15);
+                                                                // BREAK HANDLING: Shared-core now handles break shifting. 
+                                                                // We just use appointmentArriveByTime/Time as-is.
+                                                                const adjusted = isWalkIn
+                                                                    ? baseTime
+                                                                    : subMinutes(baseTime, 15);
 
-                                                        return getClinicTimeString(adjusted);
-                                                    } catch {
-                                                        return appointmentArriveByTime || appointmentTime;
-                                                    }
-                                                })()}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    {!isWalkIn && (
-                                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
-                                            <p className="text-sm font-bold text-red-600 text-center">
-                                                ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
-                                                    try {
-                                                        if (noShowTime) {
-                                                            return getClinicTimeString(noShowTime);
-                                                        }
-                                                        // Fallback to calculated time if noShowTime not available
-                                                        const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
-                                                        const aptTime = parseTime(appointmentTime, aptDate);
-                                                        const noShowFallback = addMinutes(aptTime, 30);
-                                                        return getClinicTimeString(noShowFallback);
-                                                    } catch {
-                                                        return '30 minutes';
-                                                    }
-                                                })())}
-                                            </p>
+                                                                return getClinicTimeString(adjusted);
+                                                            } catch {
+                                                                return appointmentArriveByTime || appointmentTime;
+                                                            }
+                                                        })()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {!isWalkIn && (
+                                                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg w-full">
+                                                    <p className="text-sm font-bold text-red-600 text-center">
+                                                        ⚠️ {t.bookAppointment.autoCancelWarning.replace('{time}', (() => {
+                                                            try {
+                                                                if (noShowTime) {
+                                                                    return getClinicTimeString(noShowTime);
+                                                                }
+                                                                // Fallback to calculated time if noShowTime not available
+                                                                const aptDate = parse(appointmentDate, "d MMMM yyyy", new Date());
+                                                                const aptTime = parseTime(appointmentTime, aptDate);
+                                                                const noShowFallback = addMinutes(aptTime, 30);
+                                                                return getClinicTimeString(noShowFallback);
+                                                            } catch {
+                                                                return '30 minutes';
+                                                            }
+                                                        })())}
+                                                    </p>
+                                                </div>
+                                            )}
+
                                         </div>
                                     )}
-
-                                </div>
+                                </CardContent>
+                            </Card>
+                            {isWalkIn ? (
+                                <Button className="w-full mt-6" asChild>
+                                    <Link href={`/live-token/${bookedAppointmentId}`}>{t.appointments.seeLiveToken}</Link>
+                                </Button>
+                            ) : (
+                                <Button className="w-full mt-6" asChild>
+                                    <Link href="/appointments">{t.appointments.myAppointments}</Link>
+                                </Button>
                             )}
-                        </CardContent>
-                    </Card>
-                    {isWalkIn ? (
-                        <Button className="w-full mt-6" asChild>
-                            <Link href={`/live-token/${bookedAppointmentId}`}>{t.appointments.seeLiveToken}</Link>
-                        </Button>
-                    ) : (
-                        <Button className="w-full mt-6" asChild>
-                            <Link href="/appointments">{t.appointments.myAppointments}</Link>
-                        </Button>
+                        </>
                     )}
                 </div>
             </div>

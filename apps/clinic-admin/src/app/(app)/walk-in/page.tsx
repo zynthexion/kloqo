@@ -350,7 +350,7 @@ function WalkInRegistrationContent() {
       where('clinicId', '==', clinicId),
       where('doctor', '==', doctor.name),
       where('date', '==', todayStr),
-      where('status', 'in', ['Arrived'])
+      where('status', 'in', ['Arrived', 'Confirmed'])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

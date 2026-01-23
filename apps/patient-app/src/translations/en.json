@@ -332,7 +332,10 @@
     "estimatedTime": "Estimated Time",
     "noShowLateMessage": "You are late. Your appointment is cancelled. Call the clinic for more information",
     "noShowCallClinic": "Call Clinic",
-    "confirmArrival": "Confirm Arrival at Clinic"
+    "confirmArrival": "Confirm Arrival at Clinic",
+    "confirmedPatientsAhead": "Confirmed patients ahead of you",
+    "arriveAtClinicInstruction": "Please arrive at the clinic. Your position will update as patients are consulted.",
+    "showLiveQueue": "Show Live Queue"
   },
   "clinics": {
     "title": "Clinics",

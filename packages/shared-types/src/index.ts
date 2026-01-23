@@ -122,6 +122,7 @@ export type Appointment = {
     priorityAt?: any;
     confirmedAt?: any;
     updatedAt?: any;
+    walkInPatientsAhead?: number;
 };
 
 export type Patient = {

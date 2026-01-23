@@ -123,16 +123,29 @@ export function useDoctorStatusUpdater() {
               });
               batchHasWrites = true;
               // Treated as inactive since we are completing it
+            } else {
               // Check if active (any pending/confirmed/skipped for TODAY)
               // Only appointments for today that are in the past or within the next 30 mins count as "active"
               // to keep the doctor "In". Future sessions shouldn't keep them "In" during breaks.
               const isTodayAppt = appointment.date === todayStr;
               const isDueSoon = appointmentDateTime.getTime() <= addMinutes(now, 30).getTime();
 
-              if (isTodayAppt && isDueSoon && appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
+              // Check if the appointment's session is still "active" plus a 30-min grace period
+              // This ensures forgotten appointments in old sessions don't keep the doctor "In"
+              let isSessionActive = true;
+              if (typeof appointment.sessionIndex === 'number' && todaysAvailability?.timeSlots?.[appointment.sessionIndex]) {
+                const sessionSlot = todaysAvailability.timeSlots[appointment.sessionIndex];
+                const sessionEnd = parseTime(sessionSlot.to, now);
+                if (isAfter(now, addMinutes(sessionEnd, 30))) {
+                  isSessionActive = false;
+                }
+              }
+
+              if (isTodayAppt && isDueSoon && isSessionActive && appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
                 hasActiveAppointments = true;
               }
-            });
+            }
+          });
 
           if (doctor.consultationStatus !== 'In') {
             continue;

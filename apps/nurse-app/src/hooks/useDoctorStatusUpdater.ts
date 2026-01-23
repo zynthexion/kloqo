@@ -128,7 +128,18 @@ export function useDoctorStatusUpdater() {
               const isTodayAppt = appointment.date === todayStr;
               const isDueSoon = appointmentDateTime.getTime() <= addMinutes(now, 30).getTime();
 
-              if (isTodayAppt && isDueSoon && appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
+              // Check if the appointment's session is still "active" plus a 30-min grace period
+              // This ensures forgotten appointments in old sessions don't keep the doctor "In"
+              let isSessionActive = true;
+              if (typeof appointment.sessionIndex === 'number' && todaysAvailability?.timeSlots?.[appointment.sessionIndex]) {
+                const sessionSlot = todaysAvailability.timeSlots[appointment.sessionIndex];
+                const sessionEnd = parseTime(sessionSlot.to, now);
+                if (isAfter(now, addMinutes(sessionEnd, 30))) {
+                  isSessionActive = false;
+                }
+              }
+
+              if (isTodayAppt && isDueSoon && isSessionActive && appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
                 hasActiveAppointments = true;
               }
             }

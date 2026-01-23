@@ -24,7 +24,7 @@ import { useFirestore } from '@/firebase';
 import { getPatientListFromCache, savePatientListToCache } from '@/lib/patient-cache';
 import { useLanguage } from '@/contexts/language-context';
 import { unlinkRelative } from '@kloqo/shared-core';
-import { collection, query, where, getDocs, doc, writeBatch, getDoc, runTransaction, serverTimestamp, arrayUnion, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, writeBatch, getDoc, runTransaction, serverTimestamp, arrayUnion, deleteDoc, onSnapshot } from 'firebase/firestore';
 import type { Doctor, Patient, Appointment } from '@/lib/types';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -111,6 +111,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
     const [clinicDetails, setClinicDetails] = useState<any | null>(null);
     const [walkInData, setWalkInData] = useState<any>(null); // To store data before confirmation
     const [hasRecalculated, setHasRecalculated] = useState(false); // Track if we've recalculated before confirmation
+    const [arrivedAppointments, setArrivedAppointments] = useState<Appointment[]>([]);
     const lastResetIdRef = useRef<string | null>(null);
 
     const { user } = useUser();
@@ -151,6 +152,30 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
         };
         fetchClinicDetails();
     }, [selectedDoctor?.clinicId, firestore]);
+
+    // Listen to arrived appointments to handle classic distribution perception logic
+    useEffect(() => {
+        if (!selectedDoctor || !firestore || !selectedDoctor.clinicId) return;
+
+        const todayStr = getClinicDateString(getClinicNow());
+        const q = query(
+            collection(firestore, 'appointments'),
+            where('clinicId', '==', selectedDoctor.clinicId),
+            where('doctor', '==', selectedDoctor.name),
+            where('date', '==', todayStr),
+            where('status', 'in', ['Arrived', 'Confirmed']) // Count both for "Perceived" queue
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
+            // Separate truly 'arrived' for the count, but we might want all active for the simulation
+            setArrivedAppointments(apps.sort(tokenDistribution === 'advanced' ? (a: any, b: any) => a.time.localeCompare(b.time) : compareAppointmentsClassic));
+        }, (err) => {
+            console.error("Error listening to arrived appointments in PatientForm:", err);
+        });
+
+        return () => unsubscribe();
+    }, [selectedDoctor, firestore, tokenDistribution]);
 
     const resolveSlotDetails = useCallback(
         (targetSlotIndex: number, appointmentDate: Date) => {
@@ -935,13 +960,34 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         return;
                     }
 
-                    // Visual Estimate Override for Classic Distribution - REMOVED
-                    // We now trust the backend calculateWalkInDetails to provide the correct estimate for both Classic and Advanced modes.
-                    // The previous logic incorrectly filtered for only 'Arrived' patients, ignoring other valid statuses.
+                    // Visual Estimate Override for Classic Distribution
+                    let visualEstimatedTime = adjustedEstimatedTime;
+                    let visualPatientsAhead = estimatedDetails.patientsAhead;
+
+                    if (tokenDistribution !== 'advanced') {
+                        const simulationQueue = [...arrivedAppointments, { ...data, id: 'temp-preview', status: 'Confirmed', date: getClinicDateString(now) } as Appointment];
+                        const estimates = calculateEstimatedTimes(
+                            simulationQueue,
+                            selectedDoctor,
+                            getClinicNow(),
+                            selectedDoctor.averageConsultingTime || 15
+                        );
+                        const lastEstimate = estimates[estimates.length - 1];
+                        if (lastEstimate) {
+                            visualEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', getClinicNow());
+                            visualPatientsAhead = arrivedAppointments.length;
+
+                            console.log('[PF:ESTIMATE] Applying visual estimate override:', {
+                                original: getClinicTimeString(adjustedEstimatedTime),
+                                visual: lastEstimate.estimatedTime,
+                                visualPatientsAhead
+                            });
+                        }
+                    }
 
                     setWalkInData({ patientId: patientForAppointmentId, formData: data, estimatedDetails });
-                    setPatientsAhead(estimatedDetails.patientsAhead);
-                    setEstimatedConsultationTime(adjustedEstimatedTime);
+                    setPatientsAhead(visualPatientsAhead);
+                    setEstimatedConsultationTime(visualEstimatedTime);
                     setEstimatedDelay(0);
                     setHasRecalculated(false); // Reset recalculation flag for new booking
                     setIsEstimateModalOpen(true);

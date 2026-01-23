@@ -76,7 +76,17 @@ export function findActiveSessionIndex(
       // RULE: Sticky Logic for past sessions
       const hasOngoingAppts = appointments.some(a => a.sessionIndex === session.idx && ONGOING_STATUSES.has(a.status));
       const isDocIn = doctor.consultationStatus === 'In';
-      const isStickyCandidate = isAfter(now, session.end) && (hasOngoingAppts || isDocIn);
+
+      // REFINEMENT: Sticky Idleness Grace Period (30 mins)
+      // If the queue is empty, we only stay sticky for 30 mins past the session end.
+      // After that, even if Doc is "IN", we jump to prevent runaway sessions.
+      const stickyGraceLimit = addMinutes(session.end, 30);
+      const isDocInWithGrace = isDocIn && isBefore(now, stickyGraceLimit);
+
+      // Hard Limit: Ongoing appointments only keep a session sticky for 30 mins past end.
+      const hasOngoingApptsWithGrace = hasOngoingAppts && isBefore(now, stickyGraceLimit);
+
+      const isStickyCandidate = isAfter(now, session.end) && (hasOngoingApptsWithGrace || isDocInWithGrace);
 
       if (isStickyCandidate) {
         if (nextSession) {

@@ -2844,7 +2844,12 @@ export function compareAppointments(a: Appointment, b: Appointment): number {
     return pA - pB;
   }
 
-  // 2. Buffer priority
+  // 2. Session boundary check (Crucial for multi-session doctors)
+  const sA = a.sessionIndex ?? 0;
+  const sB = b.sessionIndex ?? 0;
+  if (sA !== sB) return sA - sB;
+
+  // 3. Buffer priority
   if (a.isInBuffer && !b.isInBuffer) return -1;
   if (!a.isInBuffer && b.isInBuffer) return 1;
 
@@ -2905,6 +2910,11 @@ export function compareAppointmentsClassic(a: Appointment, b: Appointment): numb
     const pB = (b.priorityAt?.seconds || 0) * 1000;
     return pA - pB;
   }
+
+  // 2. Session boundary check (Crucial for Classic mode to prevent cross-session jumping)
+  const sA = a.sessionIndex ?? 0;
+  const sB = b.sessionIndex ?? 0;
+  if (sA !== sB) return sA - sB;
 
   const getMillis = (val: any) => {
     if (!val) return 0;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef, useCallback, useTransition } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, useTransition, Fragment } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -4289,66 +4289,83 @@ export default function AppointmentsPage() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {filteredAppointments.map((appointment, index) => (
-                              <TableRow key={`${appointment.id}-${index}`} className={cn(
-                                isAppointmentOnLeave(appointment) && "bg-red-100 dark:bg-red-900/30",
-                                appointment.status === 'Skipped' && "bg-orange-100 dark:bg-orange-900/30"
-                              )}>
-                                <TableCell className="font-medium">{appointment.patientName}</TableCell>
-                                <TableCell>{appointment.age}</TableCell>
-                                <TableCell>{appointment.sex}</TableCell>
-                                <TableCell>{appointment.communicationPhone}</TableCell>
-                                <TableCell>{appointment.place}</TableCell>
-                                <TableCell>{appointment.doctor}</TableCell>
-                                <TableCell>{appointment.department}</TableCell>
-                                <TableCell>{format(parse(appointment.date, "d MMMM yyyy", new Date()), "MMM d, yy")}</TableCell>
-                                <TableCell>{['Completed', 'Confirmed', 'Cancelled', 'No-show'].includes(appointment.status) ? appointment.time : getDisplayTimeForAppointment(appointment)}</TableCell>
-                                <TableCell>{appointment.bookedVia}</TableCell>
-                                <TableCell>{['Completed', 'Cancelled', 'No-show'].includes(appointment.status) ? '-' : appointment.tokenNumber}</TableCell>
-                                <TableCell className="text-right">
-                                  {appointment.status === 'Pending' || appointment.status === 'Skipped' ? (
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" className="h-8 w-8 p-0">
-                                          <span className="sr-only">Open menu</span>
-                                          <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => {
-                                          setIsDrawerExpanded(false);
-                                          setEditingAppointment(appointment);
-                                        }}>
-                                          <Edit className="mr-2 h-4 w-4" />
-                                          Reschedule
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setAppointmentToCancel(appointment)} className="text-red-600">
-                                          <X className="mr-2 h-4 w-4" />
-                                          Cancel
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  ) : (
-                                    <Badge
-                                      variant={
-                                        appointment.status === 'Completed' ? 'default' :
-                                          appointment.status === 'Cancelled' ? (appointment.isRescheduled ? 'warning' : 'destructive') :
-                                            appointment.status === 'No-show' ? 'secondary' :
-                                              appointment.status === 'Confirmed' ? 'default' :
-                                                (appointment.status as any) === 'Skipped' ? 'destructive' :
-                                                  'secondary'
-                                      }
-                                      className={cn(
-                                        appointment.status === 'Cancelled' && appointment.isRescheduled && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100",
-                                        (appointment.status as any) === 'Skipped' && "bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600"
-                                      )}
-                                    >
-                                      {(appointment.status as any) === 'Skipped' ? 'Late' : (appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status)}
-                                    </Badge>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                            {(() => {
+                              let lastSessionIndex = -1;
+                              return filteredAppointments.map((appointment, index) => {
+                                const currentSessionIndex = appointment.sessionIndex ?? 0;
+                                const showHeader = currentSessionIndex !== lastSessionIndex;
+                                if (showHeader) lastSessionIndex = currentSessionIndex;
+                                return (
+                                  <Fragment key={`${appointment.id}-${index}`}>
+                                    {showHeader && (
+                                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                        <TableCell colSpan={12} className="py-2 px-4 font-bold text-[10px] uppercase tracking-wider text-muted-foreground bg-slate-50">
+                                          Session {currentSessionIndex + 1}
+                                        </TableCell>
+                                      </TableRow>
+                                    )}
+                                    <TableRow className={cn(
+                                      isAppointmentOnLeave(appointment) && "bg-red-100 dark:bg-red-900/30",
+                                      appointment.status === 'Skipped' && "bg-orange-100 dark:bg-orange-900/30"
+                                    )}>
+                                      <TableCell className="font-medium">{appointment.patientName}</TableCell>
+                                      <TableCell>{appointment.age}</TableCell>
+                                      <TableCell>{appointment.sex}</TableCell>
+                                      <TableCell>{appointment.communicationPhone}</TableCell>
+                                      <TableCell>{appointment.place}</TableCell>
+                                      <TableCell>{appointment.doctor}</TableCell>
+                                      <TableCell>{appointment.department}</TableCell>
+                                      <TableCell>{format(parse(appointment.date, "d MMMM yyyy", new Date()), "MMM d, yy")}</TableCell>
+                                      <TableCell>{['Completed', 'Confirmed', 'Cancelled', 'No-show'].includes(appointment.status) ? appointment.time : getDisplayTimeForAppointment(appointment)}</TableCell>
+                                      <TableCell>{appointment.bookedVia}</TableCell>
+                                      <TableCell>{['Completed', 'Cancelled', 'No-show'].includes(appointment.status) ? '-' : appointment.tokenNumber}</TableCell>
+                                      <TableCell className="text-right">
+                                        {appointment.status === 'Pending' || appointment.status === 'Skipped' ? (
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <Button variant="ghost" className="h-8 w-8 p-0">
+                                                <span className="sr-only">Open menu</span>
+                                                <MoreHorizontal className="h-4 w-4" />
+                                              </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                              <DropdownMenuItem onClick={() => {
+                                                setIsDrawerExpanded(false);
+                                                setEditingAppointment(appointment);
+                                              }}>
+                                                <Edit className="mr-2 h-4 w-4" />
+                                                Reschedule
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem onClick={() => setAppointmentToCancel(appointment)} className="text-red-600">
+                                                <X className="mr-2 h-4 w-4" />
+                                                Cancel
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        ) : (
+                                          <Badge
+                                            variant={
+                                              appointment.status === 'Completed' ? 'default' :
+                                                appointment.status === 'Cancelled' ? (appointment.isRescheduled ? 'warning' : 'destructive') :
+                                                  appointment.status === 'No-show' ? 'secondary' :
+                                                    appointment.status === 'Confirmed' ? 'default' :
+                                                      (appointment.status as any) === 'Skipped' ? 'destructive' :
+                                                        'secondary'
+                                            }
+                                            className={cn(
+                                              appointment.status === 'Cancelled' && appointment.isRescheduled && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100",
+                                              (appointment.status as any) === 'Skipped' && "bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600"
+                                            )}
+                                          >
+                                            {(appointment.status as any) === 'Skipped' ? 'Late' : (appointment.status === 'Cancelled' && appointment.isRescheduled ? 'Rescheduled' : appointment.status)}
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  </Fragment>
+                                );
+                              });
+                            })()}
                           </TableBody>
                         </Table>
                       ) : (
@@ -4430,157 +4447,150 @@ export default function AppointmentsPage() {
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {todaysAppointments
-                                      .filter(apt => apt.status === 'Confirmed')
-                                      .map((appointment, index) => {
-                                        const isBuffer = isInBufferQueue(appointment);
-                                        return (
-                                          <TableRow
-                                            key={`${appointment.id}-${index}`}
-                                            className={cn(
-                                              appointment.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50",
-                                              appointment.isPriority && "bg-amber-50 dark:bg-amber-900/20 border-l-4 border-l-amber-500"
-                                            )}
-                                          >
-                                            <TableCell className="font-medium">
-                                              <div className="flex flex-col gap-1">
-                                                <div className="flex items-center gap-2">
-                                                  <div className={cn(
-                                                    "flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold",
-                                                    appointment.isPriority ? "bg-amber-500 text-white" : "bg-primary text-primary-foreground"
-                                                  )}>
-                                                    {appointment.isPriority ? <Star className="h-3 w-3 fill-current" /> : (index + 1)}
+                                    {(() => {
+                                      let lastSessionIndex = -1;
+                                      return todaysAppointments
+                                        .filter(apt => apt.status === 'Confirmed')
+                                        .map((appointment, index) => {
+                                          const currentSessionIndex = appointment.sessionIndex ?? 0;
+                                          const showHeader = currentSessionIndex !== lastSessionIndex;
+                                          if (showHeader) lastSessionIndex = currentSessionIndex;
+                                          return (
+                                            <Fragment key={`${appointment.id}-${index}`}>
+                                              {showHeader && (
+                                                <TableRow className="bg-muted/10 hover:bg-muted/10">
+                                                  <TableCell colSpan={4} className="py-1 px-3 font-bold text-[9px] uppercase tracking-wider text-muted-foreground bg-slate-50/50/50">
+                                                    Session {currentSessionIndex + 1}
+                                                  </TableCell>
+                                                </TableRow>
+                                              )}
+                                              <TableRow
+                                                className={cn(
+                                                  appointment.skippedAt && "bg-amber-500/50 dark:bg-amber-900/50",
+                                                  appointment.isPriority && "bg-amber-50 dark:bg-amber-900/20 border-l-4 border-l-amber-500"
+                                                )}
+                                              >
+                                                <TableCell className="font-medium">
+                                                  <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                      <div className={cn(
+                                                        "flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold",
+                                                        appointment.isPriority ? "bg-amber-500 text-white" : "bg-primary text-primary-foreground"
+                                                      )}>
+                                                        {appointment.isPriority ? <Star className="h-3 w-3 fill-current" /> : (index + 1)}
+                                                      </div>
+                                                      {appointment.patientName}
+                                                      {appointment.skippedAt && (
+                                                        <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                          Late
+                                                        </Badge>
+                                                      )}
+                                                      {appointment.isPriority && (
+                                                        <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-100 border-amber-300 text-amber-800 leading-none flex items-center justify-center font-bold">
+                                                          Priority
+                                                        </Badge>
+                                                      )}
+                                                    </div>
+                                                    {(() => {
+                                                      if (clinicDetails?.tokenDistribution !== 'classic') return null;
+
+                                                      const doctorName = appointment.doctor;
+                                                      const est = arrivedEstimatesByDoctor[doctorName]?.find((e: any) => e.appointmentId === appointment.id);
+                                                      if (est) {
+                                                        const doctor = doctors.find(d => d.name === doctorName);
+                                                        if (est.isFirst && doctor?.consultationStatus === 'In') return null;
+                                                        return <span className="text-[10px] text-muted-foreground ml-8">Est: {est.estimatedTime}</span>;
+                                                      }
+                                                      return null;
+                                                    })()}
                                                   </div>
-                                                  {appointment.patientName}
-                                                  {appointment.skippedAt && (
-                                                    <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">
-                                                      Late
-                                                    </Badge>
-                                                  )}
-                                                  {appointment.isPriority && (
-                                                    <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-100 border-amber-300 text-amber-800 leading-none flex items-center justify-center font-bold">
-                                                      Priority
-                                                    </Badge>
-                                                  )}
-                                                </div>
-                                                {(() => {
-                                                  if (clinicDetails?.tokenDistribution !== 'classic') return null;
-
-                                                  const doctorName = appointment.doctor;
-                                                  const est = arrivedEstimatesByDoctor[doctorName]?.find((e: any) => e.appointmentId === appointment.id);
-                                                  if (est) {
-                                                    const doctor = doctors.find(d => d.name === doctorName);
-                                                    if (est.isFirst && doctor?.consultationStatus === 'In') return null;
-                                                    return <span className="text-[10px] text-muted-foreground ml-8">Est: {est.estimatedTime}</span>;
-                                                  }
-                                                  return null;
-                                                })()}
-                                              </div>
-                                            </TableCell>
-                                            <TableCell>{appointment.tokenNumber}</TableCell>
-                                            <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
-                                            <TableCell className="text-right">
-                                              <div className="flex justify-end gap-2">
-                                                <TooltipProvider>
-                                                  <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                      <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className={cn(
-                                                          "p-0 h-auto hover:text-amber-600",
-                                                          appointment.isPriority ? "text-amber-500" : "text-muted-foreground"
-                                                        )}
-                                                        onClick={() => handleTogglePriority(appointment)}
-                                                      >
-                                                        <Star className={cn("h-5 w-5", appointment.isPriority && "fill-current")} />
-                                                      </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                      <p>{appointment.isPriority ? "Remove Priority" : "Mark as Priority"}</p>
-                                                    </TooltipContent>
-                                                  </Tooltip>
-                                                </TooltipProvider>
-
-                                                {index === 0 && (
-                                                  <TooltipProvider>
-                                                    <Tooltip>
-                                                      <TooltipTrigger asChild>
-                                                        <div>
+                                                </TableCell>
+                                                <TableCell>{appointment.tokenNumber}</TableCell>
+                                                <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
+                                                <TableCell className="text-right">
+                                                  <div className="flex justify-end gap-2">
+                                                    <TooltipProvider>
+                                                      <Tooltip>
+                                                        <TooltipTrigger asChild>
                                                           <Button
                                                             variant="ghost"
                                                             size="icon"
-                                                            className="p-0 h-auto text-amber-600 hover:text-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                            onClick={() => handleSkip(appointment)}
-                                                            disabled={!isDoctorInConsultation || swipeCooldownUntil !== null}
+                                                            className={cn(
+                                                              "p-0 h-auto hover:text-amber-600",
+                                                              appointment.isPriority ? "text-amber-500" : "text-muted-foreground"
+                                                            )}
+                                                            onClick={() => handleTogglePriority(appointment)}
                                                           >
-                                                            <SkipForward className="h-5 w-5" />
+                                                            <Star className={cn("h-5 w-5", appointment.isPriority && "fill-current")} />
                                                           </Button>
-                                                        </div>
-                                                      </TooltipTrigger>
-                                                      {(!isDoctorInConsultation || swipeCooldownUntil !== null) && (
+                                                        </TooltipTrigger>
                                                         <TooltipContent>
-                                                          <p>
-                                                            {!isDoctorInConsultation
-                                                              ? "Doctor is not in consultation."
-                                                              : "Please wait for compliance cooldown."}
-                                                          </p>
+                                                          <p>{appointment.isPriority ? "Remove Priority" : "Mark as Priority"}</p>
                                                         </TooltipContent>
-                                                      )}
-                                                    </Tooltip>
-                                                  </TooltipProvider>
-                                                )}
-                                                <TooltipProvider>
-                                                  <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                      <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className={cn(
-                                                          "p-0 h-auto hover:text-amber-600",
-                                                          appointment.isPriority ? "text-amber-500" : "text-muted-foreground"
-                                                        )}
-                                                        onClick={() => handleTogglePriority(appointment)}
-                                                      >
-                                                        <Star className={cn("h-5 w-5", appointment.isPriority && "fill-current")} />
-                                                      </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                      <p>{appointment.isPriority ? "Remove Priority" : "Mark as Priority"}</p>
-                                                    </TooltipContent>
-                                                  </Tooltip>
-                                                </TooltipProvider>
-                                                <TooltipProvider>
-                                                  <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                      <div>
-                                                        <Button
-                                                          variant="ghost"
-                                                          size="icon"
-                                                          className="p-0 h-auto text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                          onClick={() => setAppointmentToComplete(appointment)}
-                                                          disabled={!isDoctorInConsultation || swipeCooldownUntil !== null}
-                                                        >
-                                                          <CheckCircle2 className="h-5 w-5" />
-                                                        </Button>
-                                                      </div>
-                                                    </TooltipTrigger>
-                                                    {(!isDoctorInConsultation || swipeCooldownUntil !== null) && (
-                                                      <TooltipContent>
-                                                        <p>
-                                                          {!isDoctorInConsultation
-                                                            ? "Doctor is not in consultation."
-                                                            : "Please wait for compliance cooldown."}
-                                                        </p>
-                                                      </TooltipContent>
+                                                      </Tooltip>
+                                                    </TooltipProvider>
+
+                                                    {index === 0 && (
+                                                      <TooltipProvider>
+                                                        <Tooltip>
+                                                          <TooltipTrigger asChild>
+                                                            <div>
+                                                              <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="p-0 h-auto text-amber-600 hover:text-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                onClick={() => handleSkip(appointment)}
+                                                                disabled={!isDoctorInConsultation || swipeCooldownUntil !== null}
+                                                              >
+                                                                <SkipForward className="h-5 w-5" />
+                                                              </Button>
+                                                            </div>
+                                                          </TooltipTrigger>
+                                                          {(!isDoctorInConsultation || swipeCooldownUntil !== null) && (
+                                                            <TooltipContent>
+                                                              <p>
+                                                                {!isDoctorInConsultation
+                                                                  ? "Doctor is not in consultation."
+                                                                  : "Please wait for compliance cooldown."}
+                                                              </p>
+                                                            </TooltipContent>
+                                                          )}
+                                                        </Tooltip>
+                                                      </TooltipProvider>
                                                     )}
-                                                  </Tooltip>
-                                                </TooltipProvider>
-                                              </div>
-                                            </TableCell>
-                                          </TableRow>
-                                        );
-                                      })}
+                                                    <TooltipProvider>
+                                                      <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                          <div>
+                                                            <Button
+                                                              variant="ghost"
+                                                              size="icon"
+                                                              className="p-0 h-auto text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                              onClick={() => setAppointmentToComplete(appointment)}
+                                                              disabled={!isDoctorInConsultation || swipeCooldownUntil !== null}
+                                                            >
+                                                              <CheckCircle2 className="h-5 w-5" />
+                                                            </Button>
+                                                          </div>
+                                                        </TooltipTrigger>
+                                                        {(!isDoctorInConsultation || swipeCooldownUntil !== null) && (
+                                                          <TooltipContent>
+                                                            <p>
+                                                              {!isDoctorInConsultation
+                                                                ? "Doctor is not in consultation."
+                                                                : "Please wait for compliance cooldown."}
+                                                            </p>
+                                                          </TooltipContent>
+                                                        )}
+                                                      </Tooltip>
+                                                    </TooltipProvider>
+                                                  </div>
+                                                </TableCell>
+                                              </TableRow>
+                                            </Fragment>
+                                          );
+                                        });
+                                    })()}
                                   </TableBody>
                                 </Table>
                               </div>
@@ -4601,40 +4611,55 @@ export default function AppointmentsPage() {
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {todaysAppointments
-                                      .filter(apt => apt.status === 'Pending')
-                                      .map((appointment, index) => (
-                                        <TableRow
-                                          key={`${appointment.id}-${index}`}
-                                        >
-                                          <TableCell className="font-medium">{appointment.patientName}</TableCell>
-                                          <TableCell>{appointment.tokenNumber}</TableCell>
-                                          <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
-                                          <TableCell className="text-right">
-                                            <div className="flex justify-end gap-2">
-                                              {shouldShowConfirmArrival(appointment) && (
-                                                <TooltipProvider>
-                                                  <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                      <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="p-0 h-auto text-blue-600 hover:text-blue-700"
-                                                        onClick={() => setAppointmentToAddToQueue(appointment)}
-                                                      >
-                                                        <CheckCircle2 className="h-5 w-5" />
-                                                      </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                      <p>Confirm Arrival</p>
-                                                    </TooltipContent>
-                                                  </Tooltip>
-                                                </TooltipProvider>
+                                    {(() => {
+                                      let lastSessionIndex = -1;
+                                      return todaysAppointments
+                                        .filter(apt => apt.status === 'Pending')
+                                        .map((appointment, index) => {
+                                          const currentSessionIndex = appointment.sessionIndex ?? 0;
+                                          const showHeader = currentSessionIndex !== lastSessionIndex;
+                                          if (showHeader) lastSessionIndex = currentSessionIndex;
+                                          return (
+                                            <Fragment key={`${appointment.id}-${index}`}>
+                                              {showHeader && (
+                                                <TableRow className="bg-muted/10 hover:bg-muted/10">
+                                                  <TableCell colSpan={4} className="py-1 px-3 font-bold text-[9px] uppercase tracking-wider text-muted-foreground bg-slate-50/50">
+                                                    Session {currentSessionIndex + 1}
+                                                  </TableCell>
+                                                </TableRow>
                                               )}
-                                            </div>
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
+                                              <TableRow>
+                                                <TableCell className="font-medium">{appointment.patientName}</TableCell>
+                                                <TableCell>{appointment.tokenNumber}</TableCell>
+                                                <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
+                                                <TableCell className="text-right">
+                                                  <div className="flex justify-end gap-2">
+                                                    {shouldShowConfirmArrival(appointment) && (
+                                                      <TooltipProvider>
+                                                        <Tooltip>
+                                                          <TooltipTrigger asChild>
+                                                            <Button
+                                                              variant="ghost"
+                                                              size="icon"
+                                                              className="p-0 h-auto text-blue-600 hover:text-blue-700"
+                                                              onClick={() => setAppointmentToAddToQueue(appointment)}
+                                                            >
+                                                              <CheckCircle2 className="h-5 w-5" />
+                                                            </Button>
+                                                          </TooltipTrigger>
+                                                          <TooltipContent>
+                                                            <p>Confirm Arrival</p>
+                                                          </TooltipContent>
+                                                        </Tooltip>
+                                                      </TooltipProvider>
+                                                    )}
+                                                  </div>
+                                                </TableCell>
+                                              </TableRow>
+                                            </Fragment>
+                                          );
+                                        });
+                                    })()}
                                   </TableBody>
                                 </Table>
                               </div>

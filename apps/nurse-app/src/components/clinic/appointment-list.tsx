@@ -97,7 +97,7 @@ function AppointmentList({
   const mixedItems = useMemo(() => {
     // If no breaks, return mapped appointments
     // But we need consistent shape.
-    let items: Array<{ type: 'appointment' | 'break'; data: any }> = [];
+    let items: Array<{ type: 'appointment' | 'break' | 'session-header'; data: any }> = [];
 
     // Sort breaks by start time and filter out past breaks
     const sortedBreaks = [...breaks]
@@ -114,24 +114,16 @@ function AppointmentList({
     };
 
     let breakIndex = 0;
+    let lastSessionIndex = -1;
 
     appointments.forEach(apt => {
       const aptTime = getApptTime(apt);
+      const currentSessionIndex = apt.sessionIndex ?? 0;
 
       // Insert any breaks that start before this appointment
       while (breakIndex < sortedBreaks.length) {
         const brk = sortedBreaks[breakIndex];
         const brkStart = new Date(brk.startTime);
-
-        // If break starts before this appointment
-        // Using <= to ensures break appears before an appointment scheduled AT the break start?
-        // Actually, if appointment is at 4:30 and break is at 4:30, break should likely come first or after?
-        // Usually Break implies "Doctor is unavailable", so it effectively delays slots.
-        // If the appointment is *scheduled* for 4:30, and break is at 4:30, it means appointment is delayed till 5:00.
-        // But here we are displaying *estimated times*. The estimated time calculation SHOULD have already pushed the appointment to 5:00.
-        // So aptTime would be 5:00.
-        // Break is 4:30.
-        // 4:30 <= 5:00. Break rendered first. Correct.
 
         if (brkStart.getTime() <= aptTime.getTime()) {
           items.push({ type: 'break', data: brk });
@@ -140,6 +132,13 @@ function AppointmentList({
           break;
         }
       }
+
+      // Insert session header if session changed
+      if (currentSessionIndex !== lastSessionIndex) {
+        items.push({ type: 'session-header', data: { sessionIndex: currentSessionIndex } });
+        lastSessionIndex = currentSessionIndex;
+      }
+
       items.push({ type: 'appointment', data: apt });
     });
 
@@ -314,8 +313,6 @@ function AppointmentList({
                   // RENDER BREAK
                   if (item.type === 'break') {
                     const brk = item.data;
-
-                    // Sync Break Cancellation: If doctor is 'In' during an ACTIVE break, hide it
                     const now = currentTime.getTime();
                     const breakStart = new Date(brk.startTime).getTime();
                     const breakEnd = new Date(brk.endTime).getTime();
@@ -337,12 +334,25 @@ function AppointmentList({
                     );
                   }
 
+                  // RENDER SESSION HEADER
+                  if (item.type === 'session-header') {
+                    const sessionIdx = item.data.sessionIndex;
+                    return (
+                      <div key={`session-${sessionIdx}-${index}`} className="flex items-center gap-3 py-2 px-1">
+                        <div className="flex-1 h-px bg-slate-200" />
+                        <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200 font-bold uppercase tracking-wider text-[10px] px-2 py-0.5">
+                          Session {sessionIdx + 1}
+                        </Badge>
+                        <div className="flex-1 h-px bg-slate-200" />
+                      </div>
+                    );
+                  }
+
                   // RENDER APPOINTMENT
                   appointmentCounter++;
                   const appt = item.data as Appointment;
                   const currentPos = appointmentCounter;
                   const isSwiping = swipeState.id === appt.id;
-
                   const isBuffer = isInBufferQueue && isInBufferQueue(appt);
 
                   return (
@@ -577,7 +587,7 @@ function AppointmentList({
             })()}
           </div>
         </div>
-      </TooltipProvider>
+      </TooltipProvider >
       {swipeEnabled && (
         <AlertDialog open={!!pendingCompletionId} onOpenChange={(open) => !open && setPendingCompletionId(null)}>
           <AlertDialogContent>
@@ -603,7 +613,8 @@ function AppointmentList({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      )}
+      )
+      }
     </>
   );
 }

@@ -25,9 +25,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     let timeoutId: NodeJS.Timeout;
-    
+
     try {
       const unsubscribe = onAuthStateChange((user) => {
+        if (user) {
+          // Sync localStorage if it's missing but user is logged in
+          if (!localStorage.getItem('clinicId') && user.clinicId) {
+            localStorage.setItem('clinicId', user.clinicId);
+            localStorage.setItem('user', JSON.stringify({
+              id: user.uid,
+              email: user.email,
+              name: user.name,
+              clinicId: user.clinicId
+            }));
+          }
+        }
         setUser(user);
         setLoading(false);
         if (timeoutId) clearTimeout(timeoutId);

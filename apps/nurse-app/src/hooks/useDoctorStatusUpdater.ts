@@ -108,46 +108,44 @@ export function useDoctorStatusUpdater() {
               return;
             }
 
-            const twoHoursAgo = subMinutes(now, 120);
-            const isStale = appointmentDateTime.getTime() < twoHoursAgo.getTime();
+            const isTodayAppt = appointment.date === todayStr;
+            const isDueSoon = appointmentDateTime.getTime() <= addMinutes(now, 30).getTime();
 
-            if (isStale && appointment.status === 'Confirmed') {
-              // Auto-complete stale appointments
-              const apptRef = doc(db, 'appointments', appointment.id);
-              batch.update(apptRef, {
-                status: 'Completed',
-                updatedAt: new Date(),
-                completedAt: new Date()
-              });
-              batchHasWrites = true;
-              // Treated as inactive since we are completing it
-            } else {
-              // Check if active (any pending/confirmed/skipped for TODAY)
-              // Only appointments for today that are in the past or within the next 30 mins count as "active"
-              // to keep the doctor "In". Future sessions shouldn't keep them "In" during breaks.
-              const isTodayAppt = appointment.date === todayStr;
-              const isDueSoon = appointmentDateTime.getTime() <= addMinutes(now, 30).getTime();
-
-              // Check if the appointment's session is still "active" plus a 30-min grace period
-              // This ensures forgotten appointments in old sessions don't keep the doctor "In"
-              let isSessionActive = true;
-              if (typeof appointment.sessionIndex === 'number' && todaysAvailability?.timeSlots?.[appointment.sessionIndex]) {
-                const sessionSlot = todaysAvailability.timeSlots[appointment.sessionIndex];
-                const sessionEnd = parseTime(sessionSlot.to, now);
-                if (isAfter(now, addMinutes(sessionEnd, 30))) {
-                  isSessionActive = false;
-                }
+            // Check if the appointment's session is still "active" plus a 30-min grace period
+            // This ensures forgotten appointments in old sessions don't keep the doctor "In"
+            let isSessionActive = true;
+            if (typeof appointment.sessionIndex === 'number' && todaysAvailability?.timeSlots?.[appointment.sessionIndex]) {
+              const sessionSlot = todaysAvailability.timeSlots[appointment.sessionIndex];
+              const sessionEnd = parseTime(sessionSlot.to, now);
+              if (isAfter(now, addMinutes(sessionEnd, 30))) {
+                isSessionActive = false;
               }
+            }
 
-              if (isTodayAppt && isDueSoon && isSessionActive && appointment.status !== 'Completed' && appointment.status !== 'Cancelled') {
-                hasActiveAppointments = true;
-              }
+            // RELAXED LOGIC: Any 'Confirmed' appointment for today is active, regardless of timing.
+            // They have arrived and are waiting! 
+            const isConfirmedToday = isTodayAppt && appointment.status === 'Confirmed';
+
+            if (isConfirmedToday || (isTodayAppt && isDueSoon && isSessionActive && appointment.status === 'Pending')) {
+              hasActiveAppointments = true;
             }
           });
 
           if (doctor.consultationStatus !== 'In') {
             continue;
           }
+
+          // Check if the doctor was manually updated very recently (within last 15 mins)
+          // If so, don't auto-set to 'Out' yet, give them time to work.
+          const lastUpdate = doctor.updatedAt?.toDate ? doctor.updatedAt.toDate() : (doctor.updatedAt ? new Date(doctor.updatedAt) : null);
+          const wasRecentlyUpdated = lastUpdate && (now.getTime() - lastUpdate.getTime() < 15 * 60 * 1000);
+
+          if (wasRecentlyUpdated) {
+            console.log(`[STATUS-UPDATER] Skipping ${doctor.name} - manually updated recently`);
+            continue;
+          }
+
+          console.log(`[STATUS-UPDATER] Checking doctor ${doctor.name}: hasActiveAppts=${hasActiveAppointments}`);
 
           let isWithinAnySlot = false;
           if (todaysAvailability?.timeSlots?.length) {
@@ -184,9 +182,15 @@ export function useDoctorStatusUpdater() {
           }
           const isSessionFinished = !isWithinAnySlot;
 
+          console.log(`[STATUS-UPDATER] Doctor ${doctor.name} session status: isFinished=${isSessionFinished}`);
+
           if (!isSessionFinished || hasActiveAppointments) {
+            if (!isSessionFinished) console.log(`[STATUS-UPDATER] Keeping ${doctor.name} IN: Session is active`);
+            if (hasActiveAppointments) console.log(`[STATUS-UPDATER] Keeping ${doctor.name} IN: Has active appointments`);
             continue;
           }
+
+          console.log(`[STATUS-UPDATER] !!! Setting ${doctor.name} to OUT !!! Reason: Session finished and no active appts`);
 
           const doctorRef = doc(db, 'doctors', doctor.id);
           batch.update(doctorRef, {

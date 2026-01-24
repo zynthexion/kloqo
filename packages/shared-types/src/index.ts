@@ -66,6 +66,7 @@ export type Doctor = {
     breakPeriods?: {
         [date: string]: BreakPeriod[];  // multiple breaks per date
     };
+    updatedAt?: any;
     availabilityExtensions?: {
         [date: string]: {
             sessions: Array<{

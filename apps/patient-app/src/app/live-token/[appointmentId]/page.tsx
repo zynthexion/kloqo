@@ -1289,6 +1289,21 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
     const doctorDelayMinutes = yourAppointment?.doctorDelayMinutes || 0;
 
+    // Determine if estimated wait time should be shown
+    // Show when: clinic setting is ON (default), OR doctor is 'In', OR patient is 'Pending'
+    // Hide only for confirmed patients when doctor is 'Out' and clinic has disabled the setting
+    const shouldShowEstimatedWaitTime = useMemo(() => {
+        // Default to true if setting is not explicitly set to false
+        const clinicAllowsEstimates = clinicData?.showEstimatedWaitTime !== false;
+
+        // Always show if doctor is actively consulting
+        const doctorIsWorking = currentDoctor?.consultationStatus === 'In';
+
+        // Always show for pending patients (they need to know when to arrive)
+        const isPending = yourAppointment?.status === 'Pending';
+
+        return clinicAllowsEstimates || doctorIsWorking || isPending;
+    }, [clinicData?.showEstimatedWaitTime, currentDoctor?.consultationStatus, yourAppointment?.status]);
 
 
 
@@ -1301,6 +1316,24 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
         // Handle Skipped status - show "You are late" message
         if (!shouldShowQueueInfo && yourAppointment?.status === 'Confirmed') {
+            // If clinic has disabled estimated time display and doctor is out, show warning
+            if (!shouldShowEstimatedWaitTime) {
+                return (
+                    <div className="w-full text-center py-4">
+                        <div className="bg-amber-100 text-amber-800 rounded-full px-4 py-3 flex flex-col items-center justify-center gap-1">
+                            <AlertCircle className="w-6 h-6" />
+                            <div className="flex flex-col items-center justify-center">
+                                <span className="text-sm font-medium">
+                                    {language === 'ml'
+                                        ? 'ഈ ക്ലിനിക്കിന് കാത്തിരിപ്പ് സമയം ലഭ്യമല്ല'
+                                        : 'Estimated wait time not available for this clinic'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
             const waitMinutes = confirmedEstimatedWaitMinutes;
             if (waitMinutes > 0) {
                 const mins = Math.max(1, Math.round(waitMinutes));

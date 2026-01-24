@@ -5,12 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, query, where, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { fetchAllAppointments } from '@/lib/analytics';
 import { firestoreTimestampToDate, parseDateString } from '@/lib/metrics';
 import { format, subDays, parse, isWithinInterval, startOfDay, isFuture, isToday, differenceInDays, getHours } from 'date-fns';
 import { ArrowLeft, Building2, MapPin, Mail, FileText, ExternalLink, CheckCircle, Clock, XCircle, Calendar as CalendarIcon } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
 import type { Clinic, Appointment } from '@/lib/analytics';
 
@@ -42,6 +43,8 @@ export default function ClinicDetailsPage() {
     cancelledAppointments: 0,
     totalRevenue: 0,
   });
+  const [showEstimatedWaitTime, setShowEstimatedWaitTime] = useState(true);
+  const [updatingSettings, setUpdatingSettings] = useState(false);
 
   useEffect(() => {
     const loadClinicData = async () => {
@@ -58,6 +61,9 @@ export default function ClinicDetailsPage() {
 
         const clinicData = { id: clinicDoc.id, ...clinicDoc.data() } as Clinic;
         setClinic(clinicData);
+
+        // Set showEstimatedWaitTime from clinic data (default to true if not set)
+        setShowEstimatedWaitTime(clinicData.showEstimatedWaitTime !== false);
 
         // Fetch appointments
         const allAppointments = await fetchAllAppointments();
@@ -301,6 +307,36 @@ export default function ClinicDetailsPage() {
             <div>
               <p className="text-sm text-muted-foreground mb-1">Plan</p>
               <p className="font-medium">{clinic.plan || 'N/A'}</p>
+            </div>
+            <div className="pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium mb-1">Show Estimated Wait Time</p>
+                  <p className="text-xs text-muted-foreground">
+                    Display wait time estimates to confirmed patients when doctor is out
+                  </p>
+                </div>
+                <Switch
+                  checked={showEstimatedWaitTime}
+                  onCheckedChange={async (checked) => {
+                    setUpdatingSettings(true);
+                    try {
+                      const clinicRef = doc(db, 'clinics', clinicId);
+                      await updateDoc(clinicRef, {
+                        showEstimatedWaitTime: checked,
+                      });
+                      setShowEstimatedWaitTime(checked);
+                      setClinic(prev => prev ? { ...prev, showEstimatedWaitTime: checked } : null);
+                    } catch (error) {
+                      console.error('Error updating setting:', error);
+                      alert('Failed to update setting. Please try again.');
+                    } finally {
+                      setUpdatingSettings(false);
+                    }
+                  }}
+                  disabled={updatingSettings}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>

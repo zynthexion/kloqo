@@ -715,8 +715,8 @@ export default function ClinicDashboard() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="w-full grid grid-cols-2">
-              <TabsTrigger value="pending">Pending ({pendingAppointments.length})</TabsTrigger>
-              <TabsTrigger value="completed" data-state-active-green>Completed ({pastAppointments.length})</TabsTrigger>
+              <TabsTrigger value="pending">Upcoming ({pendingAppointments.length})</TabsTrigger>
+              <TabsTrigger value="completed" data-state-active-green>History ({pastAppointments.length})</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>

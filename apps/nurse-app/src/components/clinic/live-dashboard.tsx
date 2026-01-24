@@ -526,9 +526,18 @@ export default function LiveDashboard() {
   }, [filteredAppointments, nextSessionIndex, currentDoctor, clinicDetails]);
 
   const skippedAppointments = useMemo(() => {
-    const skipped = filteredAppointments.filter(a => a.status === 'Skipped' || a.status === 'No-show');
+    let skipped = filteredAppointments.filter(a => a.status === 'Skipped' || a.status === 'No-show');
+
+    // HIDE NO-SHOWS AT END OF DAY
+    // If sessions are done, doctor is out, and no active patients (Pending/Confirmed/Skipped) exist,
+    // don't clutter the pending tab with No-shows.
+    const isEndOfDay = nextSessionIndex === undefined && consultationStatus === 'Out' && !hasActiveAppointments;
+    if (isEndOfDay) {
+      skipped = skipped.filter(a => a.status !== 'No-show');
+    }
+
     return skipped.sort(compareAppointments);
-  }, [filteredAppointments]);
+  }, [filteredAppointments, nextSessionIndex, consultationStatus, hasActiveAppointments]);
 
 
   const todayBreaks = useMemo(() => {

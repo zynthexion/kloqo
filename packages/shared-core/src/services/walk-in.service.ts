@@ -2192,21 +2192,57 @@ export async function calculateWalkInDetails(
     console.log('[FORCE BOOK DEBUG] Max index:', maxIdx, 'Force slot:', forceRelativeVals, 'Session base:', sessionBaseIndex);
 
     let forceTime: Date;
-    if (forceRelativeVals < slots.length) {
-      forceTime = slots[forceRelativeVals].time;
-    } else {
+
+    // Find the last slot of the CURRENT session (targetSessionIndex)
+    const currentSessionSlots = slots.filter((s: any) => s.sessionIndex === targetSessionIndex);
+
+    if (currentSessionSlots.length > 0) {
+      // Calculate overtime based on the last slot of the current session
       const slotDuration = doctor.averageConsultingTime || 15;
-      const lastSlot = slots[slots.length - 1];
-      const diff = forceRelativeVals - (slots.length - 1);
-      forceTime = addMinutes(lastSlot.time, diff * slotDuration);
-      console.log('[FORCE BOOK DEBUG] Overflow calculation:', { lastSlotIndex: slots.length - 1, forceRelativeVals, diff, slotDuration, forceTime });
+      const lastSessionSlot = currentSessionSlots[currentSessionSlots.length - 1];
+      const lastSessionSlotRelativeIndex = toRelativeIndex(
+        allSlots.findIndex((s: any) => s === lastSessionSlot),
+        sessionBaseIndex
+      );
+
+      const diff = forceRelativeVals - lastSessionSlotRelativeIndex;
+      forceTime = addMinutes(lastSessionSlot.time, diff * slotDuration);
+
+      console.log('[FORCE BOOK DEBUG] Overtime calculation from current session:', {
+        targetSessionIndex,
+        lastSessionSlotIndex: lastSessionSlotRelativeIndex,
+        forceRelativeVals,
+        diff,
+        slotDuration,
+        lastSessionSlotTime: lastSessionSlot.time.toISOString(),
+        calculatedForceTime: forceTime.toISOString(),
+      });
+    } else {
+      // Fallback: use the old logic if no session slots found
+      if (forceRelativeVals < slots.length) {
+        forceTime = slots[forceRelativeVals].time;
+      } else {
+        const slotDuration = doctor.averageConsultingTime || 15;
+        const lastSlot = slots[slots.length - 1];
+        const diff = forceRelativeVals - (slots.length - 1);
+        forceTime = addMinutes(lastSlot.time, diff * slotDuration);
+        console.log('[FORCE BOOK DEBUG] Overflow calculation:', { lastSlotIndex: slots.length - 1, forceRelativeVals, diff, slotDuration, forceTime });
+      }
     }
 
-    // FIX: If force time is in the past (e.g. Session ended), clamp to 'now'
-    // This handles "Overtime" logic where we book into the current moment
+    // FIX: If force time is in the past (e.g. Session ended), calculate based on NOW + queue
+    // This handles "Overtime" logic where we book into the current moment + wait time
     if (isBefore(forceTime, now)) {
-      console.log('[FORCE BOOK DEBUG] Force time is past, clamping to NOW:', forceTime, '->', now);
-      forceTime = now;
+      const slotDuration = doctor.averageConsultingTime || 5;
+      const queueWaitMinutes = activeWalkIns.length * slotDuration;
+      forceTime = addMinutes(now, queueWaitMinutes);
+      console.log('[FORCE BOOK DEBUG] Force time is past, calculating from NOW + queue:', {
+        originalForceTime: forceTime,
+        now: now.toISOString(),
+        patientsAhead: activeWalkIns.length,
+        queueWaitMinutes,
+        adjustedForceTime: forceTime.toISOString(),
+      });
     }
 
     return {

@@ -831,7 +831,8 @@ function WalkInRegistrationContent() {
 
       console.log('[NURSE:FORCE-BOOK] Overflow slot created:', {
         slotIndex,
-        time: getClinicTimeString(estimatedTime),
+        sessionIndex,
+        estimatedTime: estimatedTime ? new Date(estimatedTime).toISOString() : 'N/A',
         isForceBooked,
       });
 
@@ -871,6 +872,9 @@ function WalkInRegistrationContent() {
       // Visual Estimate Override for Classic Distribution (Force Book)
       let visualEstimatedTime = estimatedTime;
       let visualPatientsAhead = patientsAhead;
+
+      // Note: The backend now correctly calculates overtime slots for force booking,
+      // so we don't need client-side adjustments here.
 
       // REMOVED REDUNDANT OVERRIDE
       // Ideally, calculateWalkInDetails returns the correct estimatedTime even for Classic mode

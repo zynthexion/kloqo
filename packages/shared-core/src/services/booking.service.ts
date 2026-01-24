@@ -654,6 +654,12 @@ export async function completePatientWalkInBooking(
             reservedBy: 'walk-in-booking'
         });
 
+        // For force-booked appointments, use the estimated time from walkInDetails
+        // instead of the physical slot time (which may be incorrect for overflow slots)
+        const appointmentTime = finalForceBook && walkInDetails.estimatedTime
+            ? new Date(walkInDetails.estimatedTime)
+            : shiftPlan.newAssignment.slotTime;
+
         transaction.set(newDocRef, {
             id: newDocRef.id,
             patientId,
@@ -667,8 +673,8 @@ export async function completePatientWalkInBooking(
             department: doctor.department,
             bookedVia: 'Walk-in',
             date: dateStr,
-            time: getClinicTimeString(shiftPlan.newAssignment.slotTime),
-            arriveByTime: getClinicTimeString(shiftPlan.newAssignment.slotTime),
+            time: getClinicTimeString(appointmentTime),
+            arriveByTime: getClinicTimeString(appointmentTime),
             status: 'Confirmed',
             tokenNumber,
             numericToken: nextWalkInNumericToken,
@@ -676,8 +682,8 @@ export async function completePatientWalkInBooking(
             slotIndex: segmentedSlotIndex,
             sessionIndex: shiftPlan.newAssignment.sessionIndex,
             createdAt: serverTimestamp(),
-            cutOffTime: Timestamp.fromDate(subMinutes(shiftPlan.newAssignment.slotTime, 15)),
-            noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
+            cutOffTime: Timestamp.fromDate(subMinutes(appointmentTime, 15)),
+            noShowTime: Timestamp.fromDate(addMinutes(appointmentTime, 15)),
             isForceBooked: finalForceBook,
             patientProfile: patientProfile ?? null,
             walkInPatientsAhead: (walkInDetails.perceivedPatientsAhead !== undefined) ? walkInDetails.perceivedPatientsAhead : walkInDetails.patientsAhead,

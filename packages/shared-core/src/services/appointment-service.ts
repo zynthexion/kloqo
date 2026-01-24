@@ -125,9 +125,23 @@ export async function loadDoctorAndSlots(
 
   const slotDuration = doctor.averageConsultingTime || 15;
   const slots: DailySlot[] = [];
+  console.log('[LOAD_DOCTOR_DEBUG] Processing availability:', {
+    day: dayOfWeek,
+    timeSlotsCount: availabilityForDay.timeSlots.length,
+    timeSlots: availabilityForDay.timeSlots
+  });
+
   availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
     let currentTime = parseTimeString(session.from, date);
     let endTime = parseTimeString(session.to, date);
+
+    console.log(`[LOAD_DOCTOR_DEBUG] Session ${sessionIndex} init:`, {
+      from: session.from,
+      to: session.to,
+      parsedStart: currentTime.toISOString(),
+      parsedEnd: endTime.toISOString(),
+      duration: differenceInMinutes(endTime, currentTime)
+    });
 
     // Segmented Indexing: Each session starts at its own range (0, 1000, 2000...)
     let slotIndex = sessionIndex * 1000;

@@ -1996,18 +1996,18 @@ export async function calculateWalkInDetails(
   const targetSessionIndex = activeSessionIndex ?? 0;
   const sessionBaseIndex = targetSessionIndex * 1000;
 
-  // Get slots for this session
-  const slots = allSlots.filter((s: any) => s.sessionIndex === targetSessionIndex);
+  // Get slots for this session AND future sessions to allow spillover
+  const slots = allSlots.filter((s: any) => s.sessionIndex >= targetSessionIndex);
 
-  // Filter appointments for this session
+  // Filter appointments for this session AND future sessions
   const sessionAppointments = appointments.filter((appointment: any) => {
     if (typeof appointment.sessionIndex === 'number') {
-      return appointment.sessionIndex === targetSessionIndex;
+      return appointment.sessionIndex >= targetSessionIndex;
     }
     if (typeof appointment.slotIndex === 'number') {
       // Fallback check
-      if (targetSessionIndex === 0) return appointment.slotIndex < 1000;
-      return appointment.slotIndex >= sessionBaseIndex && appointment.slotIndex < sessionBaseIndex + 1000;
+      if (targetSessionIndex === 0) return true; // Include everything if starting effectively from 0
+      return appointment.slotIndex >= sessionBaseIndex; // Include anything after base
     }
     return false;
   });
@@ -2403,6 +2403,27 @@ export async function calculateWalkInDetails(
       perceivedPatientsAhead = countAppointments.length;
       if (typeof lastEstimate.sessionIndex === 'number') {
         perceivedSessionIndex = lastEstimate.sessionIndex;
+      }
+
+      // CRITICAL VISUAL FIX: If the estimate falls in the gap between sessions (Overtime),
+      // and we are reasonably close to the next session, snap it to the next session start.
+      // This provides a cleaner "10:30 AM" visual instead of "10:05 AM" (Overtime).
+      if (perceivedEstimatedTime && doctor.availabilitySlots) {
+        const dayOfWeek = getClinicDayOfWeek(now);
+        const availabilityForDay = doctor.availabilitySlots.find(s => s.day === dayOfWeek);
+        if (availabilityForDay?.timeSlots) {
+          for (const session of availabilityForDay.timeSlots) {
+            const sStart = parseClinicTime(session.from, now);
+            // If we are earlier than this session start, but within 60 mins (gap), jump to start
+            if (isBefore(perceivedEstimatedTime, sStart) && differenceInMinutes(sStart, perceivedEstimatedTime) < 60) {
+              // Check if we are "in the gap" (after previous session end)
+              // Simplified: If we are just before the start, snap to start.
+              perceivedEstimatedTime = sStart;
+              // Also update session index if we snapped
+              // We don't have session index easily here without more logic, but time is what matters visually.
+            }
+          }
+        }
       }
     }
   }

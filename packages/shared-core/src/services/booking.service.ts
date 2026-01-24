@@ -455,8 +455,8 @@ export async function completePatientWalkInBooking(
         throw new Error('No walk-in slots are available. The next session has not started yet.');
     }
 
-    // Filter slots to only include those in the active session
-    slots = allSlots.filter((s) => s.sessionIndex === activeSessionIndex);
+    // Filter slots to include active session AND future sessions to allow spillover
+    slots = allSlots.filter((s) => s.sessionIndex >= activeSessionIndex);
 
     const doctorData = { doctor: doctorDataRaw.doctor, slots };
 
@@ -555,13 +555,13 @@ export async function completePatientWalkInBooking(
         let sessionFilteredAppointments = effectiveAppointments;
         if (activeSessionIndex !== null) {
             sessionFilteredAppointments = effectiveAppointments.filter(appointment => {
-                // Include appointment if it has the same sessionIndex
-                if (appointment.sessionIndex === activeSessionIndex) {
+                // Include appointment if it belongs to active or future session
+                if (typeof appointment.sessionIndex === 'number' && appointment.sessionIndex >= activeSessionIndex) {
                     return true;
                 }
                 // Also include if slotIndex maps to the active session (fallback for older appointments)
                 if (typeof appointment.slotIndex === 'number' && appointment.slotIndex < allSlots.length) {
-                    return allSlots[appointment.slotIndex]?.sessionIndex === activeSessionIndex;
+                    return allSlots[appointment.slotIndex]?.sessionIndex >= activeSessionIndex;
                 }
                 return false;
             });

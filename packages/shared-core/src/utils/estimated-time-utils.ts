@@ -142,16 +142,31 @@ export function calculateEstimatedTimes(
                         // 3. BUT, if we naturally burn through the Overtime and get close to the next session (<= 15m), Jump then.
 
                         if (totalGap <= 60 || remainingGap <= 15) {
-                            // SPILL: Jump to start of this session
-                            runningTime = new Date(sessionStart);
-                            runningTime.setSeconds(0, 0);
+                            // SPILL: Jump to start of this session (or preserve overtime if > start)
+                            // If runningTime (overtime) has NOT yet reached the next session start, 
+                            // we jump ahead to the start time.
+                            // If runningTime is AFTER the start time (because overtime spilled way over), 
+                            // we keep runningTime as is.
+                            if (runningTime.getTime() < sessionStart.getTime()) {
+                                runningTime = new Date(sessionStart);
+                                runningTime.setSeconds(0, 0);
+                            }
+                            // Otherwise, spillover continues naturally
                             inSession = true;
                             detectedSessionIndex = session.originalIdx;
                             break;
                         } else {
-                            // LARGE GAP (>15m remaining): Do NOT jump. Identify as "Overtime".
-                            // We occupy the time in the gap (overtime).
-                            // The session index remains the PREVIOUS session's index (i-1)
+                            // LARGE GAP LOGIC (>60m total, >15m remaining):
+                            // 1. ABSORPTION: If we are simply running late in the previous session,
+                            // AND that session's overtime fits into this gap,
+                            // we do NOT jump yet. We let the doctor finish the backlog in the gap.
+
+                            // 2. RESET: If this specific appointment belongs to the NEXT session (i),
+                            // and the gap was big enough to finish the backlog,
+                            // we should START this appointment at sessionStart, not earlier.
+                            // (Controlled by the Critical Fix below)
+
+                            // For now, we behave as "Overtime in Gap"
                             inSession = true;
                             detectedSessionIndex = sortedSessions[i - 1].originalIdx;
                             break;

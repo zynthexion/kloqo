@@ -2403,29 +2403,63 @@ export async function calculateWalkInDetails(
       return false;
     });
 
+    console.log('[WALK-IN-PREVIEW-DEBUG] countAppointments:', countAppointments.map(a => ({
+      id: a.id,
+      status: a.status,
+      time: a.time,
+      sessionIndex: a.sessionIndex
+    })));
+    console.log('[WALK-IN-PREVIEW-DEBUG] arrivedAppointments DETAILED:');
+    arrivedAppointments.forEach((a, idx) => {
+      console.log(`  [${idx}] ID=${a.id}, Status=${a.status}, Time=${a.time}, SessionIndex=${a.sessionIndex}`);
+    });
+    console.log('[WALK-IN-PREVIEW-DEBUG] Preview patient time:', getClinicTimeString(now));
+    console.log('[WALK-IN-PREVIEW-DEBUG] Target session index:', targetSessionIndex);
+
+    // CRITICAL FIX: For Classic mode, ensure the preview patient is sorted AFTER all existing patients.
+    // Issue: Existing patients have appointment times like "02:35 PM" (estimated consultation time),
+    // while preview uses "now" (e.g., "02:28 PM"), causing incorrect sorting.
+    // Solution: Use the latest appointment time + 1 minute to guarantee preview is last.
+    let previewTime = getClinicTimeString(now);
+    if (arrivedAppointments.length > 0) {
+      const latestTime = arrivedAppointments.reduce((latest, appt) => {
+        const apptTime = parseClinicTime(appt.time, now);
+        return apptTime > latest ? apptTime : latest;
+      }, parseClinicTime(arrivedAppointments[0].time, now));
+
+      const previewDate = addMinutes(latestTime, 1);
+      previewTime = getClinicTimeString(previewDate);
+      console.log('[WALK-IN-PREVIEW-DEBUG] Adjusted preview time to:', previewTime, '(after existing patients)');
+    }
+
     const simulationQueue = [
       ...arrivedAppointments,
       {
         id: 'temp-preview',
         status: 'Confirmed',
         date: getClinicDateString(now),
-        time: getClinicTimeString(now),
-        sessionIndex: targetSessionIndex !== -1 ? targetSessionIndex : undefined, // Attach inferred session index
+        time: previewTime, // Use adjusted time instead of current time
+        sessionIndex: targetSessionIndex !== -1 ? targetSessionIndex : undefined,
         doctor: doctor.name,
         clinicId: doctor.clinicId
       } as Appointment
     ].sort((a, b) => {
-      // Sort by time to ensure chronological processing
       const timeA = parseClinicTime(a.time, now);
       const timeB = parseClinicTime(b.time, now);
-      return timeA.getTime() - timeB.getTime();
+      const timeDiff = timeA.getTime() - timeB.getTime();
+
+      // Secondary sort: ensure 'temp-preview' is always LAST if times are equal
+      if (timeDiff === 0) {
+        if (a.id === 'temp-preview') return 1;
+        if (b.id === 'temp-preview') return -1;
+      }
+
+      return timeDiff;
     });
 
-    // Sort simulation queue by time for Classic FIFO
-    simulationQueue.sort((a, b) => {
-      const tA = parseClinicTime(a.time, now).getTime();
-      const tB = parseClinicTime(b.time, now).getTime();
-      return tA - tB;
+    console.log('[WALK-IN-PREVIEW-DEBUG] Simulation queue AFTER SORT:');
+    simulationQueue.forEach((a, idx) => {
+      console.log(`  [${idx}] ID=${a.id}, Time=${a.time}, SessionIndex=${a.sessionIndex}`);
     });
 
     const estimates = calculateEstimatedTimes(
@@ -2434,6 +2468,23 @@ export async function calculateWalkInDetails(
       now,
       doctor.averageConsultingTime || 15
     );
+
+    console.log('[WALK-IN-PREVIEW-DEBUG] Simulation queue:', simulationQueue.map(a => ({
+      id: a.id,
+      time: a.time,
+      sessionIndex: a.sessionIndex
+    })));
+    console.log('[WALK-IN-PREVIEW-DEBUG] Estimates:', estimates.map(e => ({
+      appointmentId: e.appointmentId,
+      estimatedTime: e.estimatedTime,
+      isFirst: e.isFirst,
+      sessionIndex: e.sessionIndex
+    })));
+
+    // Explicit logging for each estimate
+    estimates.forEach((e, idx) => {
+      console.log(`[WALK-IN-PREVIEW-DEBUG] Estimate[${idx}]: ID=${e.appointmentId}, Time=${e.estimatedTime}, isFirst=${e.isFirst}`);
+    });
 
     const lastEstimate = estimates.find(e => e.appointmentId === 'temp-preview');
     if (lastEstimate) {

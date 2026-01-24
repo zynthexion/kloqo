@@ -93,7 +93,6 @@ export async function completeStaffWalkInBooking(
     const tokenDistribution = clinicData?.tokenDistribution || 'classic';
 
     // CRITICAL: For walk-in bookings, restrict to active session only
-    // This prevents concurrent bookings from spilling over into distant future sessions
     const allSlots = doctorDataRaw.slots;
     let slots = allSlots;
     let activeSessionIndex: number | null = null;
@@ -159,11 +158,23 @@ export async function completeStaffWalkInBooking(
     }
 
     if (activeSessionIndex === null) {
-        throw new Error('No walk-in slots are available. The next session has not started yet.');
+        // If no active session (e.g. in a break/gap), default to the next available session
+        const nextSlot = allSlots.find(s => isAfter(s.time, now));
+        if (nextSlot) {
+            activeSessionIndex = nextSlot.sessionIndex;
+            console.log('[BOOKING:SERVER] No active session (Gap), defaulting to next session:', activeSessionIndex);
+        } else {
+            // Fallback: If absolutely no future slots, try last session (Overtime)
+            if (allSlots.length > 0) {
+                activeSessionIndex = allSlots[allSlots.length - 1].sessionIndex;
+            } else {
+                throw new Error('No walk-in slots are available. The next session has not started yet.');
+            }
+        }
     }
 
-    // Filter slots to only include those in the active session
-    slots = allSlots.filter((s) => s.sessionIndex === activeSessionIndex);
+    // Filter slots to include active and future sessions to allow spillover
+    slots = allSlots.filter((s) => s.sessionIndex >= activeSessionIndex);
 
     const doctorData = { doctor: doctorDataRaw.doctor, slots };
 
@@ -452,7 +463,17 @@ export async function completePatientWalkInBooking(
 
 
     if (activeSessionIndex === null) {
-        throw new Error('No walk-in slots are available. The next session has not started yet.');
+        // If no active session (e.g. in a break/gap), default to the next available session
+        const nextSlot = allSlots.find(s => isAfter(s.time, now));
+        if (nextSlot) {
+            activeSessionIndex = nextSlot.sessionIndex;
+        } else {
+            if (allSlots.length > 0) {
+                activeSessionIndex = allSlots[allSlots.length - 1].sessionIndex;
+            } else {
+                throw new Error('No walk-in slots are available. The next session has not started yet.');
+            }
+        }
     }
 
     // Filter slots to include active session AND future sessions to allow spillover

@@ -94,7 +94,9 @@ export function findActiveSessionIndex(
           const gap = differenceInMinutes(nextSession.start, session.end);
           if (gap > 60) {
             // Large Gap: Stay sticky until Doc OUT + Appts Done, BUT respect 30m fail-safe
-            if (isBefore(now, subMinutes(nextSession.start, 30))) {
+            // AND ensure we don't stick for more than 90 minutes past session end (prevent 5-hour overtime)
+            const minutesPastEnd = differenceInMinutes(now, session.end);
+            if (isBefore(now, subMinutes(nextSession.start, 30)) && minutesPastEnd < 90) {
               return session.idx;
             }
           }

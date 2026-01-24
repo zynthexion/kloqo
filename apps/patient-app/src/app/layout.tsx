@@ -18,6 +18,13 @@ export const metadata: Metadata = {
   title: 'Kloqo',
   description: 'Book appointments and manage your healthcare',
   manifest: '/manifest.json',
+  metadataBase: new URL('https://kloqo.com'),
+  openGraph: {
+    type: 'website',
+    locale: 'en_IN',
+    url: 'https://kloqo.com',
+    siteName: 'Kloqo',
+  },
 };
 
 export default function RootLayout({

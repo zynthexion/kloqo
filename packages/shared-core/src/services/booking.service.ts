@@ -653,7 +653,7 @@ export async function completePatientWalkInBooking(
             noShowTime: Timestamp.fromDate(addMinutes(shiftPlan.newAssignment.slotTime, 15)),
             isForceBooked: finalForceBook,
             patientProfile: patientProfile ?? null,
-            walkInPatientsAhead: walkInDetails.patientsAhead,
+            walkInPatientsAhead: (walkInDetails.perceivedPatientsAhead !== undefined) ? walkInDetails.perceivedPatientsAhead : walkInDetails.patientsAhead,
             ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
         });
 
@@ -694,7 +694,7 @@ export async function completePatientWalkInBooking(
             tokenNumber,
             numericToken: nextWalkInNumericToken,
             estimatedTime: shiftPlan.newAssignment.slotTime.toISOString(),
-            patientsAhead: walkInDetails.patientsAhead,
+            patientsAhead: (walkInDetails.perceivedPatientsAhead !== undefined) ? walkInDetails.perceivedPatientsAhead : walkInDetails.patientsAhead,
         };
     });
 }

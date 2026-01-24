@@ -2326,8 +2326,9 @@ export async function calculateWalkInDetails(
 
   if (tokenDistribution !== 'advanced') {
     // 1. List for Counting (Includes past Confirmed to show "Patients Ahead")
+    // FIX: Exclude 'Pending' from visual count so "Patients Ahead" means "People physically here".
     const countAppointments = appointments.filter(a =>
-      a.status === 'Confirmed' || (a.status as any) === 'Arrived' || a.status === 'Pending'
+      a.status === 'Confirmed' || (a.status as any) === 'Arrived'
     );
 
     // 2. List for Time Simulation (Excludes past Confirmed to fix Time Estimate)

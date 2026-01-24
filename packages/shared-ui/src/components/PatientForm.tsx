@@ -40,6 +40,7 @@ import {
     getClinicDateString,
     getClinicTimeString,
     buildBreakIntervalsFromPeriods as buildBreakIntervals,
+    compareAppointmentsClassic,
 } from '@kloqo/shared-core';
 
 

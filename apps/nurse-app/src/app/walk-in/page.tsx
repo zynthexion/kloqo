@@ -135,6 +135,7 @@ function WalkInRegistrationContent() {
   // Force booking states
   const [showForceBookDialog, setShowForceBookDialog] = useState(false);
   const [pendingForceBookData, setPendingForceBookData] = useState<z.infer<typeof formSchema> | null>(null);
+  const [pendingWalkInDetails, setPendingWalkInDetails] = useState<any>(null); // Store details for force book
 
   // States for patient search
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -364,36 +365,70 @@ function WalkInRegistrationContent() {
 
   // Session-aware walk-in availability check
   const isDoctorConsultingNow = useMemo(() => {
-    if (!doctor?.availabilitySlots) return false;
+    if (!doctor?.availabilitySlots) {
+      console.log('[WALK-IN-AVAILABILITY] No availability slots');
+      return false;
+    }
 
     const today = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
     const dayOfWeek = format(currentTime, 'EEEE');
     const todaysAvailability = doctor.availabilitySlots.find(s => s.day === dayOfWeek);
 
-    if (!todaysAvailability || !todaysAvailability.timeSlots) return false;
+    console.log('[WALK-IN-AVAILABILITY] Current time:', currentTime.toLocaleString());
+    console.log('[WALK-IN-AVAILABILITY] Day of week:', dayOfWeek);
+    console.log('[WALK-IN-AVAILABILITY] Today\'s availability:', todaysAvailability);
 
-    return todaysAvailability.timeSlots.some((session, index) => {
+    if (!todaysAvailability || !todaysAvailability.timeSlots) {
+      console.log('[WALK-IN-AVAILABILITY] No time slots for today');
+      return false;
+    }
+
+    const isClassicMode = clinicDetails?.tokenDistribution !== 'advanced';
+    console.log('[WALK-IN-AVAILABILITY] Mode:', isClassicMode ? 'Classic' : 'Advanced');
+
+    // For Classic mode: If there are any sessions today, walk-ins are allowed anytime
+    if (isClassicMode && todaysAvailability.timeSlots.length > 0) {
+      console.log('[WALK-IN-AVAILABILITY] Classic mode - AVAILABLE (no time restrictions)');
+      return true;
+    }
+
+    // For Advanced mode: Check session timing restrictions
+    const result = todaysAvailability.timeSlots.some((session, index) => {
       const startTime = parseTime(session.from, currentTime);
+      const openTime = subMinutes(startTime, 30); // 30 mins before session start
 
-      // Open 30 mins before session start
-      const openTime = subMinutes(startTime, 30);
-      if (isBefore(currentTime, openTime)) return false; // Too early
+      console.log('[WALK-IN-AVAILABILITY] Session', index, ':', session.from, '-', session.to);
+      console.log('[WALK-IN-AVAILABILITY] Open time:', openTime.toLocaleTimeString(), 'Current:', currentTime.toLocaleTimeString());
+
+      if (isBefore(currentTime, openTime)) {
+        console.log('[WALK-IN-AVAILABILITY] Too early for session', index);
+        return false; // Too early
+      }
 
       // Calculate logic end time
       const effectiveEnd = getSessionEnd(doctor, currentTime, index) || parseTime(session.to, currentTime);
+      console.log('[WALK-IN-AVAILABILITY] Effective end:', effectiveEnd.toLocaleTimeString());
 
       // If within normal hours (incl extension) -> Available
-      if (!isAfter(currentTime, effectiveEnd)) return true;
+      if (!isAfter(currentTime, effectiveEnd)) {
+        console.log('[WALK-IN-AVAILABILITY] Within session hours - AVAILABLE');
+        return true;
+      }
 
       // If Overtime: Only available if there are active appointments in this session
       const activeCount = activeAppointmentsCount[index] || 0;
+      console.log('[WALK-IN-AVAILABILITY] Overtime - active count:', activeCount);
       if (activeCount > 0) {
         return true; // Keep open for queue
       }
 
+      console.log('[WALK-IN-AVAILABILITY] Session ended and no active appointments');
       return false; // Ended and empty
     });
-  }, [doctor, currentTime, activeAppointmentsCount]);
+
+    console.log('[WALK-IN-AVAILABILITY] Final result:', result);
+    return result;
+  }, [doctor, currentTime, activeAppointmentsCount, clinicDetails]);
 
   useEffect(() => {
     if (!clinicId) return;
@@ -586,8 +621,9 @@ function WalkInRegistrationContent() {
             sessionEnd: sessionEnd ? getClinicTimeString(sessionEnd) : 'N/A'
           });
 
-          // Trigger force book logic
+          // Trigger force book logic - store both values and details
           setPendingForceBookData(values);
+          setPendingWalkInDetails(details); // Store details for force book handler
           setShowForceBookDialog(true);
           setIsSubmitting(false);
           return;
@@ -817,8 +853,12 @@ function WalkInRegistrationContent() {
       const clinicData = clinicSnap.data();
       const walkInTokenAllotment = clinicData?.walkInTokenAllotment || 5;
 
-      // Retry with force booking enabled
-      const details = await calculateWalkInDetails(
+      // CRITICAL FIX: Reuse the details from the first call which has the correct
+      // perceivedEstimatedTime for Classic mode. Making a second call with forceBooking=true
+      // would lose the perceived values since Classic mode logic only runs when forceBooking=false.
+
+      // Retry with force booking enabled to get the force slot
+      const forceDetails = await calculateWalkInDetails(
         db,
         doctor,
         walkInTokenAllotment,
@@ -826,8 +866,13 @@ function WalkInRegistrationContent() {
         true // Force booking enabled
       );
 
-      const { estimatedTime, patientsAhead, slotIndex, sessionIndex, numericToken } = details;
-      const isForceBooked = details.isForceBooked || false;
+      // Use force booking slot info, but keep perceived values from first call
+      const estimatedTime = forceDetails.estimatedTime;
+      const patientsAhead = forceDetails.patientsAhead;
+      const slotIndex = forceDetails.slotIndex;
+      const sessionIndex = forceDetails.sessionIndex;
+      const numericToken = forceDetails.numericToken;
+      const isForceBooked = forceDetails.isForceBooked || false;
 
       console.log('[NURSE:FORCE-BOOK] Overflow slot created:', {
         slotIndex,
@@ -870,8 +915,18 @@ function WalkInRegistrationContent() {
       const appointmentDateStr = getClinicDateString(now);
       const appointmentDate = now;
       // Visual Estimate Override for Classic Distribution (Force Book)
-      let visualEstimatedTime = estimatedTime;
-      let visualPatientsAhead = patientsAhead;
+      // CRITICAL FIX: Use perceivedEstimatedTime from the stored details (from first call)
+      // to account for all confirmed patients
+      let visualEstimatedTime = pendingWalkInDetails?.perceivedEstimatedTime ?? estimatedTime;
+      let visualPatientsAhead = (pendingWalkInDetails?.perceivedPatientsAhead !== undefined) ? pendingWalkInDetails.perceivedPatientsAhead : patientsAhead;
+
+      console.log('[NURSE:FORCE-BOOK] Using walk-in details:', {
+        original: getClinicTimeString(estimatedTime),
+        perceived: pendingWalkInDetails?.perceivedEstimatedTime ? getClinicTimeString(pendingWalkInDetails.perceivedEstimatedTime) : 'N/A',
+        perceivedAhead: pendingWalkInDetails?.perceivedPatientsAhead,
+        finalVisual: getClinicTimeString(visualEstimatedTime),
+        finalAhead: visualPatientsAhead
+      });
 
       // Note: The backend now correctly calculates overtime slots for force booking,
       // so we don't need client-side adjustments here.

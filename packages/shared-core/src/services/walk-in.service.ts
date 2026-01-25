@@ -2218,16 +2218,18 @@ export async function calculateWalkInDetails(
         calculatedForceTime: forceTime.toISOString(),
       });
     } else {
-      // Fallback: use the old logic if no session slots found
-      if (forceRelativeVals < slots.length) {
-        forceTime = slots[forceRelativeVals].time;
-      } else {
-        const slotDuration = doctor.averageConsultingTime || 15;
-        const lastSlot = slots[slots.length - 1];
-        const diff = forceRelativeVals - (slots.length - 1);
-        forceTime = addMinutes(lastSlot.time, diff * slotDuration);
-        console.log('[FORCE BOOK DEBUG] Overflow calculation:', { lastSlotIndex: slots.length - 1, forceRelativeVals, diff, slotDuration, forceTime });
-      }
+      // Fallback: Calculate from session start if no slots found
+      // This should rarely happen, but we handle it gracefully
+      const slotDuration = doctor.averageConsultingTime || 15;
+      const sessionStartTime = slots.find((s: any) => s.sessionIndex === targetSessionIndex)?.time || now;
+      forceTime = addMinutes(sessionStartTime, forceRelativeVals * slotDuration);
+      console.log('[FORCE BOOK DEBUG] Fallback calculation (no current session slots):', {
+        targetSessionIndex,
+        forceRelativeVals,
+        slotDuration,
+        sessionStartTime: sessionStartTime.toISOString(),
+        forceTime: forceTime.toISOString()
+      });
     }
 
     // FIX: If force time is in the past (e.g. Session ended), calculate based on NOW + queue
@@ -2363,43 +2365,23 @@ export async function calculateWalkInDetails(
   let perceivedSessionIndex: number | undefined;
 
   if (tokenDistribution !== 'advanced') {
-    // 1. List for Counting (Includes past Confirmed to show "Patients Ahead")
-    // FIX: Exclude 'Pending' from visual count so "Patients Ahead" means "People physically here".
+    // 1. List for Counting (Count Confirmed patients for both A and W tokens)
+    // Confirmed = Both Advance and Walk-in appointments who have arrived
     const countAppointments = appointments.filter(a =>
       a.status === 'Confirmed' || (a.status as any) === 'Arrived'
     );
 
-    // 2. List for Time Simulation (Excludes past Confirmed to fix Time Estimate)
+    // 2. List for Time Simulation (Include all physically present patients)
+    // CRITICAL FIX: "Confirmed" status means the patient is physically present,
+    // so we should include them regardless of session timing.
     const arrivedAppointments = countAppointments.filter(a => {
-      // 1. Always include Arrived/Pending (physically present or in-progress)
-      if ((a.status as any) === 'Arrived' || a.status === 'Pending') return true;
-
-      // 2. For 'Confirmed', check if they belong to a PAST session
-      if (a.status === 'Confirmed') {
-        const apptTime = parseClinicTime(a.time, now);
-
-        // Find the session this appointment belongs to
-        const dayOfWeek = getClinicDayOfWeek(now);
-        const dailyAvailability = doctor.availabilitySlots?.find(s => s.day === dayOfWeek);
-
-        if (dailyAvailability?.timeSlots) {
-          const session = dailyAvailability.timeSlots.find(s => {
-            const sStart = parseClinicTime(s.from, now);
-            const sEnd = parseClinicTime(s.to, now);
-            return apptTime >= sStart && apptTime < sEnd;
-          });
-
-          if (session) {
-            const sessionEnd = parseClinicTime(session.to, now);
-            // If the session this appointment belongs to has ENDED, and they are only 'Confirmed' (not Arrived),
-            // assume they are a No-Show / Late and do NOT let them block the new session queue.
-            if (isBefore(sessionEnd, now)) {
-              return false;
-            }
-          }
-        }
-        return true; // Default to keeping it if currently valid or session not found
+      // Always include Arrived, Pending, and Confirmed (all physically present)
+      if ((a.status as any) === 'Arrived' || a.status === 'Pending' || a.status === 'Confirmed') {
+        console.log(`[FILTER-DEBUG] Including ${a.id} - status=${a.status}, time=${a.time}`);
+        return true;
       }
+
+      console.log(`[FILTER-DEBUG] EXCLUDING ${a.id} - status=${a.status} (not physically present)`);
       return false;
     });
 
@@ -2462,12 +2444,25 @@ export async function calculateWalkInDetails(
       console.log(`  [${idx}] ID=${a.id}, Time=${a.time}, SessionIndex=${a.sessionIndex}`);
     });
 
+    // CRITICAL FIX: For Classic mode preview, we need to calculate estimates starting from
+    // the first patient's appointment time, not the current time. This ensures that if
+    // existing patients have future appointment times (e.g., 04:00 PM), the preview patient
+    // gets the correct time after them (e.g., 04:05 PM), not based on current time (03:33 PM).
+
+    // Temporarily override doctor status to 'Out' to force calculateEstimatedTimes to use
+    // the session start time or first patient's time as reference, not current time.
+    const originalStatus = doctor.consultationStatus;
+    const doctorForEstimate = { ...doctor, consultationStatus: 'Out' as const };
+
     const estimates = calculateEstimatedTimes(
       simulationQueue,
-      doctor,
+      doctorForEstimate,
       now,
       doctor.averageConsultingTime || 15
     );
+
+    // Restore original status
+    doctor.consultationStatus = originalStatus;
 
     console.log('[WALK-IN-PREVIEW-DEBUG] Simulation queue:', simulationQueue.map(a => ({
       id: a.id,
@@ -2490,6 +2485,8 @@ export async function calculateWalkInDetails(
     if (lastEstimate) {
       perceivedEstimatedTime = parse(lastEstimate.estimatedTime, 'hh:mm a', now);
       perceivedPatientsAhead = countAppointments.length;
+      console.log('[PERCEIVED-TIME-DEBUG] Initial perceived time:', getClinicTimeString(perceivedEstimatedTime), 'patientsAhead:', perceivedPatientsAhead);
+
       if (typeof lastEstimate.sessionIndex === 'number') {
         perceivedSessionIndex = lastEstimate.sessionIndex;
       }
@@ -2507,6 +2504,7 @@ export async function calculateWalkInDetails(
             if (isBefore(perceivedEstimatedTime, sStart) && differenceInMinutes(sStart, perceivedEstimatedTime) < 60) {
               // Check if we are "in the gap" (after previous session end)
               // Simplified: If we are just before the start, snap to start.
+              console.log('[PERCEIVED-TIME-DEBUG] Snapping time from', getClinicTimeString(perceivedEstimatedTime), 'to session start:', getClinicTimeString(sStart));
               perceivedEstimatedTime = sStart;
               // Also update session index if we snapped
               // We don't have session index easily here without more logic, but time is what matters visually.
@@ -2514,6 +2512,7 @@ export async function calculateWalkInDetails(
           }
         }
       }
+      console.log('[PERCEIVED-TIME-DEBUG] Final perceived time:', perceivedEstimatedTime ? getClinicTimeString(perceivedEstimatedTime) : 'undefined');
     }
   }
 

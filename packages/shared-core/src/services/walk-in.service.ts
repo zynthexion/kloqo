@@ -1858,12 +1858,15 @@ export async function prepareAdvanceShift({
   if (forceBook) {
     const allOccupiedSlots = effectiveAppointments
       .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number' && apt.sessionIndex === targetSessionIndex)
-      .map(apt => toRelativeIndex(apt.slotIndex as number, segmentedBase));
+      .map(apt => {
+        const rel = toRelativeIndex(apt.slotIndex as number, segmentedBase);
+        // If it's the continuous indexing from loadDoctorAndSlots, normalize against the session start
+        return (apt.slotIndex || 0) < 10000 ? (apt.slotIndex as number) - memoryBase : rel;
+      });
 
     const maxOccupiedSlot = allOccupiedSlots.length > 0 ? Math.max(...allOccupiedSlots) : -1;
     const forceRelativeSlot = maxOccupiedSlot + 1;
-    const forceBookSlotIndex = forceRelativeSlot + segmentedBase;
-
+    const finalForceBookSlotIndex = forceRelativeSlot + segmentedBase;
     let forceBookTime: Date;
     const slotDuration = doctor.averageConsultingTime || 15;
 
@@ -1884,7 +1887,7 @@ export async function prepareAdvanceShift({
 
     newAssignment = {
       id: '__new_walk_in__',
-      slotIndex: forceBookSlotIndex,
+      slotIndex: finalForceBookSlotIndex,
       sessionIndex: targetSessionIndex,
       slotTime: forceBookTime,
     };
@@ -2029,22 +2032,28 @@ export async function calculateWalkInDetails(
   // For Classic: Auto-fallback to force-booking if no active session is found (Overtime)
   // For Advanced: Strict 30m window, only force if explicitly requested
   const isClassic = tokenDistribution === 'classic';
-  let isForceBooked = forceBook || (isClassic && activeSessionIndex === null);
 
   // If no active session found, use the robust fallback (targets the one that just ended or first/next)
-  // But ONLY for Classic. For Advanced, if it's null, we let it stay null (unless force-booking)
-  let targetSessionIndex = activeSessionIndex;
+  let targetSessionIndex = activeSessionIndex !== null
+    ? activeSessionIndex
+    : findTargetSessionForForceBooking(doctor, now);
 
-  if (targetSessionIndex === null) {
-    if (isClassic || forceBook) {
-      targetSessionIndex = findTargetSessionForForceBooking(doctor, now);
-    } else {
-      // For Advanced without explicit forceBook, we target Session 0 as a default fail-safe 
-      // but the scheduler will likely return no slots due to strict window rules.
-      targetSessionIndex = 0;
+  // Determine if this is a "liberated" booking (force-book)
+  // For Classic: Auto-fallback to force-booking ONLY if now is past the session end (Overtime)
+  // For Advanced: Strict 30m window, only force if explicitly requested
+  let isForceBooked = forceBook;
+  if (!isForceBooked && isClassic && activeSessionIndex === null) {
+    const targetSessionSlots = allSlots.filter(s => s.sessionIndex === targetSessionIndex);
+    if (targetSessionSlots.length > 0) {
+      const sessionEnd = targetSessionSlots[targetSessionSlots.length - 1].time;
+      if (isAfter(now, sessionEnd)) {
+        isForceBooked = true;
+      }
     }
   }
-  if (activeSessionIndex !== null && tokenDistribution === 'classic') {
+
+  // Determine if this is truly a "Force Book" scenario (past hours)
+  if (activeSessionIndex !== null && isClassic) {
     const session = allSlots.find(s => s.sessionIndex === activeSessionIndex);
     if (session) {
       // If we are outside the nominal session range, it's a force book
@@ -2240,20 +2249,20 @@ export async function calculateWalkInDetails(
   // Force Book Check
   if (isForceBooked) {
 
-    // Simple Append Logic
-    // IMPORTANT: Filter overflow appointments (slotIndex >= 10000) BEFORE toRelativeIndex
-    // because toRelativeIndex uses modulo 10000, which would convert 10016 to 16
+    // Find the last slot of the CURRENT session (targetSessionIndex)
+    const currentSessionSlots = slots.filter((s: any) => s.sessionIndex === targetSessionIndex);
+    const sessionFirstSlotIdx = currentSessionSlots.length > 0 ? currentSessionSlots[0].index : sessionBaseIndex;
+
     const usedIndices = sessionAppointments
       .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
-      .map(a => toRelativeIndex(a.slotIndex as number, sessionBaseIndex))
+      .map(a => {
+        const rel = toRelativeIndex(a.slotIndex as number, sessionBaseIndex);
+        // If it's the continuous indexing from loadDoctorAndSlots, normalize against the session start
+        return (a.slotIndex || 0) < 10000 ? (a.slotIndex as number) - sessionFirstSlotIdx : rel;
+      })
       .filter(idx => idx >= 0 && idx < 1000); // Filter for CURRENT session (including overflow)
 
-
     console.log('[FORCE BOOK DEBUG] Used indices:', usedIndices.sort((a, b) => a - b));
-    console.log('[FORCE BOOK DEBUG] Active appointments for force book:', sessionAppointments
-      .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
-      .map(a => ({ id: a.id, token: a.tokenNumber, slot: a.slotIndex, relativeSlot: toRelativeIndex(a.slotIndex as number, sessionBaseIndex), isOverflow: (a.slotIndex || 0) >= 10000 }))
-    );
 
     const maxIdx = usedIndices.length > 0 ? Math.max(...usedIndices) : -1;
     const forceRelativeVals = maxIdx + 1;
@@ -2263,19 +2272,13 @@ export async function calculateWalkInDetails(
     let forceTime: Date;
     let lastSessionSlotRelativeIndex = -1;
 
-
-    // Find the last slot of the CURRENT session (targetSessionIndex)
-    const currentSessionSlots = slots.filter((s: any) => s.sessionIndex === targetSessionIndex);
-
     if (currentSessionSlots.length > 0) {
       // Calculate overtime based on the last slot of the current session
       const slotDuration = doctor.averageConsultingTime || 15;
       const lastSessionSlot = currentSessionSlots[currentSessionSlots.length - 1];
-      lastSessionSlotRelativeIndex = toRelativeIndex(
-        allSlots.findIndex((s: any) => s === lastSessionSlot),
-        sessionBaseIndex
-      );
 
+      // CRITICAL: Normalizing against the same base as forceRelativeVals
+      lastSessionSlotRelativeIndex = lastSessionSlot.index - sessionFirstSlotIdx;
 
       const diff = forceRelativeVals - lastSessionSlotRelativeIndex;
       forceTime = addMinutes(lastSessionSlot.time, diff * slotDuration);

@@ -273,6 +273,7 @@ export function useAppointmentStatusUpdater() {
       let hasWrites = false;
 
       // Check both Pending and Skipped appointments
+      // CRITICAL: Never auto-transition Confirmed appointments (they are already excluded by the status filter)
       const appointmentsToCheck = appointments.filter(apt =>
         apt.status === 'Pending' || apt.status === 'Skipped'
       );

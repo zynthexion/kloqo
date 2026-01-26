@@ -29,7 +29,8 @@ import {
     buildCandidateSlots,
     calculatePerSessionReservedSlots,
     fetchDayAppointments,
-    findActiveSessionIndex
+    findActiveSessionIndex,
+    findTargetSessionForForceBooking
 } from './walk-in.service';
 import { getClinicNow, getClinicDateString, getClinicTimeString, getClinicDayOfWeek, parseClinicTime } from '../utils/date-utils';
 import { parseTime } from '../utils/break-helpers';
@@ -113,48 +114,7 @@ export async function completeStaffWalkInBooking(
     // If strictly checking active sessions fail, but we are Force Booking, we relax the constraint.
     // We assume the user knows what they are doing (booking into an "Overtime" or "Next" session).
     if (activeSessionIndex === null && isForceBooked) {
-        // Fallback: Find the session that *just* ended (Overtime) or the next one.
-        // If we are in the gap between Session 0 and Session 1, we typically want "Overtime" for Session 0.
-        // We iterate slots to find the session where 'now' is closest to the end, or if 'now' is in the gap.
-
-        let targetIdx = 0;
-        if (doctorDataRaw.doctor.availabilitySlots) {
-            const dayOfWeek = getClinicDayOfWeek(now);
-            const daily = doctorDataRaw.doctor.availabilitySlots.find(s => s.day === dayOfWeek);
-            if (daily?.timeSlots) {
-                // CRITICAL: Sort time slots to ensuring chronological order logic works
-                const sortedSlots = [...daily.timeSlots].sort((a, b) => {
-                    const startA = parseClinicTime(a.from, now);
-                    const startB = parseClinicTime(b.from, now);
-                    return startA.getTime() - startB.getTime();
-                });
-
-                // Find the first session that starts in the future
-                const nextSessionIdx = sortedSlots.findIndex(s => {
-                    const start = parseClinicTime(s.from, now);
-                    return start > now;
-                });
-
-                // If there is a "next" session, we usually want the one BEFORE it (the gap we are in)
-                let selectedSlot: any = null;
-
-                if (nextSessionIdx > 0) {
-                    selectedSlot = sortedSlots[nextSessionIdx - 1];
-                } else if (nextSessionIdx === 0) {
-                    // 'now' is before the first session. Target 0.
-                    selectedSlot = sortedSlots[0];
-                } else if (nextSessionIdx === -1) {
-                    // After all sessions. Pick the last one (Overtime).
-                    selectedSlot = sortedSlots[sortedSlots.length - 1];
-                }
-
-                if (selectedSlot) {
-                    // Find original index in the unsorted array to preserve correct ID linkage
-                    targetIdx = daily.timeSlots.indexOf(selectedSlot);
-                }
-            }
-        }
-        activeSessionIndex = targetIdx;
+        activeSessionIndex = findTargetSessionForForceBooking(doctorDataRaw.doctor, now);
     }
 
     if (activeSessionIndex === null) {
@@ -468,25 +428,6 @@ export async function completePatientWalkInBooking(
     );
 
 
-    if (activeSessionIndex === null) {
-        // If no active session (e.g. in a break/gap), default to the next available session
-        const nextSlot = allSlots.find(s => isAfter(s.time, now));
-        if (nextSlot) {
-            activeSessionIndex = nextSlot.sessionIndex;
-        } else {
-            if (allSlots.length > 0) {
-                activeSessionIndex = allSlots[allSlots.length - 1].sessionIndex;
-            } else {
-                throw new Error('No walk-in slots are available. The next session has not started yet.');
-            }
-        }
-    }
-
-    // Filter slots to include active session AND future sessions to allow spillover
-    slots = allSlots.filter((s) => s.sessionIndex >= activeSessionIndex);
-
-    const doctorData = { doctor: doctorDataRaw.doctor, slots };
-
     // 1b. Duplicate Check
     const duplicateCheckQuery = query(
         collection(firestore, 'appointments'),
@@ -515,21 +456,32 @@ export async function completePatientWalkInBooking(
     console.log('[BOOKING:SERVER] Calculating server-side walk-in details...');
     const walkInDetails = await calculateWalkInDetails(
         firestore,
-        doctorData.doctor,
+        doctorDataRaw.doctor,
         walkInTokenAllotment
     );
+
+    // CRITICAL FIX: Use the session index from walk-in calculations as the source of truth.
+    // This ensures consistency between the preview (which the user sees) and the final booking.
+    // If calculateWalkInDetails detected it needs to force-book/overtime, it will return the correct session index.
+    activeSessionIndex = walkInDetails.sessionIndex;
 
     const finalForceBook = walkInDetails.isForceBooked || false;
     console.log('[BOOKING:SERVER] Server calculation result:', {
         slotIndex: walkInDetails.slotIndex,
         estimated: walkInDetails.estimatedTime,
         patientsAhead: walkInDetails.patientsAhead,
-        numericToken: walkInDetails.numericToken
+        numericToken: walkInDetails.numericToken,
+        sessionIndex: activeSessionIndex,
+        isForceBooked: finalForceBook
     });
 
     if (!walkInDetails || walkInDetails.slotIndex == null) {
         throw new Error('No walk-in slots are available.');
     }
+
+    // Filter slots to include active session AND future sessions to allow spillover
+    slots = allSlots.filter((s) => s.sessionIndex >= (activeSessionIndex ?? 0));
+    const doctorData = { doctor: doctorDataRaw.doctor, slots };
 
     // 3. Unified Transaction
     return await runTransaction(firestore, async (transaction) => {

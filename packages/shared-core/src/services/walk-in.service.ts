@@ -139,6 +139,52 @@ export function findActiveSessionIndex(
   return null;
 }
 
+/**
+ * Falling back when no active session is found but force booking is required.
+ * Targets the session that just ended (overtime) or the first session of the day.
+ */
+export function findTargetSessionForForceBooking(
+  doctor: Doctor,
+  now: Date
+): number {
+  let targetIdx = 0;
+  if (doctor.availabilitySlots) {
+    const dayOfWeek = getClinicDayOfWeek(now);
+    const daily = doctor.availabilitySlots.find(s => s.day === dayOfWeek);
+    if (daily?.timeSlots) {
+      // Sort time slots chronologically
+      const sortedSlots = [...daily.timeSlots].sort((a, b) => {
+        const startA = parseClinicTime(a.from, now);
+        const startB = parseClinicTime(b.from, now);
+        return startA.getTime() - startB.getTime();
+      });
+
+      // Find the first session that starts in the future
+      const nextSessionIdx = sortedSlots.findIndex(s => {
+        const start = parseClinicTime(s.from, now);
+        return start > now;
+      });
+
+      let selectedSlot: any = null;
+      if (nextSessionIdx > 0) {
+        // We are in a gap or after a session has started. Pick the one that just ended.
+        selectedSlot = sortedSlots[nextSessionIdx - 1];
+      } else if (nextSessionIdx === 0) {
+        // Before first session.
+        selectedSlot = sortedSlots[0];
+      } else if (nextSessionIdx === -1) {
+        // After all sessions. Pick the last one (Overtime).
+        selectedSlot = sortedSlots[sortedSlots.length - 1];
+      }
+
+      if (selectedSlot) {
+        targetIdx = daily.timeSlots.indexOf(selectedSlot);
+      }
+    }
+  }
+  return targetIdx;
+}
+
 export interface DailySlot {
   index: number;
   time: Date;
@@ -1980,7 +2026,24 @@ export async function calculateWalkInDetails(
   );
 
   // Determine if this is a "liberated" booking (force-book)
-  let isForceBooked = forceBook;
+  // For Classic: Auto-fallback to force-booking if no active session is found (Overtime)
+  // For Advanced: Strict 30m window, only force if explicitly requested
+  const isClassic = tokenDistribution === 'classic';
+  let isForceBooked = forceBook || (isClassic && activeSessionIndex === null);
+
+  // If no active session found, use the robust fallback (targets the one that just ended or first/next)
+  // But ONLY for Classic. For Advanced, if it's null, we let it stay null (unless force-booking)
+  let targetSessionIndex = activeSessionIndex;
+
+  if (targetSessionIndex === null) {
+    if (isClassic || forceBook) {
+      targetSessionIndex = findTargetSessionForForceBooking(doctor, now);
+    } else {
+      // For Advanced without explicit forceBook, we target Session 0 as a default fail-safe 
+      // but the scheduler will likely return no slots due to strict window rules.
+      targetSessionIndex = 0;
+    }
+  }
   if (activeSessionIndex !== null && tokenDistribution === 'classic') {
     const session = allSlots.find(s => s.sessionIndex === activeSessionIndex);
     if (session) {
@@ -2001,8 +2064,6 @@ export async function calculateWalkInDetails(
       }
     }
   }
-
-  const targetSessionIndex = activeSessionIndex ?? 0;
   const sessionBaseIndex = targetSessionIndex * 1000;
 
   // Get slots for this session AND future sessions to allow spillover

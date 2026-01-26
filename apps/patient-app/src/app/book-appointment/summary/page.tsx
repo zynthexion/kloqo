@@ -32,6 +32,7 @@ import { getDoctorFromCache, saveDoctorToCache } from '@/lib/doctor-cache';
 import { getPatientFromCache, savePatientToCache } from '@/lib/patient-cache';
 import { AuthGuard } from '@/components/auth-guard';
 import { FullScreenLoader } from '@/components/full-screen-loader';
+import { ConvenienceFeeDisplay } from '@/components/convenience-fee-display';
 
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -1365,18 +1366,8 @@ function BookingSummaryPage() {
                         <div className="w-8"></div>
                     </header>
                     <main className="flex-grow overflow-y-auto p-4 md:p-6 space-y-6">
-                        {/* Progressi **Avatar Loading**:
- - [ ] Check for pulsing skeleton while images load
- - [ ] Verify faster perceived loading time
- - [ ] Test on slow network connection
- 
- **Walk-in Redirect**:
- - [ ] Book a walk-in appointment in Patient App
- - [ ] Verify redirect to success page (instead of modal)
- - [ ] Check that time matches `arriveByTime` exactly (no 15-min deduction)
- - [ ] Verify label says "Your appointment time is"
- - [ ] Test with both English and Malayalam languages
-t className="p-4 space-y-4">
+                        <Card>
+                            <CardContent className="p-4 space-y-4">
                                 {loading && !doctor && !cachedDoctor ? (
                                     // Show skeleton while doctor loads
                                     <>
@@ -1433,6 +1424,7 @@ t className="p-4 space-y-4">
                                                         <span className="font-semibold">{(doctor || cachedDoctor)!.consultationFee} {t.bookAppointment.consultationFee}</span>
                                                     </div>
                                                 )}
+                                                <ConvenienceFeeDisplay />
                                             </div>
                                         )}
                                     </>

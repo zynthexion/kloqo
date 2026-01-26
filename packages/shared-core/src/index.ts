@@ -8,7 +8,7 @@ export * from './services/notification-service';
 export * from './services/walk-in-booking';
 export * from './services/patient-service';
 export * from './utils/break-helpers';
-export { previewWalkInPlacement, calculateWalkInDetails } from './services/walk-in.service';
+export { previewWalkInPlacement, calculateWalkInDetails, type DailySlot } from './services/walk-in.service';
 export * from './services/walk-in-scheduler';
 export * from './services/booking.service';
 

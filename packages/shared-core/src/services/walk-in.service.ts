@@ -2068,7 +2068,8 @@ export async function calculateWalkInDetails(
         }
       });
       const range = sessionMap.get(activeSessionIndex);
-      if (range && (isAfter(now, range.end) || isBefore(now, range.start))) {
+      // SURGICAL FIX: Only force book if AFTER session end (overtime), not before start (walk-in window)
+      if (range && isAfter(now, range.end)) {
         isForceBooked = true;
       }
     }
@@ -2256,9 +2257,17 @@ export async function calculateWalkInDetails(
     const usedIndices = sessionAppointments
       .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
       .map(a => {
-        const rel = toRelativeIndex(a.slotIndex as number, sessionBaseIndex);
-        // If it's the continuous indexing from loadDoctorAndSlots, normalize against the session start
-        return (a.slotIndex || 0) < 10000 ? (a.slotIndex as number) - sessionFirstSlotIdx : rel;
+        const slotIdx = a.slotIndex as number;
+        // Session-based indices (1000+): normalize to session-relative (0-based)
+        if (slotIdx >= sessionBaseIndex && slotIdx < sessionBaseIndex + 1000) {
+          return slotIdx - sessionBaseIndex;
+        }
+        // Physical continuous indices (<1000): normalize against first slot
+        if (slotIdx < 1000) {
+          return slotIdx - sessionFirstSlotIdx;
+        }
+        // Fallback for other cases
+        return toRelativeIndex(slotIdx, sessionBaseIndex);
       })
       .filter(idx => idx >= 0 && idx < 1000); // Filter for CURRENT session (including overflow)
 
@@ -2512,7 +2521,11 @@ export async function calculateWalkInDetails(
         status: 'Confirmed',
         date: getClinicDateString(now),
         time: previewTime, // Use adjusted time instead of current time
-        sessionIndex: targetSessionIndex !== -1 ? targetSessionIndex : undefined,
+        // SURGICAL FIX: Only set sessionIndex if there are existing appointments in this session
+        // This prevents calculateEstimatedTimes from jumping to session start for empty future sessions
+        ...(arrivedAppointments.length > 0 && targetSessionIndex !== -1
+          ? { sessionIndex: targetSessionIndex }
+          : {}),
         doctor: doctor.name,
         clinicId: doctor.clinicId
       } as Appointment

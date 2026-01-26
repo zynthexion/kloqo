@@ -614,40 +614,42 @@ export async function completePatientWalkInBooking(
             throw new Error('No walk-in slots are available.');
         }
 
-        // CRITICAL: prepareAdvanceShift (attemptSchedule) already returns SEGMENTED indices
-        // (e.g., 1005 for Session 1, position 5), NOT relative positions.
-        // We should use them directly without further conversion.
-        console.log('[BOOKING:ASSIGNMENT] Walk-in assignment from prepareAdvanceShift:', {
-            slotIndex: shiftPlan.newAssignment.slotIndex,
-            sessionIndex: shiftPlan.newAssignment.sessionIndex
-        });
-        const segmentedSlotIndex = shiftPlan.newAssignment.slotIndex;
+        // --- SURGICAL FIX: Remap slot indices that overflow into future sessions ---
+        // Prevents blocking the physical slots of the next session caused by dense slot numbering
+        const remapOverflowSlotIndex = (originalIndex: number): number => {
+            const conflictingSlot = allSlots.find(s => s.index === originalIndex);
+            // If slot exists physically but belongs to a different session, we have a collision
+            if (activeSessionIndex !== null && conflictingSlot && conflictingSlot.sessionIndex !== activeSessionIndex) {
+                // Remap to high range (10000+) to avoid collision while preserving relative sort order
+                return 10000 + originalIndex;
+            }
+            return originalIndex;
+        };
 
-        // Appointment updates also already have segmented indices
-        const segmentedUpdates = shiftPlan.appointmentUpdates.map(update => {
-            console.log('[BOOKING:ASSIGNMENT] Shift update from prepareAdvanceShift:', {
-                appointmentId: update.appointmentId,
-                slotIndex: update.slotIndex,
-                sessionIndex: update.sessionIndex
-            });
-            return update;
-        });
+        const finalNewSlotIndex = remapOverflowSlotIndex(shiftPlan.newAssignment.slotIndex);
+        const finalAppointmentUpdates = shiftPlan.appointmentUpdates.map(u => ({
+            ...u,
+            slotIndex: remapOverflowSlotIndex(u.slotIndex)
+        }));
 
         const tokenNumber = generateWalkInTokenNumber(nextWalkInNumericToken, shiftPlan.newAssignment.sessionIndex);
+
         const newDocRef = doc(collection(firestore, 'appointments'));
 
         // C. Write Section
         commitNextTokenNumber(transaction, counterRef, counterState);
 
         // Re-define reservationRef using the confirmed slot index
-        const reservationId = buildReservationDocId(clinicId, doctor.name, dateStr, segmentedSlotIndex);
+        const reservationId = buildReservationDocId(clinicId, doctor.name, dateStr, finalNewSlotIndex);
         const reservationRef = doc(firestore, 'slot-reservations', reservationId);
+
 
         transaction.set(reservationRef, {
             clinicId,
             doctorName: doctor.name,
             date: dateStr,
-            slotIndex: segmentedSlotIndex,
+            slotIndex: finalNewSlotIndex,
+
             status: 'booked',
             appointmentId: newDocRef.id,
             bookedAt: serverTimestamp(),
@@ -679,7 +681,8 @@ export async function completePatientWalkInBooking(
             tokenNumber,
             numericToken: nextWalkInNumericToken,
             clinicId,
-            slotIndex: segmentedSlotIndex,
+            slotIndex: finalNewSlotIndex,
+
             sessionIndex: shiftPlan.newAssignment.sessionIndex,
             createdAt: serverTimestamp(),
             cutOffTime: Timestamp.fromDate(subMinutes(appointmentTime, 15)),
@@ -690,7 +693,8 @@ export async function completePatientWalkInBooking(
             ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
         });
 
-        for (const update of segmentedUpdates) {
+        for (const update of finalAppointmentUpdates) {
+
             transaction.update(update.docRef, {
                 slotIndex: update.slotIndex,
                 sessionIndex: update.sessionIndex,

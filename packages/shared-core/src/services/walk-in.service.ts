@@ -1829,6 +1829,13 @@ export async function prepareAdvanceShift({
       forceBookTime = addMinutes(lastSlot ? lastSlot.time : now, diff * slotDuration);
     }
 
+    // SURGICAL FIX: If the calculated time is in the past, use incremental wait times
+    if (isBefore(forceBookTime, now)) {
+      const overtimeDepth = Math.max(0, forceRelativeSlot - (slots.length > 0 ? slots.length - 1 : 0));
+      forceBookTime = addMinutes(now, overtimeDepth * slotDuration);
+    }
+
+
     newAssignment = {
       id: '__new_walk_in__',
       slotIndex: forceBookSlotIndex,
@@ -2170,15 +2177,16 @@ export async function calculateWalkInDetails(
   ];
 
   // Force Book Check
-  if (forceBook) {
+  if (isForceBooked) {
+
     // Simple Append Logic
     // IMPORTANT: Filter overflow appointments (slotIndex >= 10000) BEFORE toRelativeIndex
     // because toRelativeIndex uses modulo 10000, which would convert 10016 to 16
     const usedIndices = sessionAppointments
       .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
-      .filter(a => (a.slotIndex || 0) < 10000) // Filter overflow appointments FIRST
       .map(a => toRelativeIndex(a.slotIndex as number, sessionBaseIndex))
-      .filter(idx => idx >= 0 && idx < 1000); // Then filter adjacent sessions
+      .filter(idx => idx >= 0 && idx < 1000); // Filter for CURRENT session (including overflow)
+
 
     console.log('[FORCE BOOK DEBUG] Used indices:', usedIndices.sort((a, b) => a - b));
     console.log('[FORCE BOOK DEBUG] Active appointments for force book:', sessionAppointments
@@ -2192,6 +2200,8 @@ export async function calculateWalkInDetails(
     console.log('[FORCE BOOK DEBUG] Max index:', maxIdx, 'Force slot:', forceRelativeVals, 'Session base:', sessionBaseIndex);
 
     let forceTime: Date;
+    let lastSessionSlotRelativeIndex = -1;
+
 
     // Find the last slot of the CURRENT session (targetSessionIndex)
     const currentSessionSlots = slots.filter((s: any) => s.sessionIndex === targetSessionIndex);
@@ -2200,10 +2210,11 @@ export async function calculateWalkInDetails(
       // Calculate overtime based on the last slot of the current session
       const slotDuration = doctor.averageConsultingTime || 15;
       const lastSessionSlot = currentSessionSlots[currentSessionSlots.length - 1];
-      const lastSessionSlotRelativeIndex = toRelativeIndex(
+      lastSessionSlotRelativeIndex = toRelativeIndex(
         allSlots.findIndex((s: any) => s === lastSessionSlot),
         sessionBaseIndex
       );
+
 
       const diff = forceRelativeVals - lastSessionSlotRelativeIndex;
       forceTime = addMinutes(lastSessionSlot.time, diff * slotDuration);
@@ -2236,27 +2247,43 @@ export async function calculateWalkInDetails(
     // This handles "Overtime" logic where we book into the current moment + wait time
     if (isBefore(forceTime, now)) {
       const slotDuration = doctor.averageConsultingTime || 5;
-      const queueWaitMinutes = activeWalkIns.length * slotDuration;
-      forceTime = addMinutes(now, queueWaitMinutes);
+      // SURGICAL FIX: Use the position in the overtime queue to ensure unique times
+      // instead of using the absolute size of activeWalkIns (which can be same for concurrent bookings).
+      const overtimeDepth = Math.max(0, forceRelativeVals - lastSessionSlotRelativeIndex);
+      forceTime = addMinutes(now, overtimeDepth * slotDuration);
+
       console.log('[FORCE BOOK DEBUG] Force time is past, calculating from NOW + queue:', {
         originalForceTime: forceTime,
         now: now.toISOString(),
         patientsAhead: activeWalkIns.length,
-        queueWaitMinutes,
+        overtimeDepth,
         adjustedForceTime: forceTime.toISOString(),
       });
+
     }
+
+    // --- SURGICAL FIX: Remap slot indices that overflow into future sessions ---
+    const remapOverflowSlotIndex = (originalIndex: number): number => {
+      const conflictingSlot = allSlots.find((s: any) => s.index === originalIndex);
+      if (targetSessionIndex !== null && conflictingSlot && conflictingSlot.sessionIndex !== targetSessionIndex) {
+        return 10000 + originalIndex;
+      }
+      return originalIndex;
+    };
+
+    const finalSlotIndex = remapOverflowSlotIndex(toGlobal(forceRelativeVals));
 
     return {
       estimatedTime: forceTime,
       patientsAhead: activeWalkIns.length, // approximation
       numericToken,
-      slotIndex: toGlobal(forceRelativeVals),
+      slotIndex: finalSlotIndex,
       sessionIndex: targetSessionIndex,
       actualSlotTime: forceTime,
       isForceBooked: true
     };
   }
+
 
   // NORMALIZE SLOTS: Scheduler expects slots to match the index space of appointments.
   // ROBUST FIX: Normalize indices relative to the first slot of the session.

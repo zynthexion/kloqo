@@ -201,6 +201,7 @@ export default function ClinicDashboard() {
         sex: data.sex || 'Male',
         communicationPhone: data.communicationPhone || data.phone,
         isRescheduled: data.isRescheduled,
+        sessionIndex: data.sessionIndex, // CRITICAL: Include sessionIndex for session-based logic
       } as Appointment);
     });
 
@@ -566,13 +567,28 @@ export default function ClinicDashboard() {
 
   // Helper to check if an appointment's session has ended
   const isSessionEnded = useCallback((appointment: Appointment): boolean => {
-    if (appointment.sessionIndex === undefined) return false;
+    if (appointment.sessionIndex === undefined) {
+      return false;
+    }
 
     const doctor = doctors.find(d => d.name === appointment.doctor);
-    if (!doctor?.availabilitySlots) return false;
+    if (!doctor?.availabilitySlots) {
+      return false;
+    }
 
     try {
       const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+
+      // Quick check: if appointment is from a past date, session has definitely ended
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const apptDay = new Date(appointmentDate);
+      apptDay.setHours(0, 0, 0, 0);
+
+      if (apptDay < today) {
+        return true; // Past date = session ended
+      }
+
       const dayOfWeek = format(appointmentDate, 'EEEE');
       const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
@@ -593,7 +609,9 @@ export default function ClinicDashboard() {
       if (a.status === 'Pending' || a.status === 'Confirmed' || a.status === 'Skipped') return true;
 
       // Include No-show only if their session is still active/upcoming
-      if (a.status === 'No-show' && !isSessionEnded(a)) return true;
+      if (a.status === 'No-show') {
+        return !isSessionEnded(a);
+      }
 
       return false;
     });
@@ -615,7 +633,9 @@ export default function ClinicDashboard() {
       if (a.status === 'Completed' || a.status === 'Cancelled') return true;
 
       // Include No-show only if their session has ended
-      if (a.status === 'No-show' && isSessionEnded(a)) return true;
+      if (a.status === 'No-show') {
+        return isSessionEnded(a);
+      }
 
       return false;
     });

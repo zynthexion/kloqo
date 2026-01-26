@@ -274,13 +274,13 @@ function BookAppointmentContent() {
                 const tokenMap = new Map<number, string>();
                 const fetchedBookedSlots = appointments
                     .filter(data => {
-                        // Exclude walk-in tokens (W)
-                        if (data.tokenNumber?.startsWith('W')) return false;
-                        // Only consider Pending, Confirmed, and Completed appointments as "booked"
-                        // Completed appointments include break blocks which should block the slot
-                        // No-show, Skipped, and Cancelled slots are available for reuse
-                        if (data.status !== 'Pending' && data.status !== 'Confirmed' && data.status !== 'Completed') return false;
-                        return true;
+                        // Only consider Pending, Confirmed, and Completed/Attended appointments as "booked"
+                        return (
+                            data.status === 'Pending' ||
+                            data.status === 'Confirmed' ||
+                            data.status === 'Completed' ||
+                            (data.status as any) === 'Attended'
+                        );
                     })
                     .map(data => {
                         const slotTime = parseAppointmentDateTime(data.date, data.time).getTime();
@@ -392,7 +392,7 @@ function BookAppointmentContent() {
             // 2. Only count "valid" appointments (not stranded outside session end)
             const appointmentTime = parseTime(appointment.time || '', selectedDate);
             const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
-            const isValidSlot = typeof appointment.slotIndex === 'number' && appointment.slotIndex < totalDailySlots;
+            const isValidSlot = typeof appointment.slotIndex === 'number' && (appointment.slotIndex < totalDailySlots || appointment.slotIndex >= 1000);
 
             return (
                 appointment.bookedVia !== 'Walk-in' &&
@@ -473,7 +473,7 @@ function BookAppointmentContent() {
         const activeAdvanceCount = allAppointments.filter(appointment => {
             const appointmentTime = parseTime(appointment.time || '', selectedDate);
             const isFutureAppointment = isAfter(appointmentTime, now) || appointmentTime.getTime() >= now.getTime();
-            const isValidSlot = typeof appointment.slotIndex === 'number' && appointment.slotIndex < totalDailySlots;
+            const isValidSlot = typeof appointment.slotIndex === 'number' && (appointment.slotIndex < totalDailySlots || appointment.slotIndex >= 1000);
 
             return (
                 appointment.bookedVia !== 'Walk-in' &&

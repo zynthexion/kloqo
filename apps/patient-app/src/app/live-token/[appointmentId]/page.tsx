@@ -1320,13 +1320,21 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             if (!shouldShowEstimatedWaitTime) {
                 return (
                     <div className="w-full text-center py-4">
-                        <div className="bg-amber-100 text-amber-800 rounded-full px-4 py-3 flex flex-col items-center justify-center gap-1">
-                            <AlertCircle className="w-6 h-6" />
-                            <div className="flex flex-col items-center justify-center">
+                        <div className="bg-amber-100 text-amber-800 rounded-2xl px-4 py-3 flex flex-col items-center justify-center gap-2">
+                            <Hourglass className="w-6 h-6" />
+                            <div className="flex flex-col items-center justify-center gap-1">
                                 <span className="text-sm font-medium">
+                                    {language === 'ml' ? 'ഏകദേശ കാത്തിരിപ്പ് സമയം' : 'Estimated waiting time'}
+                                </span>
+                                <span className="font-bold text-base">
                                     {language === 'ml'
-                                        ? 'ഈ ക്ലിനിക്കിന് കാത്തിരിപ്പ് സമയം ലഭ്യമല്ല'
-                                        : 'Estimated wait time not available for this clinic'}
+                                        ? 'ഈ ക്ലിനിക്കിൽ ഈ സൗകര്യം ലഭ്യമല്ല'
+                                        : 'Option is not available for this clinic'}
+                                </span>
+                                <span className="text-xs opacity-80 mt-1 max-w-[280px] leading-tight text-center">
+                                    {language === 'ml'
+                                        ? 'ഡോക്ടർ കൺസൾട്ടേഷൻ ആരംഭിച്ചുകഴിഞ്ഞാൽ കാത്തിരിപ്പ് സമയവും ക്യൂ സ്ഥാനവും കാണാവുന്നതാണ്'
+                                        : 'Once doctor starts you can see the wait time and how many people are ahead of you'}
                                 </span>
                             </div>
                         </div>

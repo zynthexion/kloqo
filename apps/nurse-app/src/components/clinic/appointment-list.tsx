@@ -464,7 +464,7 @@ function AppointmentList({
                       key={appt.id}
                       ref={swipeState.id === appt.id ? swipedItemRef : null}
                       className={cn(
-                        "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200",
+                        "p-4 flex flex-col gap-3 border rounded-xl transition-all duration-200 relative",
                         isSwiping && 'text-white',
                         !isSwiping && "bg-white border-border shadow-md hover:shadow-lg",
                         !isSwiping && appt.status === 'Confirmed' && !appt.isPriority && "bg-green-50 border-green-200",

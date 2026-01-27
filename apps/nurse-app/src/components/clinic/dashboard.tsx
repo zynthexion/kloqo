@@ -511,7 +511,9 @@ export default function ClinicDashboard() {
 
   const [appointmentToPrioritize, setAppointmentToPrioritize] = useState<Appointment | null>(null);
 
-  const handleTogglePriority = async (appointment: Appointment) => {
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const onTogglePriorityHandler = useCallback(async (appointment: Appointment) => {
+    console.log('[DEBUG] onTogglePriorityHandler called for', appointment.id);
     if (appointment.isPriority) {
       // Remove priority immediately
       try {
@@ -537,7 +539,8 @@ export default function ClinicDashboard() {
       // Open confirmation
       setAppointmentToPrioritize(appointment);
     }
-  };
+  }, [appointments]); // Dependencies
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const confirmPrioritize = async () => {
     if (!appointmentToPrioritize) return;
@@ -748,7 +751,7 @@ export default function ClinicDashboard() {
                 onUpdateStatus={handleUpdateStatus}
                 onRejoinQueue={handleRejoinQueue}
                 onAddToQueue={setAppointmentToAddToQueue}
-                onTogglePriority={handleTogglePriority}
+                onTogglePriority={onTogglePriorityHandler}
                 showTopRightActions={isAppointmentsPage}
                 clinicStatus={isAppointmentsPage ? 'In' : (clinicStatus === 'in' ? 'In' : 'Out')}
                 currentTime={currentTime}
@@ -762,7 +765,7 @@ export default function ClinicDashboard() {
                 onUpdateStatus={handleUpdateStatus}
                 onRejoinQueue={handleRejoinQueue}
                 onAddToQueue={setAppointmentToAddToQueue}
-                onTogglePriority={handleTogglePriority}
+                onTogglePriority={onTogglePriorityHandler}
                 showTopRightActions={isAppointmentsPage}
                 clinicStatus={isAppointmentsPage ? 'In' : (clinicStatus === 'in' ? 'In' : 'Out')}
                 currentTime={currentTime}

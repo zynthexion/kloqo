@@ -221,6 +221,53 @@ export default function LiveDashboard() {
     }
   }, [selectedDoctor, toast, confirmedAppointments, pendingStatusChange]);
 
+  const [appointmentToPrioritize, setAppointmentToPrioritize] = useState<Appointment | null>(null);
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const onTogglePriorityHandler = useCallback(async (appointment: Appointment) => {
+    console.log('[DEBUG] onTogglePriorityHandler called for', appointment.id);
+    if (appointment.isPriority) {
+      // Remove priority immediately
+      try {
+        await updateDoc(doc(db, 'appointments', appointment.id), {
+          isPriority: false,
+          priorityAt: null
+        });
+        toast({ title: "Priority Removed", description: `${appointment.patientName} is no longer priority.` });
+      } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Failed to remove priority." });
+      }
+    } else {
+      // Check limit
+      const currentPriorityCount = appointments.filter(a => a.isPriority && a.status === 'Confirmed').length;
+      if (currentPriorityCount >= 3) {
+        toast({
+          variant: "destructive",
+          title: "Priority Queue Full",
+          description: "Maximum 3 priority patients allowed. Please remove one before adding another."
+        });
+        return;
+      }
+      // Open confirmation
+      setAppointmentToPrioritize(appointment);
+    }
+  }, [appointments]); // Dependencies
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const confirmPrioritize = async () => {
+    if (!appointmentToPrioritize) return;
+    try {
+      await updateDoc(doc(db, 'appointments', appointmentToPrioritize.id), {
+        isPriority: true,
+        priorityAt: serverTimestamp()
+      });
+      toast({ title: "Priority Added", description: `${appointmentToPrioritize.patientName} marked as priority.` });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to set priority." });
+    }
+    setAppointmentToPrioritize(null);
+  };
+
   // Centralized Buffer Refill Logic
   const checkAndRefillBuffer = useCallback(async (currentAppointments: Appointment[]) => {
     // Only proceed if doctor is 'In'
@@ -613,6 +660,7 @@ export default function LiveDashboard() {
                     onUpdateStatus={handleUpdateStatus}
                     onRejoinQueue={handleRejoinQueue}
                     onAddToQueue={handleAddToQueue}
+                    onTogglePriority={onTogglePriorityHandler}
                     showTopRightActions={false}
                     clinicStatus={consultationStatus}
                     currentTime={currentTime}
@@ -634,6 +682,7 @@ export default function LiveDashboard() {
                   onUpdateStatus={handleUpdateStatus}
                   onRejoinQueue={handleRejoinQueue}
                   onAddToQueue={handleAddToQueue}
+                  onTogglePriority={onTogglePriorityHandler}
                   showTopRightActions={false}
                   clinicStatus={consultationStatus}
                   currentTime={currentTime}
@@ -688,6 +737,23 @@ export default function LiveDashboard() {
               onClick={confirmStatusChange}
             >
               Yes, Mark {pendingStatusChange}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!appointmentToPrioritize} onOpenChange={(open) => !open && setAppointmentToPrioritize(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark as Priority?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will move {appointmentToPrioritize?.patientName} to the TOP of the queue, above all other patients.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-amber-500 hover:bg-amber-600 text-white" onClick={confirmPrioritize}>
+              Yes, Mark as Priority
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

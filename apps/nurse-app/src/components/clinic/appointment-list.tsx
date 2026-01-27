@@ -91,7 +91,111 @@ function AppointmentList({
   };
   const [swipeState, setSwipeState] = useState<SwipeState>(createSwipeState);
   const swipeDataRef = useRef<SwipeState>(createSwipeState());
+  // Long press for Skip & Priority
   const swipedItemRef = useRef<HTMLDivElement | null>(null);
+  const [showSkipConfirm, setShowSkipConfirm] = useState<string | null>(null);
+  const [pressState, setPressState] = useState<{ id: string | null; type: 'skip' | 'priority' | null; progress: number }>({ id: null, type: null, progress: 0 });
+  const pressStartTimeRef = useRef<number>(0);
+  const animationFrameRef = useRef<number>(0);
+  const startPosRef = useRef<{ x: number, y: number } | null>(null);
+
+  const handlePressStart = (e: React.MouseEvent | React.TouchEvent, id: string) => {
+    // Prevent default to avoid text selection or other default behaviors
+    if (e.type === 'touchstart') e.preventDefault();
+    if (swipeState.id) return; // Don't start if swiping
+
+    setPressState({ id, type: 'skip', progress: 0 });
+    pressStartTimeRef.current = Date.now();
+
+    // Animate progress bar
+    const animate = () => {
+      const elapsed = Date.now() - pressStartTimeRef.current;
+      const progress = Math.min((elapsed / 3000) * 100, 100); // 3 seconds for skip
+
+      setPressState(prev => ({ ...prev, progress }));
+
+      if (progress < 100) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        // Completed
+        setShowSkipConfirm(id);
+        setPressState({ id: null, type: null, progress: 0 });
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+  };
+
+  const handlePressEnd = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    setPressState({ id: null, type: null, progress: 0 });
+  };
+
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  const handleCardTouchStart = (e: React.TouchEvent | React.MouseEvent, appt: Appointment) => {
+    // If we are already handling a button press or swipe, ignore
+    if (pressState.id || swipeState.id) return;
+
+    if (swipeEnabled) handleSwipeStart(e as any, appt.id);
+
+    // Only allow priority for Pending/Confirmed
+    if (appt.status !== 'Pending' && appt.status !== 'Confirmed') return;
+    if (appt.isPriority) return; // Already priority
+
+    const touch = 'touches' in e ? (e as React.TouchEvent).touches[0] : (e as React.MouseEvent);
+    startPosRef.current = { x: touch.clientX, y: touch.clientY };
+    pressStartTimeRef.current = Date.now();
+
+    // Start Priority Press
+    setPressState({ id: appt.id, type: 'priority', progress: 0 });
+
+    const animate = () => {
+      const elapsed = Date.now() - pressStartTimeRef.current;
+      const progress = Math.min((elapsed / 800) * 100, 100); // 800ms for priority
+
+      setPressState(prev => ({ ...prev, progress }));
+
+      if (progress < 100) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        // Completed
+        if (onTogglePriority) onTogglePriority(appt);
+        setPressState({ id: null, type: null, progress: 0 });
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+  };
+
+  const handleCardTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (swipeEnabled) handleSwipeMove(e as any);
+
+    // Check if moved too much for long press
+    if (pressState.type === 'priority' && startPosRef.current) {
+      const touch = 'touches' in e ? (e as React.TouchEvent).touches[0] : (e as React.MouseEvent);
+      const dx = Math.abs(touch.clientX - startPosRef.current.x);
+      const dy = Math.abs(touch.clientY - startPosRef.current.y);
+
+      if (dx > 10 || dy > 10) { // Moved more than 10px
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        setPressState({ id: null, type: null, progress: 0 });
+        startPosRef.current = null;
+      }
+    }
+  };
+
+  const handleCardTouchEnd = (e: React.TouchEvent | React.MouseEvent) => {
+    if (swipeEnabled) handleSwipeEnd();
+
+    if (pressState.type === 'priority') {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      setPressState({ id: null, type: null, progress: 0 });
+    }
+    startPosRef.current = null;
+  };
+  /* eslint-enable @typescript-eslint/no-unused-vars */
 
   // Merge appointments and breaks for rendering
   const mixedItems = useMemo(() => {
@@ -369,9 +473,23 @@ function AppointmentList({
                         !isSwiping && appt.skippedAt && "bg-amber-50/50 border-amber-400",
                       )}
                       style={getSwipeStyle(appt.id)}
-                      onMouseDown={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
-                      onTouchStart={swipeEnabled ? (e) => handleSwipeStart(e, appt.id) : undefined}
+                      onMouseDown={(e) => handleCardTouchStart(e, appt)}
+                      onTouchStart={(e) => handleCardTouchStart(e, appt)}
+                      onMouseMove={handleCardTouchMove}
+                      onTouchMove={handleCardTouchMove}
+                      onMouseUp={handleCardTouchEnd}
+                      onTouchEnd={handleCardTouchEnd}
+                      onMouseLeave={handleCardTouchEnd}
                     >
+                      {/* Priority Progress Bar */}
+                      {pressState.type === 'priority' && pressState.id === appt.id && (
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gray-200 rounded-t-xl overflow-hidden z-20">
+                          <div
+                            className="h-full bg-amber-500 transition-all duration-[50ms] ease-linear"
+                            style={{ width: `${pressState.progress}%` }}
+                          />
+                        </div>
+                      )}
                       <div
                         className={cn(
                           "transition-opacity duration-200",
@@ -439,22 +557,43 @@ function AppointmentList({
                                       </Tooltip>
                                     )}
                                     {appt.id === firstActionableAppointmentId && appt.status === 'Confirmed' && onUpdateStatus && !showTopRightActions && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-7 w-7 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
-                                            onClick={() => onUpdateStatus(appt.id, 'Skipped')}
-                                            disabled={isClinicOut}
-                                          >
-                                            <SkipForward className="h-4 w-4" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          <p>Skip Appointment</p>
-                                        </TooltipContent>
-                                      </Tooltip>
+                                      <div className="relative">
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="icon"
+                                              className={cn(
+                                                "h-7 w-7 transition-all duration-200 relative overflow-hidden",
+                                                pressState.id === appt.id ? "bg-yellow-100 border-yellow-300 scale-110" : "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
+                                              )}
+                                              disabled={isClinicOut}
+                                              onMouseDown={(e) => handlePressStart(e, appt.id)}
+                                              onTouchStart={(e) => handlePressStart(e, appt.id)}
+                                              onMouseUp={handlePressEnd}
+                                              onMouseLeave={handlePressEnd}
+                                              onTouchEnd={handlePressEnd}
+                                            >
+                                              {/* Progress Fill Background */}
+                                              <SkipForward className="h-4 w-4 relative z-10" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            <p>{pressState.id === appt.id ? "Hold to skip..." : "Hold 3s to Skip"}</p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                        {pressState.id === appt.id && (
+                                          <div className="absolute -right-3 top-0 h-full w-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                            <div
+                                              className="w-full bg-yellow-500 transition-all duration-[50ms] ease-linear absolute bottom-0"
+                                              style={{ height: `${pressState.progress}%` }}
+                                            />
+                                          </div>
+                                        )}
+
+                                        {/* Confirmation Dialog - Triggered after long press */}
+
+                                      </div>
                                     )}
                                   </div>
                                 )}
@@ -613,8 +752,34 @@ function AppointmentList({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      )
-      }
+      )}
+
+      {/* Skip Confirmation Dialog */}
+      <AlertDialog open={!!showSkipConfirm} onOpenChange={(open) => !open && setShowSkipConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Skip this appointment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to skip {appointments.find(a => a.id === showSkipConfirm)?.patientName}? They will be moved to the "Skipped" list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-600 hover:bg-yellow-700"
+              onClick={() => {
+                if (showSkipConfirm && onUpdateStatus) {
+                  onUpdateStatus(showSkipConfirm, 'Skipped');
+                  setShowSkipConfirm(null);
+                }
+              }}
+            >
+              Confirm Skip
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </>
   );
 }

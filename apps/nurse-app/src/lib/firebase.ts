@@ -1,18 +1,22 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { initializeAuth, browserLocalPersistence, getAuth, Auth } from "firebase/auth";
 import { firebaseConfig } from '@kloqo/shared-firebase';
 
 // Initialize Firebase - Next.js will handle SSR safely
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-const auth = getAuth(app);
 
-// Explicitly set persistence to local to survive browser/app restarts
-if (typeof window !== 'undefined') {
-    setPersistence(auth, browserLocalPersistence).catch((err) => {
-        console.error("Firebase persistence error:", err);
+let auth: Auth;
+
+if (typeof window !== 'undefined' && !getApps().length) {
+    // Client-side initialization with persistence
+    auth = initializeAuth(app, {
+        persistence: browserLocalPersistence,
     });
+} else {
+    // Server-side or already initialized
+    auth = getAuth(app);
 }
 
 export { app, db, auth };

@@ -38,29 +38,29 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       const user = await loginNurse(values.email, values.password);
-      
+
       // Store user info in localStorage to persist login state
-      localStorage.setItem('user', JSON.stringify({ 
-        id: user.uid, 
+      localStorage.setItem('user', JSON.stringify({
+        id: user.uid,
         email: user.email,
         name: user.name,
-        clinicId: user.clinicId 
+        clinicId: user.clinicId
       }));
       localStorage.setItem('clinicId', user.clinicId || '');
-      
+
       toast({
         title: 'Login Successful',
         description: `Welcome, ${user.name || user.email}!`,
       });
 
       router.push('/');
-      
+
     } catch (error: any) {
       console.error('Login error:', error);
-      
+
       let errorMessage = 'An unexpected error occurred. Please try again.';
       let errorTitle = 'Login Failed';
-      
+
       // Handle Firebase Auth errors
       if (error.code === 'auth/user-not-found') {
         errorMessage = 'No account found with this email address. Please check your email or contact your clinic administrator.';
@@ -93,13 +93,13 @@ export default function LoginPage() {
         errorMessage = 'This account does not have nurse access permissions. Please contact your clinic administrator.';
         errorTitle = 'Access Denied';
       }
-      
+
       toast({
         variant: 'destructive',
         title: errorTitle,
         description: errorMessage,
       });
-      
+
       setIsSubmitting(false);
     }
   }
@@ -109,7 +109,7 @@ export default function LoginPage() {
       <div className="relative w-full h-full flex flex-col items-center justify-center bg-theme-blue p-4 overflow-hidden">
         <div className="absolute top-[-50px] left-[-50px] w-[150px] h-[150px] bg-white/20 rounded-full" />
         <div className="absolute bottom-[-50px] right-[-80px] w-[200px] h-[200px] border-[20px] border-white/20 rounded-full" />
-        
+
         <Logo className="text-white mb-6" />
 
         <Card className="w-full max-w-sm rounded-2xl border bg-card/70 backdrop-blur-sm shadow-lg z-10">
@@ -121,7 +121,7 @@ export default function LoginPage() {
           </CardHeader>
           <CardContent className="pt-10">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" autoComplete="on">
                 <FormField
                   control={form.control}
                   name="email"
@@ -129,8 +129,14 @@ export default function LoginPage() {
                     <FormItem>
                       <FormControl>
                         <div className="relative">
-                           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                           <Input type="email" placeholder="Email address" {...field} className="rounded-full pl-10" />
+                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="email"
+                            placeholder="Email address"
+                            autoComplete="username email"
+                            {...field}
+                            className="rounded-full pl-10"
+                          />
                         </div>
                       </FormControl>
                       <FormMessage />
@@ -143,9 +149,15 @@ export default function LoginPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormControl>
-                         <div className="relative">
-                           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                           <Input type="password" placeholder="Password" {...field} className="rounded-full pl-10" />
+                        <div className="relative">
+                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="password"
+                            placeholder="Password"
+                            autoComplete="current-password"
+                            {...field}
+                            className="rounded-full pl-10"
+                          />
                         </div>
                       </FormControl>
                       <FormMessage />
@@ -153,16 +165,16 @@ export default function LoginPage() {
                   )}
                 />
                 <div className="pt-10">
-                    <Button type="submit" className="w-full bg-[#f38d17] hover:bg-[#f38d17]/90 rounded-full shadow-lg" disabled={isSubmitting}>
+                  <Button type="submit" className="w-full bg-[#f38d17] hover:bg-[#f38d17]/90 rounded-full shadow-lg" disabled={isSubmitting}>
                     {isSubmitting ? (
-                        <>
+                      <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Signing In...
-                        </>
+                      </>
                     ) : (
-                        'Sign In'
+                      'Sign In'
                     )}
-                    </Button>
+                  </Button>
                 </div>
               </form>
             </Form>

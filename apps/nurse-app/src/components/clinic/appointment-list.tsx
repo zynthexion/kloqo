@@ -100,6 +100,7 @@ function AppointmentList({
   const startPosRef = useRef<{ x: number, y: number } | null>(null);
 
   const handlePressStart = (e: React.MouseEvent | React.TouchEvent, id: string) => {
+    e.stopPropagation();
     // Prevent default to avoid text selection or other default behaviors
     if (e.type === 'touchstart') e.preventDefault();
     if (swipeState.id) return; // Don't start if swiping
@@ -126,7 +127,8 @@ function AppointmentList({
     animationFrameRef.current = requestAnimationFrame(animate);
   };
 
-  const handlePressEnd = () => {
+  const handlePressEnd = (e?: React.MouseEvent | React.TouchEvent) => {
+    e?.stopPropagation();
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }

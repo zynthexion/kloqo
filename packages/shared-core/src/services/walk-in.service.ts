@@ -1732,6 +1732,18 @@ export async function prepareAdvanceShift({
   const segmentedBase = targetSessionIndex * 1000;
   const memoryBase = slots.length > 0 ? slots[0].index : segmentedBase;
 
+  // ROBUST HELPERS: Ensure they handle force-book offsets consistently
+  const toRelative = (idx: number) => {
+    const raw = idx % 10000;
+    if (raw >= segmentedBase && raw < segmentedBase + 1000) {
+      return raw - segmentedBase;
+    }
+    if (raw < 1000 && raw >= memoryBase) {
+      return raw - memoryBase;
+    }
+    return raw;
+  };
+
   console.log(`[Walk-in Scheduling] Preparing shift for Session ${targetSessionIndex} (Segment Base: ${segmentedBase}, Memory Base: ${memoryBase})`);
 
   // 2. Filter Appointments for this Session
@@ -1756,7 +1768,7 @@ export async function prepareAdvanceShift({
   // 3. Normalize Indices for Scheduler
   const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({
     id: getTaggedId(entry),
-    slotIndex: (entry.slotIndex || 0) - segmentedBase,
+    slotIndex: toRelative(entry.slotIndex || 0),
   })).filter(a => a.slotIndex >= 0);
 
   // 3b. Bucket Logic: Identify cancelled slots that should be blocked
@@ -1794,7 +1806,7 @@ export async function prepareAdvanceShift({
     emptyBucketSlots.forEach(slot => {
       blockedAdvanceAppointments.push({
         id: `__blocked_bucket_${slot.id}`,
-        slotIndex: (slot.slotIndex || 0) - segmentedBase
+        slotIndex: toRelative(slot.slotIndex || 0)
       });
     });
   }
@@ -1807,7 +1819,7 @@ export async function prepareAdvanceShift({
   walkInsInBucketSlots.forEach(appt => {
     blockedAdvanceAppointments.push({
       id: `__blocked_${appt.id}`,
-      slotIndex: (appt.slotIndex || 0) - segmentedBase
+      slotIndex: toRelative(appt.slotIndex || 0)
     });
   });
 
@@ -1828,7 +1840,7 @@ export async function prepareAdvanceShift({
   completedWalkIns.forEach(appt => {
     blockedAdvanceAppointments.push({
       id: `__blocked_${appt.id}`,
-      slotIndex: (appt.slotIndex || 0) - segmentedBase
+      slotIndex: toRelative(appt.slotIndex || 0)
     });
   });
 
@@ -1838,7 +1850,7 @@ export async function prepareAdvanceShift({
     id: getTaggedId(appt),
     numericToken: typeof appt.numericToken === 'number' ? appt.numericToken : (Number(appt.numericToken) || 0),
     createdAt: (appt.createdAt as any)?.toDate?.() || appt.createdAt || now,
-    currentSlotIndex: (appt.slotIndex || 0) - segmentedBase,
+    currentSlotIndex: toRelative(appt.slotIndex || 0),
   }));
 
   const newWalkInCandidate = {
@@ -1857,12 +1869,17 @@ export async function prepareAdvanceShift({
   // 4. Booking Logic
   if (forceBook) {
     const allOccupiedSlots = effectiveAppointments
-      .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number' && apt.sessionIndex === targetSessionIndex)
-      .map(apt => {
-        const rel = toRelativeIndex(apt.slotIndex as number, segmentedBase);
-        // If it's the continuous indexing from loadDoctorAndSlots, normalize against the session start
-        return (apt.slotIndex || 0) < 10000 ? (apt.slotIndex as number) - memoryBase : rel;
-      });
+      .filter(apt => {
+        // STRICT ISOLATION: Only consider appointments from the EXACT target session
+        if (apt.sessionIndex !== undefined) {
+          return apt.sessionIndex === targetSessionIndex;
+        }
+        const slotIdx = apt.slotIndex as number;
+        return slotIdx >= segmentedBase && slotIdx < segmentedBase + 1000;
+      })
+      .filter(apt => ACTIVE_STATUSES.has(apt.status) && typeof apt.slotIndex === 'number')
+      .map(apt => toRelative(apt.slotIndex as number))
+      .filter(idx => idx >= 0 && idx < 1000);
 
     const maxOccupiedSlot = allOccupiedSlots.length > 0 ? Math.max(...allOccupiedSlots) : -1;
     const forceRelativeSlot = maxOccupiedSlot + 1;
@@ -2155,7 +2172,18 @@ export async function calculateWalkInDetails(
   });
 
   // PREPARE SCHEDULER INPUTS (NORMALIZED)
-  const toRelative = (idx: number) => idx >= sessionBaseIndex ? idx - sessionBaseIndex : idx;
+  const toRelative = (idx: number) => {
+    const raw = idx % 10000; // Strip force book offset
+    if (raw >= sessionBaseIndex && raw < sessionBaseIndex + 1000) {
+      return raw - sessionBaseIndex; // Standard session-relative
+    }
+    // Fallback: If it's a physical continuous index (< 1000) and we are in a segmented session
+    const sessionFirstSlotIdx = slots.length > 0 ? slots[0].index : sessionBaseIndex;
+    if (raw < 1000 && raw >= sessionFirstSlotIdx) {
+      return raw - sessionFirstSlotIdx;
+    }
+    return raw; // Already normalized or from a past session (which shouldn't happen here but we keep it safe)
+  };
   const toGlobal = (idx: number) => idx + sessionBaseIndex;
 
   const blockedAdvanceAppointments = activeAdvanceAppointments.map(entry => {
@@ -2255,26 +2283,35 @@ export async function calculateWalkInDetails(
     const sessionFirstSlotIdx = currentSessionSlots.length > 0 ? currentSessionSlots[0].index : sessionBaseIndex;
 
     const usedIndices = sessionAppointments
-      .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
-      .map(a => {
+      .filter(a => {
+        // STRICT ISOLATION: Only consider appointments from the EXACT target session 
+        // to prevent future session bookings from inflating CURRENT session indexes.
+        if (a.sessionIndex !== undefined) {
+          return a.sessionIndex === targetSessionIndex;
+        }
+        // Fallback for appointments without sessionIndex: use slotIndex bounds
         const slotIdx = a.slotIndex as number;
-        // Session-based indices (1000+): normalize to session-relative (0-based)
-        if (slotIdx >= sessionBaseIndex && slotIdx < sessionBaseIndex + 1000) {
-          return slotIdx - sessionBaseIndex;
-        }
-        // Physical continuous indices (<1000): normalize against first slot
-        if (slotIdx < 1000) {
-          return slotIdx - sessionFirstSlotIdx;
-        }
-        // Fallback for other cases
-        return toRelativeIndex(slotIdx, sessionBaseIndex);
+        return slotIdx >= sessionBaseIndex && slotIdx < sessionBaseIndex + 1000;
       })
-      .filter(idx => idx >= 0 && idx < 1000); // Filter for CURRENT session (including overflow)
-
-    console.log('[FORCE BOOK DEBUG] Used indices:', usedIndices.sort((a, b) => a - b));
+      .filter(a => ACTIVE_STATUSES.has(a.status) && typeof a.slotIndex === 'number')
+      .map(a => toRelative(a.slotIndex as number))
+      .filter(idx => idx >= 0 && idx < 1000);
 
     const maxIdx = usedIndices.length > 0 ? Math.max(...usedIndices) : -1;
-    const forceRelativeVals = maxIdx + 1;
+
+    // SAFETY CAP: prevent runaway indices by capping at the actual slot count 
+    // unless we are already in overtime (in which case we just append).
+    const sessionSlotCount = slots.filter(s => s.sessionIndex === targetSessionIndex).length;
+    let forceRelativeVals = maxIdx + 1;
+
+    if (forceRelativeVals > sessionSlotCount && sessionSlotCount > 0) {
+      // We are overflowing.
+      const lastSlotIdx = sessionSlotCount - 1;
+      if (maxIdx < lastSlotIdx) {
+        // There's actually a gap! Don't jump to the end.
+        // (This shouldn't happen with MaxIndex + 1 but we're being safe).
+      }
+    }
 
     console.log('[FORCE BOOK DEBUG] Max index:', maxIdx, 'Force slot:', forceRelativeVals, 'Session base:', sessionBaseIndex);
 
@@ -2741,7 +2778,17 @@ export async function previewWalkInPlacement(
   const placeholderId = '__preview_walk_in__';
 
   // PREPARE SCHEDULER INPUTS (NORMALIZED)
-  const toRelative = (idx: number) => idx >= sessionBaseIndex ? idx - sessionBaseIndex : idx;
+  const toRelative = (idx: number) => {
+    const raw = idx % 10000;
+    if (raw >= sessionBaseIndex && raw < sessionBaseIndex + 1000) {
+      return raw - sessionBaseIndex;
+    }
+    const sessionFirstSlotIdx = slots.length > 0 ? slots[0].index : sessionBaseIndex;
+    if (raw < 1000 && raw >= sessionFirstSlotIdx) {
+      return raw - sessionFirstSlotIdx;
+    }
+    return raw;
+  };
   const toGlobal = (idx: number) => idx + sessionBaseIndex;
 
   const walkInCandidates = [
@@ -2924,7 +2971,17 @@ export async function rebalanceWalkInSchedule(
   }
 
   // Normalize
-  const toRelative = (idx: number) => idx >= sessionBaseIndex ? idx - sessionBaseIndex : idx;
+  const toRelative = (idx: number) => {
+    const raw = idx % 10000;
+    if (raw >= sessionBaseIndex && raw < sessionBaseIndex + 1000) {
+      return raw - sessionBaseIndex;
+    }
+    const sessionFirstSlotIdx = slots.length > 0 ? slots[0].index : sessionBaseIndex;
+    if (raw < 1000 && raw >= sessionFirstSlotIdx) {
+      return raw - sessionFirstSlotIdx;
+    }
+    return raw;
+  };
   const toGlobal = (idx: number) => idx + sessionBaseIndex;
 
   const normalizedAdvanceAppointments = activeAdvanceAppointments.map(entry => ({

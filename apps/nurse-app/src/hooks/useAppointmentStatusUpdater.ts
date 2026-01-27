@@ -264,6 +264,19 @@ export function useAppointmentStatusUpdater() {
   useEffect(() => {
     if (!user) return;
 
+    // Generate/Retrieve a short persistent Device ID for production auditing
+    let deviceId = 'unknown';
+    if (typeof localStorage !== 'undefined') {
+      deviceId = localStorage.getItem('kloqo_device_id') || '';
+      if (!deviceId) {
+        deviceId = `dev-${Math.random().toString(36).substring(2, 7)}`;
+        localStorage.setItem('kloqo_device_id', deviceId);
+      }
+    }
+    const UA = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : 'unknown';
+    const deviceType = UA.includes('mobi') ? 'Mobile' : 'Desktop';
+    const deviceTag = `[${deviceId}|${deviceType}]`;
+
     // This function handles both Pending → Skipped and Skipped → No-show transitions
     const checkAndUpdateStatuses = async (appointments: Appointment[]) => {
       if (appointments.length === 0) return;
@@ -289,6 +302,11 @@ export function useAppointmentStatusUpdater() {
 
           const freshApt = freshSnap.data() as Appointment;
           const currentStatus = freshApt.status;
+
+          // DEBUG: Log status drift (useful for your 5-screen setup)
+          if (apt.status === 'Pending' && currentStatus === 'Confirmed') {
+            console.log(`${deviceTag} [Status-Updater] Corrected status drift for ${freshApt.tokenNumber}: Local(Pending) -> Server(Confirmed). Aborting auto-skip.`);
+          }
 
           // Only proceed if still in a "mutable" auto-state (Double check)
           if (currentStatus !== 'Pending' && currentStatus !== 'Skipped') continue;
@@ -323,7 +341,6 @@ export function useAppointmentStatusUpdater() {
             }
 
             // SAFETY: Only skip if time is up AND doctor is 'In' 
-            // OR if it's so late that we're past the grace period for any session start
             if (isAfter(now, cutOffTime)) {
               if (doctorStatus === 'In') {
                 batch.update(aptRef, {
@@ -332,7 +349,9 @@ export function useAppointmentStatusUpdater() {
                   updatedAt: new Date()
                 });
                 hasWrites = true;
-                console.log(`Auto-updating appointment ${apt.id} from Pending to Skipped (Doctor In)`);
+                console.log(`${deviceTag} [Status-Updater] Auto-Skipped ${freshApt.tokenNumber}: Time exceeded (${format(cutOffTime, 'hh:mm a')}) and Doctor is IN.`);
+              } else {
+                console.log(`${deviceTag} [Status-Updater] Hold Skip for ${freshApt.tokenNumber}: Time exceeded but Doctor is still OUT.`);
               }
             }
           } else if (currentStatus === 'Skipped') {
@@ -351,13 +370,17 @@ export function useAppointmentStatusUpdater() {
             }
 
             // SAFETY: Only move to No-show if doctor is IN
-            if (isAfter(now, noShowTime) && doctorStatus === 'In') {
-              batch.update(aptRef, {
-                status: 'No-show',
-                updatedAt: new Date()
-              });
-              hasWrites = true;
-              console.log(`Auto-updating appointment ${apt.id} from Skipped to No-show (Doctor In)`);
+            if (isAfter(now, noShowTime)) {
+              if (doctorStatus === 'In') {
+                batch.update(aptRef, {
+                  status: 'No-show',
+                  updatedAt: new Date()
+                });
+                hasWrites = true;
+                console.log(`${deviceTag} [Status-Updater] Auto-No-Show ${freshApt.tokenNumber}: No-show time exceeded (${format(noShowTime, 'hh:mm a')}) and Doctor is IN.`);
+              } else {
+                console.log(`${deviceTag} [Status-Updater] Hold No-Show for ${freshApt.tokenNumber}: Time exceeded but Doctor is still OUT.`);
+              }
             }
           }
         } catch (e) {

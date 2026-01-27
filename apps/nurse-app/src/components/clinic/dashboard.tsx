@@ -595,12 +595,24 @@ export default function ClinicDashboard() {
       const dayOfWeek = format(appointmentDate, 'EEEE');
       const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
-      if (!availabilityForDay?.timeSlots?.[appointment.sessionIndex]) return false;
+      if (!availabilityForDay?.timeSlots?.[appointment.sessionIndex]) {
+        console.log(`[DEBUG_SESSION] No slot found for session ${appointment.sessionIndex}`);
+        return false;
+      }
 
       const sessionSlot = availabilityForDay.timeSlots[appointment.sessionIndex];
-      const sessionEnd = parseTime(sessionSlot.to, appointmentDate);
+      const endTime = parseTime(sessionSlot.to, appointmentDate);
 
-      return currentTime > sessionEnd;
+      // Check for session extension (this part was not in the original code, but included in the instruction snippet)
+      // if (doctor.availabilityExtensions) {
+      //   // ... (existing extension logic checks)
+      // }
+
+      const isEnded = currentTime > endTime; // Use currentTime as per original logic
+      if (appointment.status === 'No-show') {
+        console.log(`[DEBUG_SESSION] Appt ${appointment.tokenNumber} (Session ${appointment.sessionIndex}): EndTime=${format(endTime, 'HH:mm')}, Now=${format(currentTime, 'HH:mm')}, IsEnded=${isEnded}`);
+      }
+      return isEnded;
     } catch {
       return false;
     }

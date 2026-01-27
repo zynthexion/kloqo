@@ -554,6 +554,34 @@ export default function LiveDashboard() {
     return sessionInfo?.sessionIndex;
   }, [currentDoctor, currentTime]);
 
+  // Helper to check if an appointment's session has ended
+  const isSessionEnded = useCallback((appointment: Appointment): boolean => {
+    if (appointment.sessionIndex === undefined) return false;
+    // Find doctor for this appointment
+    const docForAppt = doctors.find(d => d.name === appointment.doctor);
+    if (!docForAppt?.availabilitySlots) return false;
+
+    try {
+      const apptDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (apptDate < today) return true;
+
+      const dayOfWeek = format(apptDate, 'EEEE');
+      const availabilityForDay = docForAppt.availabilitySlots.find(slot => slot.day === dayOfWeek);
+
+      if (!availabilityForDay?.timeSlots?.[appointment.sessionIndex]) return false;
+
+      const sessionSlot = availabilityForDay.timeSlots[appointment.sessionIndex];
+      const endTime = parseTime(sessionSlot.to, apptDate);
+
+      return currentTime > endTime;
+    } catch {
+      return false;
+    }
+  }, [doctors, currentTime]);
+
   const pendingAppointments = useMemo(() => {
     let pending = filteredAppointments.filter(a => a.status === 'Pending');
 
@@ -575,6 +603,14 @@ export default function LiveDashboard() {
   const skippedAppointments = useMemo(() => {
     let skipped = filteredAppointments.filter(a => a.status === 'Skipped' || a.status === 'No-show');
 
+    // Filter out No-show appointments whose session has ended
+    skipped = skipped.filter(a => {
+      if (a.status === 'No-show') {
+        return !isSessionEnded(a);
+      }
+      return true;
+    });
+
     // HIDE NO-SHOWS AT END OF DAY
     // If sessions are done, doctor is out, and no active patients (Pending/Confirmed/Skipped) exist,
     // don't clutter the pending tab with No-shows.
@@ -584,7 +620,7 @@ export default function LiveDashboard() {
     }
 
     return skipped.sort(compareAppointments);
-  }, [filteredAppointments, nextSessionIndex, consultationStatus, hasActiveAppointments]);
+  }, [filteredAppointments, isSessionEnded, nextSessionIndex, consultationStatus, hasActiveAppointments]);
 
 
   const todayBreaks = useMemo(() => {

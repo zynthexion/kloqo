@@ -278,66 +278,89 @@ export function useAppointmentStatusUpdater() {
         apt.status === 'Pending' || apt.status === 'Skipped'
       );
 
+      const doctorStatusCache = new Map<string, string>();
+
       for (const apt of appointmentsToCheck) {
         try {
-          if (apt.status === 'Pending') {
+          // 1. Fetch the LATEST doc from the DB to avoid overwriting "Confirmed" with stale "Pending"
+          const aptRef = doc(db, 'appointments', apt.id);
+          const freshSnap = await getDoc(aptRef);
+          if (!freshSnap.exists()) continue;
+
+          const freshApt = freshSnap.data() as Appointment;
+          const currentStatus = freshApt.status;
+
+          // Only proceed if still in a "mutable" auto-state (Double check)
+          if (currentStatus !== 'Pending' && currentStatus !== 'Skipped') continue;
+
+          // 2. Fetch/Cache latest doctor status
+          const dId = freshApt.doctorId;
+          let doctorStatus = 'Out';
+
+          if (dId) {
+            if (doctorStatusCache.has(dId)) {
+              doctorStatus = doctorStatusCache.get(dId)!;
+            } else {
+              const doctorSnap = await getDoc(doc(db, 'doctors', dId));
+              doctorStatus = doctorSnap.exists() ? doctorSnap.data()?.consultationStatus : 'Out';
+              doctorStatusCache.set(dId, doctorStatus);
+            }
+          }
+
+          if (currentStatus === 'Pending') {
             // Use stored cutOffTime from Firestore (original, never delayed)
             let cutOffTime: Date;
-            if (apt.cutOffTime) {
-              // Convert Firestore timestamp to Date
-              cutOffTime = apt.cutOffTime instanceof Date
-                ? apt.cutOffTime
-                : apt.cutOffTime?.toDate
-                  ? apt.cutOffTime.toDate()
-                  : new Date(apt.cutOffTime);
+            if (freshApt.cutOffTime) {
+              cutOffTime = freshApt.cutOffTime instanceof Date
+                ? freshApt.cutOffTime
+                : freshApt.cutOffTime?.toDate
+                  ? freshApt.cutOffTime.toDate()
+                  : new Date(freshApt.cutOffTime);
             } else {
-              // Fallback: calculate if not stored (for old appointments)
-              const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-              const appointmentTime = parseTime(apt.time, appointmentDate);
+              const appointmentDate = parse(freshApt.date, 'd MMMM yyyy', new Date());
+              const appointmentTime = parseTime(freshApt.time, appointmentDate);
               cutOffTime = subMinutes(appointmentTime, 15);
             }
 
-            // Check if current time is greater than stored cutOffTime
-            if (isAfter(now, cutOffTime) || now.getTime() >= cutOffTime.getTime()) {
-              const aptRef = doc(db, 'appointments', apt.id);
-              batch.update(aptRef, {
-                status: 'Skipped',
-                skippedAt: new Date(),
-                updatedAt: new Date()
-              });
-              hasWrites = true;
-              console.log(`Auto-updating appointment ${apt.id} from Pending to Skipped (cutOffTime: ${cutOffTime.toISOString()}, now: ${now.toISOString()})`);
+            // SAFETY: Only skip if time is up AND doctor is 'In' 
+            // OR if it's so late that we're past the grace period for any session start
+            if (isAfter(now, cutOffTime)) {
+              if (doctorStatus === 'In') {
+                batch.update(aptRef, {
+                  status: 'Skipped',
+                  skippedAt: new Date(),
+                  updatedAt: new Date()
+                });
+                hasWrites = true;
+                console.log(`Auto-updating appointment ${apt.id} from Pending to Skipped (Doctor In)`);
+              }
             }
-          } else if (apt.status === 'Skipped') {
+          } else if (currentStatus === 'Skipped') {
             // Use stored noShowTime from Firestore (includes doctor delay if any)
             let noShowTime: Date;
-            if (apt.noShowTime) {
-              // Convert Firestore timestamp to Date
-              noShowTime = apt.noShowTime instanceof Date
-                ? apt.noShowTime
-                : apt.noShowTime?.toDate
-                  ? apt.noShowTime.toDate()
-                  : new Date(apt.noShowTime);
+            if (freshApt.noShowTime) {
+              noShowTime = freshApt.noShowTime instanceof Date
+                ? freshApt.noShowTime
+                : freshApt.noShowTime?.toDate
+                  ? freshApt.noShowTime.toDate()
+                  : new Date(freshApt.noShowTime);
             } else {
-              // Fallback: calculate if not stored (for old appointments)
-              const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-              const appointmentTime = parseTime(apt.time, appointmentDate);
+              const appointmentDate = parse(freshApt.date, 'd MMMM yyyy', new Date());
+              const appointmentTime = parseTime(freshApt.time, appointmentDate);
               noShowTime = addMinutes(appointmentTime, 15);
             }
 
-            // Check if current time is greater than stored noShowTime
-            if (isAfter(now, noShowTime) || now.getTime() >= noShowTime.getTime()) {
-              const aptRef = doc(db, 'appointments', apt.id);
+            // SAFETY: Only move to No-show if doctor is IN
+            if (isAfter(now, noShowTime) && doctorStatus === 'In') {
               batch.update(aptRef, {
                 status: 'No-show',
                 updatedAt: new Date()
               });
               hasWrites = true;
-              console.log(`Auto-updating appointment ${apt.id} from Skipped to No-show (noShowTime: ${noShowTime.toISOString()}, now: ${now.toISOString()})`);
+              console.log(`Auto-updating appointment ${apt.id} from Skipped to No-show (Doctor In)`);
             }
           }
         } catch (e) {
-          // Ignore parsing errors for potentially malformed old data
           console.warn(`Could not process appointment ${apt.id}:`, e);
           continue;
         }

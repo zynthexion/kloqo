@@ -540,7 +540,7 @@ function AppointmentList({
                                   <Badge variant="destructive" className="ml-2 bg-yellow-500 text-white hover:bg-yellow-600 border-yellow-600">Late</Badge>
                                 )}
                                 {onUpdateStatus && isActionable(appt) && !showTopRightActions && (
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex-1 flex items-center gap-2 ml-2">
                                     {(appt.status === 'Pending' || appt.status === 'Skipped' || appt.status === 'No-show') && (onAddToQueue || onRejoinQueue) && shouldShowConfirmArrival(appt) && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -559,42 +559,67 @@ function AppointmentList({
                                       </Tooltip>
                                     )}
                                     {appt.id === firstActionableAppointmentId && appt.status === 'Confirmed' && onUpdateStatus && !showTopRightActions && (
-                                      <div className="relative">
+                                      <div className="flex-1 flex items-center justify-between relative">
+                                        {/* Skip Button */}
+                                        <div className="relative">
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className={cn(
+                                                  "h-7 w-7 transition-all duration-200 relative overflow-hidden",
+                                                  pressState.id === appt.id ? "bg-yellow-100 border-yellow-300 scale-110" : "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
+                                                )}
+                                                disabled={isClinicOut}
+                                                onMouseDown={(e) => handlePressStart(e, appt.id)}
+                                                onTouchStart={(e) => handlePressStart(e, appt.id)}
+                                                onMouseUp={(e) => handlePressEnd(e)}
+                                                onMouseLeave={(e) => handlePressEnd(e)}
+                                                onTouchEnd={(e) => handlePressEnd(e)}
+                                              >
+                                                {/* Progress Fill Background */}
+                                                <SkipForward className="h-4 w-4 relative z-10" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              <p>{pressState.id === appt.id ? "Hold to skip..." : "Hold 3s to Skip"}</p>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                          {pressState.id === appt.id && (
+                                            <div className="absolute -right-3 top-0 h-full w-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                              <div
+                                                className="w-full bg-yellow-500 transition-all duration-[50ms] ease-linear absolute bottom-0"
+                                                style={{ height: `${pressState.progress}%` }}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Complete Button - Reordered to Right */}
                                         <Tooltip>
                                           <TooltipTrigger asChild>
                                             <Button
-                                              variant="outline"
+                                              variant="default" // Primary action
                                               size="icon"
-                                              className={cn(
-                                                "h-7 w-7 transition-all duration-200 relative overflow-hidden",
-                                                pressState.id === appt.id ? "bg-yellow-100 border-yellow-300 scale-110" : "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
-                                              )}
                                               disabled={isClinicOut}
-                                              onMouseDown={(e) => handlePressStart(e, appt.id)}
-                                              onTouchStart={(e) => handlePressStart(e, appt.id)}
-                                              onMouseUp={handlePressEnd}
-                                              onMouseLeave={handlePressEnd}
-                                              onTouchEnd={handlePressEnd}
+                                              className="h-10 w-10 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-md ml-2 transition-transform hover:scale-105"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setPendingCompletionId(appt.id);
+                                              }}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                              onTouchStart={(e) => e.stopPropagation()}
                                             >
-                                              {/* Progress Fill Background */}
-                                              <SkipForward className="h-4 w-4 relative z-10" />
+                                              <Check className="h-6 w-6" />
                                             </Button>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>{pressState.id === appt.id ? "Hold to skip..." : "Hold 3s to Skip"}</p>
+                                            <p>Complete Appointment</p>
                                           </TooltipContent>
                                         </Tooltip>
-                                        {pressState.id === appt.id && (
-                                          <div className="absolute -right-3 top-0 h-full w-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                            <div
-                                              className="w-full bg-yellow-500 transition-all duration-[50ms] ease-linear absolute bottom-0"
-                                              style={{ height: `${pressState.progress}%` }}
-                                            />
-                                          </div>
-                                        )}
 
                                         {/* Confirmation Dialog - Triggered after long press */}
-
                                       </div>
                                     )}
                                   </div>

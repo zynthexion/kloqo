@@ -321,3 +321,35 @@ export function calculateGrowthTrends(
 }
 
 
+
+export interface PunctualityLog {
+  id: string;
+  clinicId: string;
+  doctorId: string;
+  doctorName: string;
+  date: string;
+  sessionIndex: number | null;
+  type: 'IN' | 'OUT' | 'BREAK_START' | 'BREAK_END' | 'EXTENSION';
+  timestamp: any;
+  scheduledTime: string | null;
+  metadata: any;
+}
+
+/**
+ * Fetch all doctor punctuality logs
+ */
+export async function fetchPunctualityLogs(): Promise<PunctualityLog[]> {
+  try {
+    const logsRef = collection(db, 'doctor_punctuality_logs');
+    const q = query(logsRef, orderBy('timestamp', 'desc'));
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as PunctualityLog[];
+  } catch (error) {
+    console.error('Error fetching punctuality logs:', error);
+    return [];
+  }
+}

@@ -38,7 +38,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import ClinicHeader from './header';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
-import { notifySessionPatientsOfConsultationStart, compareAppointments } from '@kloqo/shared-core';
+import { notifySessionPatientsOfConsultationStart, compareAppointments, logPunctualityEvent } from '@kloqo/shared-core';
 
 
 export default function HomePage() {
@@ -172,6 +172,22 @@ export default function HomePage() {
           consultationStatus: 'Out',
           updatedAt: serverTimestamp()
         });
+
+        // Try to find the session that just ended or is active
+        let sessionIndex = getCurrentSessionIndex();
+        if (sessionIndex === undefined) {
+          const now = new Date();
+          const todayDay = format(now, 'EEEE');
+          const todaysAvailability = currentDoctor.availabilitySlots?.find(s => s.day === todayDay);
+          const foundIndex = todaysAvailability?.timeSlots.findIndex(s => {
+            const start = parseTime(s.from, now);
+            const end = parseTime(s.to, now);
+            return now >= start && now <= addMinutes(end, 180); // within 3 hours of end
+          });
+          if (foundIndex !== undefined && foundIndex !== -1) sessionIndex = foundIndex;
+        }
+        await logPunctualityEvent(db, clinicId, currentDoctor, 'OUT', sessionIndex);
+
         toast({ title: 'Doctor marked Out' });
       } catch (error) {
         console.error('Error marking doctor out:', error);
@@ -201,6 +217,9 @@ export default function HomePage() {
         updatedAt: serverTimestamp()
       });
       console.log('[BUFFER-DEBUG] handleStatusChange: Firestore updated successfully');
+
+      // Log IN event
+      await logPunctualityEvent(db, clinicId, currentDoctor, 'IN', sessionIndex);
     } catch (error) {
       console.error('Error updating doctor status:', error);
       toast({ variant: 'destructive', title: 'Update Failed' });

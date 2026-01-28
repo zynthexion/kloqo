@@ -29,7 +29,8 @@ import {
     type SessionInfo,
     type SlotInfo,
     shiftAppointmentsForNewBreak,
-    validateBreakOverlapWithNextSession
+    validateBreakOverlapWithNextSession,
+    logPunctualityEvent
 } from '@kloqo/shared-core';
 import type { BreakPeriod } from '@kloqo/shared-types';
 import {
@@ -983,6 +984,22 @@ function ScheduleBreakContent() {
                 availabilityExtensions
             });
 
+            // Log BREAK_START
+            await logPunctualityEvent(db, clinicId, doctor, 'BREAK_START', sessionIndex, {
+                breakId: newBreak.id,
+                duration: breakDuration,
+                startTime: newBreak.startTimeFormatted,
+                endTime: newBreak.endTimeFormatted
+            });
+
+            // Log EXTENSION if applicable
+            if (extensionMinutes !== null && extensionMinutes > 0) {
+                await logPunctualityEvent(db, clinicId, doctor, 'EXTENSION', sessionIndex, {
+                    extensionMinutes,
+                    newEndTime: format(addMinutes(sessionEnd, extensionMinutes), 'hh:mm a')
+                });
+            }
+
             try {
                 await shiftAppointmentsForNewBreak(
                     db,
@@ -1019,7 +1036,7 @@ function ScheduleBreakContent() {
     };
 
     const handleCancelBreak = async (breakId?: string) => {
-        if (!doctor || !selectedDate || !currentSession) {
+        if (!doctor || !selectedDate || !currentSession || !clinicId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Cannot cancel break.' });
             return;
         }
@@ -1039,6 +1056,14 @@ function ScheduleBreakContent() {
                 // Convert break slots to timestamps for performBreakCancellation
                 const breakSlots = breakToRemove.slots.map((slot: string) => parseISO(slot).getTime());
                 await performBreakCancellation(breakSlots, breakToRemove);
+
+                // Log BREAK_END
+                await logPunctualityEvent(db, clinicId, doctor, 'BREAK_END', breakToRemove.sessionIndex, {
+                    breakId: breakToRemove.id,
+                    duration: breakToRemove.duration,
+                    startTime: breakToRemove.startTimeFormatted,
+                    endTime: breakToRemove.endTimeFormatted
+                });
 
                 // Refresh doctor data to update UI
                 if (clinicId) {

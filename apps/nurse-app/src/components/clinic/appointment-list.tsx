@@ -128,7 +128,13 @@ function AppointmentList({
   };
 
   const handlePressEnd = (e?: React.MouseEvent | React.TouchEvent) => {
-    e?.stopPropagation();
+    if (e) {
+      e.stopPropagation();
+      // Only prevent default if it's a touch event to avoid blocking clicks
+      if (e.type === 'touchend' && pressState.progress > 0) {
+        // e.preventDefault(); // Don't prevent default here as it might block the actual end of touch
+      }
+    }
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
@@ -482,6 +488,7 @@ function AppointmentList({
                       onMouseUp={handleCardTouchEnd}
                       onTouchEnd={handleCardTouchEnd}
                       onMouseLeave={handleCardTouchEnd}
+                      onContextMenu={(e) => e.preventDefault()}
                     >
                       {/* Priority Progress Bar */}
                       {pressState.type === 'priority' && pressState.id === appt.id && (
@@ -568,7 +575,7 @@ function AppointmentList({
                                                 variant="outline"
                                                 size="icon"
                                                 className={cn(
-                                                  "h-7 w-7 transition-all duration-200 relative overflow-hidden",
+                                                  "h-7 w-7 transition-all duration-200 relative overflow-hidden select-none touch-none",
                                                   pressState.id === appt.id ? "bg-yellow-100 border-yellow-300 scale-110" : "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
                                                 )}
                                                 disabled={isClinicOut}
@@ -577,9 +584,10 @@ function AppointmentList({
                                                 onMouseUp={(e) => handlePressEnd(e)}
                                                 onMouseLeave={(e) => handlePressEnd(e)}
                                                 onTouchEnd={(e) => handlePressEnd(e)}
+                                                onContextMenu={(e) => e.preventDefault()}
                                               >
                                                 {/* Progress Fill Background */}
-                                                <SkipForward className="h-4 w-4 relative z-10" />
+                                                <SkipForward className="h-4 w-4 relative z-10 pointer-events-none" />
                                               </Button>
                                             </TooltipTrigger>
                                             <TooltipContent>

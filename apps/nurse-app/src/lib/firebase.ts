@@ -9,13 +9,17 @@ const db = getFirestore(app);
 
 let auth: Auth;
 
-if (typeof window !== 'undefined' && !getApps().length) {
-    // Client-side initialization with persistence
-    auth = initializeAuth(app, {
-        persistence: browserLocalPersistence,
-    });
+if (typeof window !== 'undefined') {
+    // On the client, try to get existing auth or initialize with explicit local persistence
+    try {
+        auth = getAuth(app);
+    } catch (e) {
+        auth = initializeAuth(app, {
+            persistence: browserLocalPersistence,
+        });
+    }
 } else {
-    // Server-side or already initialized
+    // Server-side
     auth = getAuth(app);
 }
 

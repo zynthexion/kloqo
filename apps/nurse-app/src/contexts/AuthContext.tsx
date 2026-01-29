@@ -24,13 +24,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const startTimestamp = Date.now();
     let timeoutId: NodeJS.Timeout;
+    console.log(`[Auth-Debug] Initializing Auth listener...`);
 
     try {
       const unsubscribe = onAuthStateChange((user) => {
+        const elapsed = Date.now() - startTimestamp;
         if (user) {
+          console.log(`[Auth-Debug] User detected after ${elapsed}ms: ${user.email} (Clinic: ${user.clinicId})`);
           // Sync localStorage if it's missing but user is logged in
           if (!localStorage.getItem('clinicId') && user.clinicId) {
+            console.log(`[Auth-Debug] Syncing missing localStorage from Firebase user data.`);
             localStorage.setItem('clinicId', user.clinicId);
             localStorage.setItem('user', JSON.stringify({
               id: user.uid,
@@ -39,26 +44,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               clinicId: user.clinicId
             }));
           }
+        } else {
+          console.log(`[Auth-Debug] No user detected after ${elapsed}ms.`);
         }
         setUser(user);
         setLoading(false);
         if (timeoutId) clearTimeout(timeoutId);
       });
 
-      // Fallback timeout: if Firebase doesn't respond in 3 seconds, stop loading
+      // Fallback timeout: if Firebase doesn't respond in 12 seconds, stop loading
+      // Increased from 3s to 12s to allow for slow mobile PWA cold starts
       timeoutId = setTimeout(() => {
-        console.warn('⚠️ Auth state check timeout - Firebase may not be configured correctly');
-        console.warn('Check your .env.local file and browser console for Firebase errors');
+        const elapsed = Date.now() - startTimestamp;
+        console.warn(`[Auth-Debug] ⚠️ Auth state check timeout after ${elapsed}ms - proceeding to prevent infinite hang.`);
         setLoading(false);
-      }, 3000);
+      }, 12000);
 
       return () => {
         unsubscribe();
         if (timeoutId) clearTimeout(timeoutId);
       };
     } catch (error) {
-      console.error('❌ Error setting up auth state listener:', error);
-      console.error('This usually means Firebase config is missing or invalid');
+      console.error('[Auth-Debug] ❌ Error setting up auth state listener:', error);
       setLoading(false);
       return () => {
         if (timeoutId) clearTimeout(timeoutId);

@@ -8,23 +8,23 @@ export async function loginNurse(email: string, password: string): Promise<User>
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
-    
+
     // Get additional user data from Firestore
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data();
-    
+
     if (!userData) {
       const error = new Error('User data not found');
       error.name = 'UserDataNotFound';
       throw error;
     }
-    
+
     if (userData.role !== 'clinicAdmin') {
       const error = new Error('User does not have clinic admin access');
       error.name = 'AccessDenied';
       throw error;
     }
-    
+
     // Return user with additional data
     return {
       uid: user.uid,
@@ -36,7 +36,7 @@ export async function loginNurse(email: string, password: string): Promise<User>
       designation: userData.designation,
       onboarded: userData.onboarded
     } as User;
-    
+
   } catch (error) {
     console.error('Nurse login error:', error);
     throw error;
@@ -59,7 +59,7 @@ export function onAuthStateChange(callback: (user: User | null) => void) {
         // Get additional user data from Firestore
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         const userData = userDoc.data();
-        
+
         if (userData) {
           callback({
             uid: user.uid,
@@ -74,8 +74,10 @@ export function onAuthStateChange(callback: (user: User | null) => void) {
         } else {
           callback(null);
         }
-      } catch (error) {
-        console.error('Error getting user data:', error);
+      } catch (error: any) {
+        console.error('[Auth-Debug] ❌ Error getting user data from Firestore:', error);
+        // Log additional info if available (e.g. error code)
+        if (error.code) console.error(`[Auth-Debug] Error Code: ${error.code}`);
         callback(null);
       }
     } else {

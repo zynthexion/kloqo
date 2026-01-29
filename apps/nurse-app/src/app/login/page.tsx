@@ -1,8 +1,9 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,7 +25,17 @@ const formSchema = z.object({
 export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { user, loading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Session Recovery: If the user lands on the login page but is already authenticated
+  // (or if slow auth finally resolves), send them back home.
+  useEffect(() => {
+    if (!loading && user) {
+      console.log(`[Auth-Debug] LoginPage: Active session detected for ${user.email}. Recovering session and redirecting...`);
+      router.replace('/');
+    }
+  }, [user, loading, router]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),

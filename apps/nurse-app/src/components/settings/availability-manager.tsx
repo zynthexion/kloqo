@@ -160,6 +160,32 @@ export default function AvailabilityManager() {
         setIsEditingAvailability(true);
     };
 
+    // Auto-populate slots when a single day is selected
+    useEffect(() => {
+        if (selectedDays.length === 1) {
+            const day = selectedDays[0];
+            const currentSlots = form.getValues('availabilitySlots') || [];
+            const existingSlot = currentSlots.find(s => s.day === day);
+
+            if (existingSlot && existingSlot.timeSlots.length > 0) {
+                const convertedSlots = existingSlot.timeSlots.map(ts => {
+                    try {
+                        const parsedFrom = parse(ts.from, 'hh:mm a', new Date());
+                        const parsedTo = parse(ts.to, 'hh:mm a', new Date());
+
+                        return {
+                            from: !isNaN(parsedFrom.valueOf()) ? format(parsedFrom, 'HH:mm') : ts.from,
+                            to: !isNaN(parsedTo.valueOf()) ? format(parsedTo, 'HH:mm') : ts.to
+                        };
+                    } catch (e) {
+                        return { from: ts.from, to: ts.to };
+                    }
+                });
+                setSharedTimeSlots(convertedSlots);
+            }
+        }
+    }, [selectedDays, form]);
+
     const handleAvailabilitySave = (values: WeeklyAvailabilityFormValues) => {
         if (!selectedDoctor) return;
 

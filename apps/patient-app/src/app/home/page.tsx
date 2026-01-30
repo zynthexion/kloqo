@@ -149,7 +149,9 @@ import { NotificationHistory } from '@/components/notification-history';
 export const dynamic = 'force-dynamic';
 
 
-const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, departments, language }: { appointment: Appointment, allClinicAppointments: Appointment[], userDoctors: Doctor[], t: any, departments: any[], language: 'en' | 'ml' }) => {
+const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, departments, language, clinics }: { appointment: Appointment, allClinicAppointments: Appointment[], userDoctors: Doctor[], t: any, departments: any[], language: 'en' | 'ml', clinics: Clinic[] }) => {
+    const clinic = clinics.find(c => c.id === appointment.clinicId);
+    const isClassic = clinic?.tokenDistribution === 'classic';
 
     return (
         <Card className="bg-primary-foreground/10 border-primary-foreground/20 shadow-lg text-primary-foreground">
@@ -161,7 +163,12 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
                         </div>
                         <div>
                             <p className="font-bold text-lg">{t.home.yourWalkInToken}</p>
-                            <p className="text-3xl font-bold">{appointment.tokenNumber}</p>
+                            <p className="text-3xl font-bold">
+                                {isClassic
+                                    ? (appointment.classicTokenNumber ? `#${appointment.classicTokenNumber}` : "Arrive at Clinic")
+                                    : appointment.tokenNumber
+                                }
+                            </p>
                         </div>
                     </div>
                     <Button asChild variant="secondary" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">
@@ -187,7 +194,9 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
     )
 }
 
-const AppointmentCard = ({ appointment, departments, language, doctors, t }: { appointment: Appointment, departments: any[], language: 'en' | 'ml', doctors: Doctor[], t: any }) => {
+const AppointmentCard = ({ appointment, departments, language, doctors, t, clinics }: { appointment: Appointment, departments: any[], language: 'en' | 'ml', doctors: Doctor[], t: any, clinics: Clinic[] }) => {
+    const clinic = clinics.find(c => c.id === appointment.clinicId);
+    const isClassic = clinic?.tokenDistribution === 'classic';
 
     let day, month, dayOfMonth;
     try {
@@ -234,7 +243,7 @@ const AppointmentCard = ({ appointment, departments, language, doctors, t }: { a
     );
 };
 
-const AppointmentCarousel = ({ appointments, departments, language, doctors, t }: { appointments: Appointment[], departments: any[], language: 'en' | 'ml', doctors: Doctor[], t: any }) => {
+const AppointmentCarousel = ({ appointments, departments, language, doctors, t, clinics }: { appointments: Appointment[], departments: any[], language: 'en' | 'ml', doctors: Doctor[], t: any, clinics: Clinic[] }) => {
     if (appointments.length === 0) {
         return null;
     }
@@ -253,7 +262,7 @@ const AppointmentCarousel = ({ appointments, departments, language, doctors, t }
             <CarouselContent className="-ml-4">
                 {appointments.map((appt) => (
                     <CarouselItem key={appt.id} className="basis-auto pl-4">
-                        <AppointmentCard appointment={appt} departments={departments} language={language} doctors={doctorsArray} t={t} />
+                        <AppointmentCard appointment={appt} departments={departments} language={language} doctors={doctorsArray} t={t} clinics={clinics} />
                     </CarouselItem>
                 ))}
             </CarouselContent>
@@ -1429,6 +1438,7 @@ function HomePageContent() {
                                         t={t}
                                         departments={departments}
                                         language={language}
+                                        clinics={clinics}
                                     />
                                 ) : null}
                             </div>
@@ -1437,7 +1447,7 @@ function HomePageContent() {
                         {upcomingAppointments.length > 0 ? (
                             <div>
                                 <h2 className="text-lg font-semibold text-primary-foreground/90 mb-4 mt-6">{t.home.upcomingAppointments}</h2>
-                                <AppointmentCarousel appointments={upcomingAppointments} departments={departments} language={language} doctors={Array.isArray(effectiveUserDoctors) ? effectiveUserDoctors : []} t={t} />
+                                <AppointmentCarousel appointments={upcomingAppointments} departments={departments} language={language} doctors={Array.isArray(effectiveUserDoctors) ? effectiveUserDoctors : []} t={t} clinics={clinics} />
                             </div>
                         ) : !showAppointmentsSkeleton && !appointmentsLoading && effectiveAppointments.length === 0 ? (
                             // Show subtle empty state when no appointments (prevents empty screen)

@@ -47,6 +47,7 @@ type AppointmentListProps = {
   estimatedTimes?: Array<{ appointmentId: string; estimatedTime: string; isFirst: boolean }>;
   breaks?: Array<{ id: string; startTime: string; endTime: string; note?: string }>;
   onTogglePriority?: (appointment: Appointment) => void;
+  tokenDistribution?: 'classic' | 'advanced';
 };
 
 // Helper function to parse time
@@ -79,7 +80,8 @@ function AppointmentList({
   averageConsultingTime = 15,
   estimatedTimes = [],
   breaks = [],
-  onTogglePriority
+  onTogglePriority,
+  tokenDistribution = 'advanced'
 }: AppointmentListProps) {
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
@@ -642,7 +644,23 @@ function AppointmentList({
                                   )}
                                   <div className="flex items-center gap-2">
                                     <p className={cn("font-semibold", isInactive(appt) && 'line-through text-muted-foreground')}>
-                                      {['Completed', 'Cancelled', 'No-show'].includes(appt.status) ? appt.patientName : `#${appt.tokenNumber} - ${appt.patientName}`}
+                                      {(() => {
+                                        if (tokenDistribution === 'classic') {
+                                          if (appt.status === 'Pending') {
+                                            // Hide token number for Pending
+                                            return appt.patientName;
+                                          }
+                                          // For others (Confirmed, Completed, etc), show Classic Token if available
+                                          if (appt.classicTokenNumber) {
+                                            return `#${appt.classicTokenNumber.toString().padStart(3, '0')} - ${appt.patientName}`;
+                                          }
+                                          return appt.patientName; // Fallback
+                                        }
+                                        // Advanced behavior (original)
+                                        return ['Completed', 'Cancelled', 'No-show'].includes(appt.status)
+                                          ? appt.patientName
+                                          : `#${appt.tokenNumber} - ${appt.patientName}`;
+                                      })()}
                                     </p>
                                     {appt.skippedAt && (
                                       <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-200 border-amber-400 text-amber-800 leading-none flex items-center justify-center font-bold">

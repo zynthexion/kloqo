@@ -98,6 +98,7 @@ export type Appointment = {
     treatment?: string; // Optional - not collected from users, kept for backward compatibility
     tokenNumber: string;
     numericToken: number;
+    classicTokenNumber?: number;
     bookedVia: 'Advanced Booking' | 'Walk-in' | 'Online';
     place?: string;
     isSkipped?: boolean;
@@ -123,7 +124,6 @@ export type Appointment = {
     priorityAt?: any;
     confirmedAt?: any;
     updatedAt?: any;
-    walkInPatientsAhead?: number;
 };
 
 export type Patient = {

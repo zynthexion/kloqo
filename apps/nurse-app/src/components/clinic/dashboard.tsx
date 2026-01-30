@@ -769,6 +769,7 @@ export default function ClinicDashboard() {
                 currentTime={currentTime}
                 enableSwipeCompletion={!isAppointmentsPage}
                 isPhoneMode={isPhoneMode}
+                tokenDistribution={clinicDetails?.tokenDistribution}
               />
             </TabsContent>
             <TabsContent value="completed" className="flex-1 overflow-y-auto m-0">
@@ -783,6 +784,7 @@ export default function ClinicDashboard() {
                 currentTime={currentTime}
                 enableSwipeCompletion={!isAppointmentsPage}
                 isPhoneMode={isPhoneMode}
+                tokenDistribution={clinicDetails?.tokenDistribution}
               />
             </TabsContent>
           </Tabs>

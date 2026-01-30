@@ -190,7 +190,7 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         firestore,
         patientId,
         title: 'Appointment Booked',
-        body: `${clinicName} has booked an appointment with Dr. ${doctorName} on ${date} at ${displayTime}. Token: ${tokenNumber}`,
+        body: `${clinicName} has booked an appointment with Dr. ${doctorName} on ${date} at ${displayTime}.${(tokenNumber && !tokenNumber.startsWith('A') && !tokenNumber.startsWith('W')) ? ` Token: ${tokenNumber}` : ''}`,
         data: {
             type: 'appointment_confirmed',
             appointmentId,
@@ -515,16 +515,16 @@ export async function sendPeopleAheadNotification(params: {
     if (peopleAhead === 0) {
         title = 'You are Next!';
         if (breakDuration && breakDuration > 0) {
-            body = `The doctor is on a ${breakDuration}-minute break. You will be next to see Dr. ${doctorName} at ${clinicName} after the break.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
+            body = `The doctor is on a ${breakDuration}-minute break. You will be next to see Dr. ${doctorName} at ${clinicName} after the break.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`;
         } else {
-            body = `There is ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
+            body = `There is ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`;
         }
     } else {
         title = `Queue Update: ${peopleAheadText} Ahead`;
         if (breakDuration && breakDuration > 0) {
-            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. A ${breakDuration}-minute break is also scheduled before your turn. You will see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
+            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. A ${breakDuration}-minute break is also scheduled before your turn. You will see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`;
         } else {
-            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`} Token: ${tokenNumber}`;
+            body = `There ${peopleAhead === 1 ? 'is' : 'are'} ${peopleAheadText} ahead of you. You will be next to see Dr. ${doctorName} at ${clinicName}.${!isClassic ? ` Your appointment time: ${displayTime}.` : ` Expected turn time: ${displayTime}.`}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`;
         }
     }
 
@@ -606,7 +606,7 @@ export async function sendDoctorConsultationStartedNotification(params: {
         firestore,
         patientId,
         title: 'Doctor Consultation Started',
-        body: `Dr. ${doctorName} has started consultation at ${clinicName}.${displayTime ? ` ${timeLabel}: ${displayTime}.` : ''} Token: ${tokenNumber}`,
+        body: `Dr. ${doctorName} has started consultation at ${clinicName}.${displayTime ? ` ${timeLabel}: ${displayTime}.` : ''}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`,
         data: {
             type: 'token_distribution_started',
             appointmentId,
@@ -678,7 +678,7 @@ export async function notifySessionPatientsOfConsultationStart({
                     patientId: appointment.patientId,
                     appointmentId: appointment.id,
                     clinicName,
-                    tokenNumber: appointment.tokenNumber || 'N/A',
+                    tokenNumber: (tokenDistribution === 'classic' && appointment.classicTokenNumber) ? appointment.classicTokenNumber : (tokenDistribution === 'classic' ? '' : (appointment.tokenNumber || 'N/A')),
                     doctorName: appointment.doctor,
                     appointmentTime: appointment.time,
                     appointmentDate: appointment.date,
@@ -810,7 +810,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
                     patientId: appointment.patientId,
                     appointmentId: appointment.id,
                     clinicName,
-                    tokenNumber: appointment.tokenNumber,
+                    tokenNumber: (tokenDistribution === 'classic' && appointment.classicTokenNumber) ? appointment.classicTokenNumber : (tokenDistribution === 'classic' ? '' : appointment.tokenNumber),
                     doctorName: appointment.doctor,
                     peopleAhead,
                     appointmentTime: appointment.time,

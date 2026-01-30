@@ -418,12 +418,45 @@ export default function LiveDashboard() {
 
     startTransition(async () => {
       try {
-        // Just update status to Confirmed. Do NOT touch isInBuffer here.
-        // Let the refill logic decide who gets buffered based on PRIORITY.
         const updateData: any = { status: 'Confirmed', updatedAt: serverTimestamp() };
-        if (clinicDetails?.tokenDistribution !== 'advanced') {
+
+        if (clinicDetails?.tokenDistribution === 'classic') {
           updateData.confirmedAt = serverTimestamp();
+
+          // --- CLASSIC TOKEN GENERATION ---
+          // If already has classicToken, don't regenerate (though usually Pending won't have it).
+          if (!appointmentToAddToQueue.classicTokenNumber) {
+            // Find current max token for this doctor/date
+            const todayStr = format(new Date(), 'd MMMM yyyy'); // Standard format
+            const q = query(
+              collection(db, 'appointments'),
+              where('clinicId', '==', clinicId),
+              where('doctor', '==', currentDoctor?.name || appointmentToAddToQueue.doctor),
+              where('date', '==', todayStr),
+              where('status', 'in', ['Confirmed', 'Completed', 'Skipped']) // Only count those who have "arrived"
+            );
+
+            // Note: We might need a better way to get doctor name if selectedDoctor is just ID
+            // But typically appointmentToAddToQueue.doctor holds the name.
+
+            const snapshot = await getDocs(q);
+            let maxToken = 0;
+            snapshot.forEach(doc => {
+              const data = doc.data();
+              if (data.classicTokenNumber) {
+                const num = parseInt(data.classicTokenNumber, 10);
+                if (!isNaN(num) && num > maxToken) {
+                  maxToken = num;
+                }
+              }
+            });
+
+            const newTokenNum = maxToken + 1;
+            // Pad with zeros, e.g., "001", "010", "100"
+            updateData.classicTokenNumber = newTokenNum.toString().padStart(3, '0');
+          }
         }
+
         await updateDoc(doc(db, 'appointments', appointmentToAddToQueue.id), updateData);
 
         toast({
@@ -434,12 +467,15 @@ export default function LiveDashboard() {
 
         // Optimistic Update
         const updatedAppointments = appointments.map(a =>
-          a.id === appointmentToAddToQueue.id ? { ...a, status: 'Confirmed' as const } : a
+          a.id === appointmentToAddToQueue.id ? {
+            ...a,
+            status: 'Confirmed' as const,
+            classicTokenNumber: updateData.classicTokenNumber // Optimistically set
+          } : a
         );
         setAppointments(updatedAppointments);
 
         // --- CHECK REFILL ---
-        // This will only buffer the new guy if he is actually the highest priority among non-buffered
         await checkAndRefillBuffer(updatedAppointments);
 
       } catch (error) {
@@ -708,6 +744,7 @@ export default function LiveDashboard() {
                     estimatedTimes={arrivedEstimates}
                     breaks={todayBreaks}
                     isPhoneMode={isPhoneMode}
+                    tokenDistribution={clinicDetails?.tokenDistribution}
                   />
                 </div>
               </TabsContent>
@@ -725,6 +762,7 @@ export default function LiveDashboard() {
                   showStatusBadge={false}
                   enableSwipeCompletion={false}
                   isPhoneMode={isPhoneMode}
+                  tokenDistribution={clinicDetails?.tokenDistribution}
                 />
               </TabsContent>
             </Tabs>

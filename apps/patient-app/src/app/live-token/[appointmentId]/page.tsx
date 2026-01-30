@@ -23,7 +23,7 @@ import {
 import { useDoctors } from '@/firebase/firestore/use-doctors';
 import { parseAppointmentDateTime, parseTime, getArriveByTime, getArriveByTimeFromAppointment, getActualAppointmentTime, buildBreakIntervals } from '@/lib/utils';
 import { formatDate } from '@/lib/date-utils';
-import type { Appointment, Doctor } from '@/lib/types';
+import type { Appointment, Doctor, Clinic } from '@/lib/types';
 import { collection, query, where, onSnapshot, DocumentData, QuerySnapshot, doc, updateDoc, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import { BottomNav } from '@/components/bottom-nav';
@@ -1213,12 +1213,28 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
 
             let newTimeString: string | null = null; // Track new time for skipped and pending appointments
 
+            let classicUpdates = {};
+            if (clinicData?.tokenDistribution === 'classic') {
+                const updates: any = { confirmedAt: serverTimestamp() };
+
+                // Generate classicTokenNumber if not already present
+                if (!yourAppointment.classicTokenNumber) {
+                    const doctorApps = allTodaysAppointments.filter(a => a.doctor === yourAppointment.doctor);
+                    const usedTokens = doctorApps
+                        .map(a => a.classicTokenNumber)
+                        .filter((t): t is number => typeof t === 'number');
+                    const maxToken = usedTokens.length > 0 ? Math.max(...usedTokens) : 0;
+                    updates.classicTokenNumber = maxToken + 1;
+                }
+                classicUpdates = updates;
+            }
+
             if (yourAppointment.status === 'Pending') {
                 // For Pending appointments, simple status update
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
                     updatedAt: serverTimestamp(),
-                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+                    ...classicUpdates
                 });
                 // Get the appointment time
                 const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
@@ -1232,7 +1248,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     status: 'Confirmed',
                     time: newTimeString,
                     updatedAt: serverTimestamp(),
-                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+                    ...classicUpdates
                 });
             } else if (yourAppointment.status === 'Skipped') {
                 // For Skipped appointments, rejoin queue using deterministic logic
@@ -1257,14 +1273,14 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                     status: 'Confirmed',
                     time: newTimeString,
                     updatedAt: serverTimestamp(),
-                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+                    ...classicUpdates
                 });
             } else {
                 // For other statuses, just update status
                 await updateDoc(appointmentRef, {
                     status: 'Confirmed',
                     updatedAt: serverTimestamp(),
-                    ...(clinicData?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+                    ...classicUpdates
                 });
             }
 
@@ -2015,9 +2031,19 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
                 <div className="text-center">
                     <p className="text-sm text-muted-foreground">{t.liveToken.yourToken} ({yourAppointment.patientName})</p>
                     <div className="flex items-center justify-center gap-2">
-                        <p className="text-6xl font-bold" style={{ color: 'hsl(var(--token-your))' }}>{yourAppointment.tokenNumber}</p>
+                        <p className="text-6xl font-bold" style={{ color: 'hsl(var(--token-your))' }}>
+                            {clinicData?.tokenDistribution === 'classic'
+                                ? (yourAppointment.classicTokenNumber ? `${yourAppointment.classicTokenNumber.toString().padStart(3, '0')}` : '--')
+                                : yourAppointment.tokenNumber
+                            }
+                        </p>
                         {yourAppointment.isPriority && <Star className="w-8 h-8 text-amber-500 fill-amber-500" />}
                     </div>
+                    {clinicData?.tokenDistribution === 'classic' && !yourAppointment.classicTokenNumber && (
+                        <p className="text-sm text-amber-600 font-medium mt-1">
+                            {language === 'ml' ? 'ടോക്കൺ നമ്പർ ലഭിക്കാൻ ക്ലിനിക്കിൽ എത്തുക' : 'Arrive at clinic to get token number'}
+                        </p>
+                    )}
                 </div>
             </div>
 
@@ -2126,6 +2152,7 @@ function LiveTokenPage() {
     const router = useRouter();
     const { departments } = useMasterDepartments();
     const [allClinicAppointments, setAllClinicAppointments] = useState<Appointment[]>([]);
+    const [clinics, setClinics] = useState<Clinic[]>([]);
 
     const { appointments: familyAppointments, loading: familyAppointmentsLoading } = useAppointments(user?.patientId);
     const clinicIds = useMemo(() => user?.clinicIds || [], [user?.clinicIds]);
@@ -2136,6 +2163,25 @@ function LiveTokenPage() {
         const timerId = setInterval(() => setCurrentTime(new Date()), 60000);
         return () => clearInterval(timerId);
     }, []);
+
+    // Fetch clinics
+    useEffect(() => {
+        if (!firestore || clinicIds.length === 0) return;
+        const fetchClinics = async () => {
+            const chunks = [];
+            for (let i = 0; i < clinicIds.length; i += 10) {
+                chunks.push(clinicIds.slice(i, i + 10));
+            }
+            const fetchedClinics: Clinic[] = [];
+            for (const chunk of chunks) {
+                const q = query(collection(firestore, 'clinics'), where('id', 'in', chunk));
+                const snap = await getDocs(q);
+                snap.forEach(d => fetchedClinics.push({ id: d.id, ...d.data() } as Clinic));
+            }
+            setClinics(fetchedClinics);
+        };
+        fetchClinics();
+    }, [firestore, clinicIds]);
 
 
 
@@ -2476,7 +2522,15 @@ function LiveTokenPage() {
                                     >
                                         <p className="text-sm font-semibold truncate">{appt.patientName}</p>
                                         <p className="text-xs text-muted-foreground">
-                                            {appt.tokenNumber} • {(() => {
+                                            {(() => {
+                                                const apptClinic = clinics.find(c => c.id === appt.clinicId);
+                                                const isClassic = apptClinic?.tokenDistribution === 'classic';
+
+                                                if (isClassic) {
+                                                    return appt.classicTokenNumber ? `#${appt.classicTokenNumber.toString().padStart(3, '0')}` : "Arrive at Clinic";
+                                                }
+                                                return appt.tokenNumber;
+                                            })()} • {(() => {
                                                 const apptDoctor = doctors.find(d => d.name === appt.doctor);
                                                 return getReportByTimeLabel(appt, apptDoctor);
                                             })()}

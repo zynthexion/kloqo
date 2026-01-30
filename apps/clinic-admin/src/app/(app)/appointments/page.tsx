@@ -4318,7 +4318,16 @@ export default function AppointmentsPage() {
                                       <TableCell>{format(parse(appointment.date, "d MMMM yyyy", new Date()), "MMM d, yy")}</TableCell>
                                       <TableCell>{['Completed', 'Confirmed', 'Cancelled', 'No-show'].includes(appointment.status) ? appointment.time : getDisplayTimeForAppointment(appointment)}</TableCell>
                                       <TableCell>{appointment.bookedVia}</TableCell>
-                                      <TableCell>{['Completed', 'Cancelled', 'No-show'].includes(appointment.status) ? '-' : appointment.tokenNumber}</TableCell>
+                                      <TableCell>
+                                        {(() => {
+                                          if (clinicDetails?.tokenDistribution === 'classic') {
+                                            return appointment.classicTokenNumber
+                                              ? `#${appointment.classicTokenNumber.toString().padStart(3, '0')}`
+                                              : '-';
+                                          }
+                                          return ['Completed', 'Cancelled', 'No-show'].includes(appointment.status) ? '-' : appointment.tokenNumber;
+                                        })()}
+                                      </TableCell>
                                       <TableCell className="text-right">
                                         {appointment.status === 'Pending' || appointment.status === 'Skipped' ? (
                                           <DropdownMenu>
@@ -4391,7 +4400,16 @@ export default function AppointmentsPage() {
                                       )}
                                     >
                                       <TableCell className="font-medium">{appointment.patientName}</TableCell>
-                                      <TableCell>{appointment.tokenNumber}</TableCell>
+                                      <TableCell>
+                                        {(() => {
+                                          if (clinicDetails?.tokenDistribution === 'classic') {
+                                            return appointment.classicTokenNumber
+                                              ? `#${appointment.classicTokenNumber.toString().padStart(3, '0')}`
+                                              : '-';
+                                          }
+                                          return appointment.tokenNumber;
+                                        })()}
+                                      </TableCell>
                                       <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
                                       <TableCell className="text-right">
                                         <div className="flex justify-end gap-2">
@@ -4505,7 +4523,16 @@ export default function AppointmentsPage() {
                                                     })()}
                                                   </div>
                                                 </TableCell>
-                                                <TableCell>{appointment.tokenNumber}</TableCell>
+                                                <TableCell>
+                                                  {(() => {
+                                                    if (clinicDetails?.tokenDistribution === 'classic') {
+                                                      return appointment.classicTokenNumber
+                                                        ? `#${appointment.classicTokenNumber.toString().padStart(3, '0')}`
+                                                        : '-';
+                                                    }
+                                                    return appointment.tokenNumber;
+                                                  })()}
+                                                </TableCell>
                                                 <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
                                                 <TableCell className="text-right">
                                                   <div className="flex justify-end gap-2">
@@ -4630,7 +4657,16 @@ export default function AppointmentsPage() {
                                               )}
                                               <TableRow>
                                                 <TableCell className="font-medium">{appointment.patientName}</TableCell>
-                                                <TableCell>{appointment.tokenNumber}</TableCell>
+                                                <TableCell>
+                                                  {(() => {
+                                                    if (clinicDetails?.tokenDistribution === 'classic') {
+                                                      return appointment.classicTokenNumber
+                                                        ? `#${appointment.classicTokenNumber.toString().padStart(3, '0')}`
+                                                        : '-';
+                                                    }
+                                                    return appointment.tokenNumber;
+                                                  })()}
+                                                </TableCell>
                                                 <TableCell>{getDisplayTimeForAppointment(appointment)}</TableCell>
                                                 <TableCell className="text-right">
                                                   <div className="flex justify-end gap-2">

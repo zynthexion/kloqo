@@ -1251,7 +1251,12 @@ function BookingSummaryPage() {
                                 <CardContent className="p-0 flex flex-col items-center space-y-4">
                                     <div className="flex flex-col items-center">
                                         <p className="text-sm text-muted-foreground">{t.liveToken.yourToken}</p>
-                                        <p className="text-4xl font-bold text-primary">{generatedToken}</p>
+                                        <p className="text-4xl font-bold text-primary">
+                                            {clinicData?.tokenDistribution === 'classic'
+                                                ? (language === 'ml' ? 'ക്ലിനിക്കിൽ എത്തുക' : 'Arrive at Clinic')
+                                                : generatedToken
+                                            }
+                                        </p>
                                     </div>
                                     {appointmentDate && appointmentTime && (
                                         <div className="flex flex-col items-center space-y-2 w-full pt-4 border-t">

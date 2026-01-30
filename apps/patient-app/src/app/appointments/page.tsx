@@ -35,14 +35,14 @@ import { AuthGuard } from '@/components/auth-guard';
 import { LottieAnimation } from '@/components/lottie-animation';
 import emptyStateAnimation from '@/lib/animations/empty-state.json';
 import { useFirestore } from '@/firebase';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, collection, query, where, getDocs, documentId } from 'firebase/firestore';
 
 // Prevent static generation - this page requires Firebase context
 export const dynamic = 'force-dynamic';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-import type { Appointment, Doctor } from '@/lib/types';
+import type { Appointment, Doctor, Clinic } from '@/lib/types';
 import { sendAppointmentCancelledNotification } from '@/lib/notification-service';
 import nextDynamic from 'next/dynamic';
 import { previewWalkInPlacement, compareAppointments, getClinicNow, getClinicDateString } from '@kloqo/shared-core';
@@ -73,7 +73,7 @@ const BottomNav = nextDynamic(
 
 
 
-const AppointmentCard = ({ appointment, isHistory = false, user, t, departments, language, onAppointmentCancelled, appointmentsCacheKey, doctor }: { appointment: Appointment, isHistory?: boolean, user: any, t: any, departments: any[], language: 'en' | 'ml', onAppointmentCancelled?: (appointmentId: string) => void, appointmentsCacheKey?: string | null, doctor?: Doctor | null }) => {
+const AppointmentCard = ({ appointment, isHistory = false, user, t, departments, language, onAppointmentCancelled, appointmentsCacheKey, doctor, clinic }: { appointment: Appointment, isHistory?: boolean, user: any, t: any, departments: any[], language: 'en' | 'ml', onAppointmentCancelled?: (appointmentId: string) => void, appointmentsCacheKey?: string | null, doctor?: Doctor | null, clinic?: Clinic }) => {
     const firestore = useFirestore();
     const { toast } = useToast();
     const router = useRouter();
@@ -302,7 +302,14 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                             )}
                             <p className="font-bold text-lg mt-2">{appointment.doctor}</p>
                             <p className="text-sm text-muted-foreground">{getLocalizedDepartmentName(appointment.department, language, departments)}</p>
-                            <p className="text-sm text-muted-foreground mt-1">{t.appointments.token}: <span className="font-semibold">{appointment.tokenNumber}</span></p>
+                            <p className="text-sm text-muted-foreground mt-1">{t.appointments.token}: <span className="font-semibold">
+                                {clinic?.tokenDistribution === 'classic'
+                                    ? (appointment.status === 'Pending'
+                                        ? (language === 'ml' ? 'ക്ലിനിക്കിൽ എത്തുക' : 'Arrive at Clinic')
+                                        : (appointment.classicTokenNumber ? `#${appointment.classicTokenNumber.toString().padStart(3, '0')}` : '--'))
+                                    : appointment.tokenNumber
+                                }
+                            </span></p>
                         </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
@@ -396,6 +403,7 @@ function AppointmentsPage() {
     const { appointments, loading: appointmentsLoading } = useAppointments(user?.patientId);
     const { doctors, loading: doctorsLoading } = useDoctors();
     const appointmentsCacheKey = user?.patientId ? `appointments-cache-${user.patientId}` : null;
+    const [clinics, setClinics] = useState<Record<string, Clinic>>({});
 
     // Create a map of doctors by name for quick lookup
     const doctorsByName = useMemo(() => {
@@ -456,6 +464,47 @@ function AppointmentsPage() {
         // Hide break-affected appointments (field present as true or false)
         return source.filter(a => a.cancelledByBreak === undefined);
     }, [appointments, cachedAppointments]);
+
+    // Fetch clinics for effective appointments
+    useEffect(() => {
+        if (!firestore || effectiveAppointments.length === 0) return;
+
+        const fetchClinics = async () => {
+            const clinicIds = new Set(effectiveAppointments.map(a => a.clinicId).filter(Boolean));
+            // Filter out clinics we've already fetched
+            const newClinicIds = Array.from(clinicIds).filter(id => !clinics[id]);
+
+            if (newClinicIds.length === 0) return;
+
+            // Firestore 'in' query supports max 10 items
+            const chunks = [];
+            for (let i = 0; i < newClinicIds.length; i += 10) {
+                chunks.push(newClinicIds.slice(i, i + 10));
+            }
+
+            const fetchedClinics = { ...clinics };
+            let hasUpdate = false;
+
+            for (const chunk of chunks) {
+                try {
+                    const q = query(collection(firestore, 'clinics'), where(documentId(), 'in', chunk));
+                    const snapshot = await getDocs(q);
+                    snapshot.forEach(doc => {
+                        fetchedClinics[doc.id] = { id: doc.id, ...doc.data() } as Clinic;
+                        hasUpdate = true;
+                    });
+                } catch (error) {
+                    console.error("Error fetching clinics:", error);
+                }
+            }
+
+            if (hasUpdate) {
+                setClinics(fetchedClinics);
+            }
+        };
+
+        fetchClinics();
+    }, [effectiveAppointments, firestore, clinics]);
 
     const isAppointmentForToday = (dateStr: string) => {
         const now = getClinicNow();
@@ -675,7 +724,7 @@ function AppointmentsPage() {
                         ) : upcomingAppointments.length > 0 ? (
                             upcomingAppointments.map((appt) => {
                                 const appointmentDoctor = doctorsByName.get(appt.doctor);
-                                return <AppointmentCard key={appt.id} appointment={appt} user={user!} t={t} departments={departments} language={language} onAppointmentCancelled={handleAppointmentCancelled} appointmentsCacheKey={appointmentsCacheKey} doctor={appointmentDoctor} />;
+                                return <AppointmentCard key={appt.id} appointment={appt} user={user!} t={t} departments={departments} language={language} onAppointmentCancelled={handleAppointmentCancelled} appointmentsCacheKey={appointmentsCacheKey} doctor={appointmentDoctor} clinic={clinics[appt.clinicId]} />;
                             })
                         ) : (
                             <div className="flex flex-col items-center justify-center py-12">
@@ -701,7 +750,7 @@ function AppointmentsPage() {
                         ) : pastAppointments.length > 0 ? (
                             pastAppointments.map((appt) => {
                                 const appointmentDoctor = doctorsByName.get(appt.doctor);
-                                return <AppointmentCard key={appt.id} appointment={appt} isHistory={true} user={user!} t={t} departments={departments} language={language} onAppointmentCancelled={handleAppointmentCancelled} appointmentsCacheKey={appointmentsCacheKey} doctor={appointmentDoctor} />;
+                                return <AppointmentCard key={appt.id} appointment={appt} isHistory={true} user={user!} t={t} departments={departments} language={language} onAppointmentCancelled={handleAppointmentCancelled} appointmentsCacheKey={appointmentsCacheKey} doctor={appointmentDoctor} clinic={clinics[appt.clinicId]} />;
                             })
                         ) : (
                             <div className="flex flex-col items-center justify-center py-12">

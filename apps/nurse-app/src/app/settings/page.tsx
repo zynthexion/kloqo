@@ -1,7 +1,7 @@
 
 'use client';
 
-import { ArrowLeft, LogOut, ChevronRight, CalendarDays, CalendarX, Settings } from 'lucide-react';
+import { ArrowLeft, LogOut, ChevronRight, CalendarDays, CalendarX, Settings, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,12 @@ export default function SettingsPage() {
             icon: Settings,
             href: "/settings/clinic",
             color: "text-purple-600"
+        },
+        {
+            title: "Operating Hours",
+            icon: Clock,
+            href: "/settings/operating-hours",
+            color: "text-orange-600"
         },
         {
             title: "Log Out",

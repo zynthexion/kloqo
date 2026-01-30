@@ -12,6 +12,15 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { collection, getDocs, query, where, doc, getDoc, writeBatch, Timestamp, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import AppFrameLayout from '@/components/layout/app-frame';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { parseTime } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { FirestorePermissionError } from '@kloqo/shared-core';
@@ -203,6 +212,23 @@ function ScheduleBreakContent() {
         setBreakStartSlot(null);
         setBreakEndSlot(null);
     }, [doctor, selectedDate, appointments]);
+
+    const groupedAvailableSlots = useMemo(() => {
+        const groups: { label: string; slots: SlotInfo[] }[] = [];
+        if (!availableSlots) return groups;
+
+        if (availableSlots.currentSessionSlots.length > 0) {
+            groups.push({ label: 'Current Session', slots: availableSlots.currentSessionSlots });
+        }
+
+        Array.from(availableSlots.upcomingSessionSlots.entries())
+            .sort((a, b) => a[0] - b[0])
+            .forEach(([idx, slots]) => {
+                groups.push({ label: `Session ${idx + 1}`, slots });
+            });
+
+        return groups;
+    }, [availableSlots]);
 
     const canCancelBreak = useMemo(() => {
         return true;
@@ -1312,52 +1338,96 @@ function ScheduleBreakContent() {
                                     </div>
                                 )}
 
-                                {availableSlots && (
-                                    Array.from([
-                                        { label: 'Current Session', slots: availableSlots.currentSessionSlots },
-                                        ...Array.from(availableSlots.upcomingSessionSlots.entries()).map(([idx, slots]) => ({
-                                            label: `Session ${idx + 1}`,
-                                            slots,
-                                        })),
-                                    ]).map((group: { label: string; slots: SlotInfo[] }, groupIdx: number) => (
-                                        <div key={`${group.label}-${groupIdx}`} className="mb-4">
-                                            <p className="text-sm font-semibold mb-2">{group.label}</p>
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-                                                {group.slots.map((slot: SlotInfo) => {
-                                                    const isSelected =
-                                                        (breakStartSlot && breakEndSlot &&
-                                                            parseISO(slot.isoString) >= parseISO(breakStartSlot.isoString) &&
-                                                            parseISO(slot.isoString) <= parseISO(breakEndSlot.isoString)) ||
-                                                        (breakStartSlot?.isoString === slot.isoString && !breakEndSlot);
-
-                                                    return (
-                                                        <Button
-                                                            key={slot.isoString}
-                                                            variant={isSelected ? 'default' : 'outline'}
-                                                            className={cn(
-                                                                "h-auto py-3 flex-col gap-0.5",
-                                                                isSelected && 'bg-destructive/80 hover:bg-destructive text-white',
-                                                                slot.isTaken && 'bg-red-200 text-red-800 border-red-300 cursor-not-allowed',
-                                                                slot.isBlocked && !isSelected && 'bg-amber-100 text-amber-800 border-amber-200 cursor-not-allowed',
-                                                                !isSelected && !slot.isTaken && !slot.isBlocked && 'hover:bg-accent'
-                                                            )}
-                                                            onClick={() => handleSlotClick(slot)}
-                                                            disabled={slot.isTaken || slot.isBlocked}
-                                                        >
-                                                            <span className="font-semibold text-xs">{slot.timeFormatted}</span>
-                                                            <span className="text-[10px] opacity-70">to</span>
-                                                            <span className="font-semibold text-xs">{format(addMinutes(slot.time, doctor.averageConsultingTime || 15), 'hh:mm a')}</span>
-                                                            {slot.isTaken && <span className="text-xs mt-1">Break</span>}
-                                                            {slot.isBlocked && !slot.isTaken && <span className="text-xs mt-1">Blocked</span>}
-                                                        </Button>
-                                                    );
-                                                })}
-                                            </div>
+                                {groupedAvailableSlots.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Start Time</Label>
+                                            <Select
+                                                value={breakStartSlot?.isoString}
+                                                onValueChange={(val) => {
+                                                    const allSlots = groupedAvailableSlots.flatMap(g => g.slots);
+                                                    const slot = allSlots.find(s => s.isoString === val);
+                                                    if (slot) {
+                                                        setBreakStartSlot(slot);
+                                                        if (breakEndSlot && isBefore(parseISO(breakEndSlot.isoString), parseISO(slot.isoString))) {
+                                                            setBreakEndSlot(null);
+                                                        }
+                                                    }
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-10 bg-white border-slate-200 rounded-xl shadow-sm text-sm">
+                                                    <SelectValue placeholder="Start" />
+                                                </SelectTrigger>
+                                                <SelectContent className="max-h-[300px]">
+                                                    {groupedAvailableSlots.map(group => (
+                                                        <SelectGroup key={group.label}>
+                                                            <SelectLabel className="px-2 py-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400 bg-slate-50/50">
+                                                                {group.label}
+                                                            </SelectLabel>
+                                                            {group.slots.map(slot => (
+                                                                <SelectItem
+                                                                    key={slot.isoString}
+                                                                    value={slot.isoString}
+                                                                    disabled={slot.isTaken || slot.isBlocked}
+                                                                    className="py-2.5 text-sm pl-10"
+                                                                >
+                                                                    {slot.timeFormatted}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectGroup>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
-                                    ))
-                                )}
-                                {!availableSlots && (
-                                    <p className="text-center text-muted-foreground mt-4">No available sessions for this date.</p>
+
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">End Time</Label>
+                                            <Select
+                                                value={breakEndSlot?.isoString}
+                                                onValueChange={(val) => {
+                                                    const allSlots = groupedAvailableSlots.flatMap(g => g.slots);
+                                                    const slot = allSlots.find(s => s.isoString === val);
+                                                    if (slot) setBreakEndSlot(slot);
+                                                }}
+                                                disabled={!breakStartSlot}
+                                            >
+                                                <SelectTrigger className="h-10 bg-white border-slate-200 rounded-xl shadow-sm text-sm">
+                                                    <SelectValue placeholder="End" />
+                                                </SelectTrigger>
+                                                <SelectContent className="max-h-[300px]">
+                                                    {groupedAvailableSlots.map(group => {
+                                                        const validSlotsInGroup = breakStartSlot
+                                                            ? group.slots.filter(slot => isAfter(parseISO(slot.isoString), parseISO(breakStartSlot.isoString)) || slot.isoString === breakStartSlot.isoString)
+                                                            : group.slots;
+
+                                                        if (validSlotsInGroup.length === 0) return null;
+
+                                                        return (
+                                                            <SelectGroup key={group.label}>
+                                                                <SelectLabel className="px-2 py-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400 bg-slate-50/50">
+                                                                    {group.label}
+                                                                </SelectLabel>
+                                                                {validSlotsInGroup.map(slot => (
+                                                                    <SelectItem
+                                                                        key={slot.isoString}
+                                                                        value={slot.isoString}
+                                                                        disabled={slot.isTaken || slot.isBlocked}
+                                                                        className="py-2.5 text-sm pl-10"
+                                                                    >
+                                                                        {format(addMinutes(slot.time, doctor?.averageConsultingTime || 15), 'hh:mm a')}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectGroup>
+                                                        );
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p className="text-center text-muted-foreground mt-4 py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                                        No available sessions for this date.
+                                    </p>
                                 )}
                             </section>
 

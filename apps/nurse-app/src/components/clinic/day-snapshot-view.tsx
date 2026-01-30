@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useMemo } from 'react';
 import { format, addDays, subDays, startOfDay, endOfDay, isSameDay, isPast, addMinutes } from 'date-fns';
 import {
@@ -12,7 +13,8 @@ import {
     XCircle,
     UserMinus,
     Clock,
-    Coffee
+    Coffee,
+    Plus
 } from 'lucide-react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -132,41 +134,7 @@ export default function DaySnapshotView() {
         return { total, pending, confirmed, completed, cancelled, noshow, skipped };
     }, [filteredAppointments]);
 
-    // Estimated Finishing Time calculation
-    const estimatedFinishTime = useMemo(() => {
-        if (!currentDoctor) return null;
 
-        const avgTime = currentDoctor.averageConsultingTime || 15;
-        const remainingCount = stats.confirmed + stats.pending + stats.skipped;
-
-        if (remainingCount === 0) return null;
-
-        const totalMinutes = remainingCount * avgTime;
-
-        let startTime = new Date(); // Default to today
-
-        if (isSameDay(selectedDate, new Date())) {
-            // If it's today, we add to current time
-            startTime = new Date();
-        } else if (isPastDate) {
-            return null; // Don't show for past dates
-        } else {
-            // For future dates, add to the first session start time of the selected session or day
-            if (activeSession !== 'all') {
-                const sessionIndex = parseInt(activeSession);
-                const session = sessions[sessionIndex];
-                if (session) {
-                    const sessionStart = parseTime(session.from, selectedDate);
-                    startTime = sessionStart;
-                }
-            } else if (sessions.length > 0) {
-                const sessionStart = parseTime(sessions[0].from, selectedDate);
-                startTime = sessionStart;
-            }
-        }
-
-        return addMinutes(startTime, totalMinutes);
-    }, [currentDoctor, stats, selectedDate, activeSession, sessions, isPastDate]);
 
     // Break information
     const breaks = useMemo(() => {
@@ -321,30 +289,7 @@ export default function DaySnapshotView() {
                         )}
                     </div>
 
-                    {/* Estimated Finish Time Banner */}
-                    {estimatedFinishTime && !isPastDate && (
-                        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-100 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform duration-500">
-                                <Clock className="h-24 w-24" />
-                            </div>
-                            <div className="relative z-10">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest whitespace-nowrap">
-                                        {isSameDay(selectedDate, new Date()) ? 'Real-time Estimate' : 'Expected Duration'}
-                                    </span>
-                                </div>
-                                <h3 className="text-sm font-bold opacity-80 mb-1">Estimated Completion</h3>
-                                <div className="flex items-baseline gap-2">
-                                    <p className="text-4xl font-black tracking-tighter">
-                                        {format(estimatedFinishTime, 'hh:mm a')}
-                                    </p>
-                                </div>
-                                <p className="text-xs opacity-70 mt-2 font-medium">
-                                    Based on {stats.confirmed + stats.pending + stats.skipped} waiting patients • {currentDoctor?.averageConsultingTime || 15}m per visit
-                                </p>
-                            </div>
-                        </div>
-                    )}
+
 
                     {/* Detailed Past Stats */}
                     {isPastDate && (
@@ -367,11 +312,19 @@ export default function DaySnapshotView() {
                         </div>
                     )}
 
-                    {/* Break Information */}
                     <div className="space-y-4">
-                        <div className="flex items-center gap-2">
-                            <Coffee className="h-5 w-5 text-amber-600" />
-                            <h3 className="font-black text-slate-800 uppercase tracking-tight">Break Schedule</h3>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Coffee className="h-5 w-5 text-amber-600" />
+                                <h3 className="font-black text-slate-800 uppercase tracking-tight">Break Schedule</h3>
+                            </div>
+                            {selectedDoctorId && (
+                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 hover:text-amber-700" asChild>
+                                    <Link href={`/schedule-break?doctor=${selectedDoctorId}`}>
+                                        <Plus className="h-4 w-4" />
+                                    </Link>
+                                </Button>
+                            )}
                         </div>
                         {breaks.length > 0 ? (
                             breaks.map((brk, i) => (

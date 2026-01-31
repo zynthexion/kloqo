@@ -635,13 +635,37 @@ export default function LiveDashboard() {
       if (!availabilityForDay?.timeSlots?.[appointment.sessionIndex]) return false;
 
       const sessionSlot = availabilityForDay.timeSlots[appointment.sessionIndex];
-      const endTime = parseTime(sessionSlot.to, apptDate);
+      let endTime = parseTime(sessionSlot.to, apptDate);
 
-      return currentTime > endTime;
+      // Check for session extension
+      const dateStr = appointment.date;
+      const sessionExtension = docForAppt.availabilityExtensions?.[dateStr]?.sessions?.find(s => s.sessionIndex === appointment.sessionIndex);
+      if (sessionExtension?.newEndTime) {
+        try {
+          endTime = parseTime(sessionExtension.newEndTime, apptDate);
+        } catch (e) {
+          console.error('Error parsing extension time:', e);
+        }
+      }
+
+      // NO-SHOW DISAPPEARANCE LOGIC:
+      // A session is only considered "Ended" (causing No-shows to move to history) if:
+      // 1. Time has passed (including extensions)
+      // 2. Doctor is "Out"
+      // 3. There are no more active appointments (Pending, Confirmed, Skipped) in this session
+      const isTimePassed = currentTime > endTime;
+      const isDoctorOut = docForAppt.consultationStatus !== 'In';
+      const hasActiveInSession = appointments.some(a =>
+        a.doctor === appointment.doctor &&
+        a.sessionIndex === appointment.sessionIndex &&
+        ['Pending', 'Confirmed', 'Skipped'].includes(a.status)
+      );
+
+      return isTimePassed && isDoctorOut && !hasActiveInSession;
     } catch {
       return false;
     }
-  }, [doctors, currentTime]);
+  }, [doctors, currentTime, appointments]);
 
   const pendingAppointments = useMemo(() => {
     let pending = filteredAppointments.filter(a => a.status === 'Pending');

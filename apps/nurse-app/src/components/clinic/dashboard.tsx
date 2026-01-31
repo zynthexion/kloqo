@@ -646,27 +646,41 @@ export default function ClinicDashboard() {
       const availabilityForDay = doctor.availabilitySlots.find(slot => slot.day === dayOfWeek);
 
       if (!availabilityForDay?.timeSlots?.[appointment.sessionIndex]) {
-        console.log(`[DEBUG_SESSION] No slot found for session ${appointment.sessionIndex}`);
         return false;
       }
 
       const sessionSlot = availabilityForDay.timeSlots[appointment.sessionIndex];
-      const endTime = parseTime(sessionSlot.to, appointmentDate);
+      let endTime = parseTime(sessionSlot.to, appointmentDate);
 
-      // Check for session extension (this part was not in the original code, but included in the instruction snippet)
-      // if (doctor.availabilityExtensions) {
-      //   // ... (existing extension logic checks)
-      // }
-
-      const isEnded = currentTime > endTime; // Use currentTime as per original logic
-      if (appointment.status === 'No-show') {
-        console.log(`[DEBUG_SESSION] Appt ${appointment.tokenNumber} (Session ${appointment.sessionIndex}): EndTime=${format(endTime, 'HH:mm')}, Now=${format(currentTime, 'HH:mm')}, IsEnded=${isEnded}`);
+      // Check for session extension
+      const dateStr = appointment.date;
+      const sessionExtension = doctor.availabilityExtensions?.[dateStr]?.sessions?.find(s => s.sessionIndex === appointment.sessionIndex);
+      if (sessionExtension?.newEndTime) {
+        try {
+          endTime = parseTime(sessionExtension.newEndTime, appointmentDate);
+        } catch (e) {
+          console.error('Error parsing extension time:', e);
+        }
       }
-      return isEnded;
+
+      // NO-SHOW DISAPPEARANCE LOGIC:
+      // A session is only considered "Ended" (causing No-shows to move to history) if:
+      // 1. Time has passed (including extensions)
+      // 2. Doctor is "Out"
+      // 3. There are no more active appointments (Pending, Confirmed, Skipped) in this session
+      const isTimePassed = currentTime > endTime;
+      const isDoctorOut = doctor.consultationStatus !== 'In';
+      const hasActiveInSession = appointments.some(a =>
+        a.doctor === appointment.doctor &&
+        a.sessionIndex === appointment.sessionIndex &&
+        ['Pending', 'Confirmed', 'Skipped'].includes(a.status)
+      );
+
+      return isTimePassed && isDoctorOut && !hasActiveInSession;
     } catch {
       return false;
     }
-  }, [doctors, currentTime]);
+  }, [doctors, currentTime, appointments]);
 
   const pendingAppointments = useMemo(() => {
     const pending = filteredAppointments.filter(a => {

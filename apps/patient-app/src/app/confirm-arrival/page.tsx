@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, limit } from 'firebase/firestore';
-import { compareAppointments, getClinicNow, getClinicDayOfWeek, getClinicDateString } from '@kloqo/shared-core';
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, limit, runTransaction } from 'firebase/firestore';
+import { compareAppointments, getClinicNow, getClinicDayOfWeek, getClinicDateString, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber } from '@kloqo/shared-core';
 import { format, parse, subMinutes, addMinutes, isBefore, isAfter, differenceInMinutes } from 'date-fns';
 import { getArriveByTime, getArriveByTimeFromAppointment, getActualAppointmentTime, parseTime } from '@/lib/utils';
 import { Loader2, MapPin, CheckCircle2, Clock, AlertCircle, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
@@ -612,10 +612,24 @@ function ConfirmArrivalPage() {
       if (appointment.status === 'Pending') {
         // For Pending appointments, only allow confirmation before 15-minute mark
         if (isBefore(now, reportingTime)) {
-          // Confirm normally
-          await updateDoc(appointmentRef, {
-            status: 'Confirmed',
-            ...(clinic?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+          await runTransaction(firestore, async (transaction) => {
+            const apptSnap = await transaction.get(appointmentRef);
+            if (!apptSnap.exists() || apptSnap.data()?.status !== 'Pending') {
+              throw new Error('Appointment status changed or not found.');
+            }
+
+            const updateData: any = { status: 'Confirmed', updatedAt: serverTimestamp() };
+
+            if (clinic?.tokenDistribution === 'classic') {
+              updateData.confirmedAt = serverTimestamp();
+              const classicCounterId = getClassicTokenCounterId(clinic.id, appointment.doctor, appointment.date);
+              const classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
+              const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+              updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+              commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+            }
+
+            transaction.update(appointmentRef, updateData);
           });
 
           toast({
@@ -637,7 +651,6 @@ function ConfirmArrivalPage() {
         }
 
         const now = getClinicNow();
-        const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
         const scheduledTime = parseTime(appointment.time, appointmentDate);
 
         // Convert noShowTime to Date
@@ -656,12 +669,27 @@ function ConfirmArrivalPage() {
 
         const newTimeString = format(newTime, 'hh:mm a');
 
-        await updateDoc(appointmentRef, {
-          status: 'Confirmed',
-          time: newTimeString,
-          skippedAt: serverTimestamp(), // Mark AS rejoined
-          updatedAt: serverTimestamp(),
-          ...(clinic?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+        await runTransaction(firestore, async (transaction) => {
+          const apptSnap = await transaction.get(appointmentRef);
+          if (!apptSnap.exists()) throw new Error('Appointment not found.');
+
+          const updateData: any = {
+            status: 'Confirmed',
+            time: newTimeString,
+            skippedAt: serverTimestamp(), // Mark AS rejoined
+            updatedAt: serverTimestamp(),
+          };
+
+          if (clinic?.tokenDistribution === 'classic') {
+            updateData.confirmedAt = serverTimestamp();
+            const classicCounterId = getClassicTokenCounterId(clinic.id, appointment.doctor, appointment.date);
+            const classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
+            const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+            updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+          }
+
+          transaction.update(appointmentRef, updateData);
         });
 
         toast({
@@ -681,440 +709,440 @@ function ConfirmArrivalPage() {
     }
   };
 
-  // Update late minutes
-  const handleUpdateLateMinutes = async (appointment: Appointment, minutes: number) => {
-    if (!firestore) return;
+// Update late minutes
+const handleUpdateLateMinutes = async (appointment: Appointment, minutes: number) => {
+  if (!firestore) return;
 
-    setIsUpdatingLate(appointment.id);
+  setIsUpdatingLate(appointment.id);
 
-    try {
-      const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
-      const appointmentTime = parseTime(appointment.time, appointmentDate);
-      const now = getClinicNow();
+  try {
+    const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+    const appointmentTime = parseTime(appointment.time, appointmentDate);
+    const now = getClinicNow();
 
-      // Check if it's before appointment time
-      if (isAfter(now, appointmentTime)) {
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Cannot update late minutes after appointment time.',
-        });
-        setIsUpdatingLate(null);
-        return;
-      }
-
-      // Update appointment with late minutes
-      const appointmentRef = doc(firestore, 'appointments', appointment.id);
-      await updateDoc(appointmentRef, {
-        lateMinutes: minutes
-      });
-
-      setLateMinutes(prev => ({ ...prev, [appointment.id]: minutes }));
-
-      toast({
-        title: 'Late Minutes Updated',
-        description: `Late minutes set to ${minutes} minutes.`,
-      });
-    } catch (error: any) {
-      console.error('Error updating late minutes:', error);
+    // Check if it's before appointment time
+    if (isAfter(now, appointmentTime)) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'Could not update late minutes. Please try again.',
+        description: 'Cannot update late minutes after appointment time.',
       });
-    } finally {
       setIsUpdatingLate(null);
+      return;
     }
-  };
 
-  if (!clinic) {
-    return (
-      <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-6">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        <p className="mt-4 text-muted-foreground">Loading clinic details...</p>
-      </div>
-    );
+    // Update appointment with late minutes
+    const appointmentRef = doc(firestore, 'appointments', appointment.id);
+    await updateDoc(appointmentRef, {
+      lateMinutes: minutes
+    });
+
+    setLateMinutes(prev => ({ ...prev, [appointment.id]: minutes }));
+
+    toast({
+      title: 'Late Minutes Updated',
+      description: `Late minutes set to ${minutes} minutes.`,
+    });
+  } catch (error: any) {
+    console.error('Error updating late minutes:', error);
+    toast({
+      variant: 'destructive',
+      title: 'Error',
+      description: error.message || 'Could not update late minutes. Please try again.',
+    });
+  } finally {
+    setIsUpdatingLate(null);
   }
+};
 
+if (!clinic) {
   return (
-    <div className="flex min-h-screen w-full flex-col font-body">
-      <div className="flex-grow bg-card">
-        <div className="bg-primary text-primary-foreground p-6 rounded-b-[2rem] pb-24">
-          <h1 className="text-2xl font-bold mb-2">Confirm Arrival</h1>
-          <p className="text-sm opacity-90">{clinic.name}</p>
-        </div>
+    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-6">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <p className="mt-4 text-muted-foreground">Loading clinic details...</p>
+    </div>
+  );
+}
 
-        <main className="p-6 space-y-6 bg-background rounded-t-[2rem] -mt-16 pt-8 pb-24">
-          {/* Location Status */}
+return (
+  <div className="flex min-h-screen w-full flex-col font-body">
+    <div className="flex-grow bg-card">
+      <div className="bg-primary text-primary-foreground p-6 rounded-b-[2rem] pb-24">
+        <h1 className="text-2xl font-bold mb-2">Confirm Arrival</h1>
+        <p className="text-sm opacity-90">{clinic.name}</p>
+      </div>
+
+      <main className="p-6 space-y-6 bg-background rounded-t-[2rem] -mt-16 pt-8 pb-24">
+        {/* Location Status */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Location Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isCheckingLocation ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">Checking location...</span>
+              </div>
+            ) : locationError ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Location Error</AlertTitle>
+                <AlertDescription>{locationError}</AlertDescription>
+              </Alert>
+            ) : isLocationValid ? (
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <AlertTitle className="text-green-800">Location Verified</AlertTitle>
+                <AlertDescription className="text-green-700">
+                  You are within 200m of the clinic.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Location Not Verified</AlertTitle>
+                <AlertDescription>
+                  Please allow location access to confirm arrival.
+                </AlertDescription>
+              </Alert>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={checkLocation}
+              disabled={isCheckingLocation}
+            >
+              {isCheckingLocation ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                'Check Location'
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Pending Appointments */}
+        {pendingAppointments.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" />
-                Location Status
-              </CardTitle>
+              <CardTitle>Pending Appointments</CardTitle>
+              <CardDescription>
+                Confirm your arrival at least 15 minutes before your appointment time.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {isCheckingLocation ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm text-muted-foreground">Checking location...</span>
-                </div>
-              ) : locationError ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Location Error</AlertTitle>
-                  <AlertDescription>{locationError}</AlertDescription>
-                </Alert>
-              ) : isLocationValid ? (
-                <Alert className="bg-green-50 border-green-200">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <AlertTitle className="text-green-800">Location Verified</AlertTitle>
-                  <AlertDescription className="text-green-700">
-                    You are within 200m of the clinic.
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Location Not Verified</AlertTitle>
-                  <AlertDescription>
-                    Please allow location access to confirm arrival.
-                  </AlertDescription>
-                </Alert>
-              )}
+              {pendingAppointments.map((appointment) => {
+                const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+                const appointmentTime = parseTime(appointment.time, appointmentDate);
+                const reportingTime = subMinutes(appointmentTime, 15);
+                const now = new Date();
+                const canConfirm = isBefore(now, reportingTime);
+                const isExpanded = expandedAppointments.has(appointment.id);
+                const isConfirmed = confirmedAppointments.some(apt => apt.patientName === appointment.patientName);
+
+                // Get cutOffTime from database
+                let cutOffTimeDisplay = '--';
+                if (appointment.cutOffTime) {
+                  try {
+                    let cutOffDate: Date;
+                    if (appointment.cutOffTime instanceof Timestamp) {
+                      cutOffDate = appointment.cutOffTime.toDate();
+                    } else if (appointment.cutOffTime?.toDate) {
+                      cutOffDate = appointment.cutOffTime.toDate();
+                    } else if (appointment.cutOffTime instanceof Date) {
+                      cutOffDate = appointment.cutOffTime;
+                    } else {
+                      cutOffDate = new Date(appointment.cutOffTime);
+                    }
+                    cutOffTimeDisplay = format(cutOffDate, 'hh:mm a');
+                  } catch {
+                    cutOffTimeDisplay = '--';
+                  }
+                }
+
+                return (
+                  <Card key={appointment.id} className="border-2">
+                    <CardContent className="p-4 space-y-3">
+                      <div
+                        className="flex items-start justify-between cursor-pointer"
+                        onClick={() => toggleExpand(appointment.id)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-lg">{appointment.patientName}</h3>
+                            {isConfirmed && (
+                              <CheckCircle2 className="h-5 w-5 text-green-600" />
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Age: {appointment.age} {appointment.place && `• ${appointment.place}`}
+                          </p>
+                          {isExpanded && (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-sm text-muted-foreground">
+                                Doctor: {appointment.doctor}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Department: {appointment.department}
+                              </p>
+                              <p className="text-sm">
+                                <Clock className="inline h-4 w-4 mr-1" />
+                                {t.home.arriveBy}: {(() => {
+                                  const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
+                                  return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
+                                })()}
+                              </p>
+                              {appointment.delay && appointment.delay > 0 && (
+                                <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                                  ⏱️ Delayed by {appointment.delay} min
+                                </p>
+                              )}
+                              <p className="text-sm text-muted-foreground">
+                                Token: {appointment.tokenNumber}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!isExpanded && (
+                            <p className="text-sm text-muted-foreground">
+                              Report by: {cutOffTimeDisplay}
+                            </p>
+                          )}
+                          {isExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <>
+                          <div className="flex items-center justify-end">
+                            <p className="text-sm text-muted-foreground">
+                              Report by: {cutOffTimeDisplay}
+                            </p>
+                          </div>
+                          <Button
+                            className="w-full"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConfirmArrival(appointment);
+                            }}
+                            disabled={!isLocationValid || isConfirming === appointment.id || !canConfirm}
+                          >
+                            {isConfirming === appointment.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Confirming...
+                              </>
+                            ) : !canConfirm ? (
+                              <>
+                                <AlertCircle className="mr-2 h-4 w-4" />
+                                Too Late - Appointment Skipped
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="mr-2 h-4 w-4" />
+                                Confirm Arrival
+                              </>
+                            )}
+                          </Button>
+                          {!canConfirm && (
+                            <p className="text-sm text-destructive text-center mt-2">
+                              You must confirm before the cut-off time. Please use the "Rejoin Queue" option below once your appointment is skipped.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Confirmed Appointments - Show "See Live Queue" button if any confirmed */}
+        {confirmedAppointments.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Confirmed Appointments</CardTitle>
+              <CardDescription>
+                Your arrival has been confirmed. You can view your live queue status.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
               <Button
-                variant="outline"
-                size="sm"
-                onClick={checkLocation}
-                disabled={isCheckingLocation}
+                className="w-full"
+                onClick={() => router.push(`/live-token?clinicId=${clinicId}`)}
               >
-                {isCheckingLocation ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Checking...
-                  </>
-                ) : (
-                  'Check Location'
-                )}
+                <Clock className="mr-2 h-4 w-4" />
+                See the Live Queue
               </Button>
             </CardContent>
           </Card>
+        )}
 
-          {/* Pending Appointments */}
-          {pendingAppointments.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Pending Appointments</CardTitle>
-                <CardDescription>
-                  Confirm your arrival at least 15 minutes before your appointment time.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {pendingAppointments.map((appointment) => {
-                  const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
-                  const appointmentTime = parseTime(appointment.time, appointmentDate);
-                  const reportingTime = subMinutes(appointmentTime, 15);
-                  const now = new Date();
-                  const canConfirm = isBefore(now, reportingTime);
-                  const isExpanded = expandedAppointments.has(appointment.id);
-                  const isConfirmed = confirmedAppointments.some(apt => apt.patientName === appointment.patientName);
+        {/* Skipped Appointments */}
+        {skippedAppointments.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Skipped Appointments</CardTitle>
+              <CardDescription>
+                Update late minutes and confirm arrival to rejoin the queue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {skippedAppointments.map((appointment) => {
+                const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+                const appointmentTime = parseTime(appointment.time, appointmentDate);
+                const reportingTime = subMinutes(appointmentTime, 15);
+                const now = new Date();
+                const lateMinutesForAppointment = appointment.lateMinutes || lateMinutes[appointment.id] || 0;
+                const canUpdateLate = isBefore(now, appointmentTime);
+                const maxLateTime = lateMinutesForAppointment > 0
+                  ? addMinutes(reportingTime, lateMinutesForAppointment)
+                  : reportingTime;
+                const isExpanded = expandedAppointments.has(appointment.id);
+                const isConfirmed = confirmedAppointments.some(apt => apt.patientName === appointment.patientName);
 
-                  // Get cutOffTime from database
-                  let cutOffTimeDisplay = '--';
-                  if (appointment.cutOffTime) {
-                    try {
-                      let cutOffDate: Date;
-                      if (appointment.cutOffTime instanceof Timestamp) {
-                        cutOffDate = appointment.cutOffTime.toDate();
-                      } else if (appointment.cutOffTime?.toDate) {
-                        cutOffDate = appointment.cutOffTime.toDate();
-                      } else if (appointment.cutOffTime instanceof Date) {
-                        cutOffDate = appointment.cutOffTime;
-                      } else {
-                        cutOffDate = new Date(appointment.cutOffTime);
-                      }
-                      cutOffTimeDisplay = format(cutOffDate, 'hh:mm a');
-                    } catch {
-                      cutOffTimeDisplay = '--';
-                    }
-                  }
-
-                  return (
-                    <Card key={appointment.id} className="border-2">
-                      <CardContent className="p-4 space-y-3">
-                        <div
-                          className="flex items-start justify-between cursor-pointer"
-                          onClick={() => toggleExpand(appointment.id)}
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-lg">{appointment.patientName}</h3>
-                              {isConfirmed && (
-                                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              Age: {appointment.age} {appointment.place && `• ${appointment.place}`}
-                            </p>
-                            {isExpanded && (
-                              <div className="mt-2 space-y-1">
-                                <p className="text-sm text-muted-foreground">
-                                  Doctor: {appointment.doctor}
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                  Department: {appointment.department}
-                                </p>
-                                <p className="text-sm">
-                                  <Clock className="inline h-4 w-4 mr-1" />
-                                  {t.home.arriveBy}: {(() => {
-                                    const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
-                                    return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
-                                  })()}
-                                </p>
-                                {appointment.delay && appointment.delay > 0 && (
-                                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                                    ⏱️ Delayed by {appointment.delay} min
-                                  </p>
-                                )}
-                                <p className="text-sm text-muted-foreground">
-                                  Token: {appointment.tokenNumber}
-                                </p>
-                              </div>
-                            )}
-                          </div>
+                return (
+                  <Card key={appointment.id} className="border-2 border-orange-200">
+                    <CardContent className="p-4 space-y-3">
+                      <div
+                        className="flex items-start justify-between cursor-pointer"
+                        onClick={() => toggleExpand(appointment.id)}
+                      >
+                        <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            {!isExpanded && (
+                            <h3 className="font-semibold text-lg">{appointment.patientName}</h3>
+                            {isConfirmed && (
+                              <CheckCircle2 className="h-5 w-5 text-green-600" />
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Age: {appointment.age} {appointment.place && `• ${appointment.place}`}
+                          </p>
+                          {isExpanded && (
+                            <div className="mt-2 space-y-1">
                               <p className="text-sm text-muted-foreground">
-                                Report by: {cutOffTimeDisplay}
+                                Doctor: {appointment.doctor}
                               </p>
-                            )}
-                            {isExpanded ? (
-                              <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                            ) : (
-                              <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                            )}
-                          </div>
-                        </div>
-                        {isExpanded && (
-                          <>
-                            <div className="flex items-center justify-end">
                               <p className="text-sm text-muted-foreground">
-                                Report by: {cutOffTimeDisplay}
+                                Department: {appointment.department}
                               </p>
-                            </div>
-                            <Button
-                              className="w-full"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleConfirmArrival(appointment);
-                              }}
-                              disabled={!isLocationValid || isConfirming === appointment.id || !canConfirm}
-                            >
-                              {isConfirming === appointment.id ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Confirming...
-                                </>
-                              ) : !canConfirm ? (
-                                <>
-                                  <AlertCircle className="mr-2 h-4 w-4" />
-                                  Too Late - Appointment Skipped
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                                  Confirm Arrival
-                                </>
+                              <p className="text-sm">
+                                <Clock className="inline h-4 w-4 mr-1" />
+                                {t.home.arriveBy}: {(() => {
+                                  const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
+                                  return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
+                                })()}
+                              </p>
+                              {appointment.delay && appointment.delay > 0 && (
+                                <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                                  ⏱️ Delayed by {appointment.delay} min
+                                </p>
                               )}
-                            </Button>
-                            {!canConfirm && (
-                              <p className="text-sm text-destructive text-center mt-2">
-                                You must confirm before the cut-off time. Please use the "Rejoin Queue" option below once your appointment is skipped.
+                              <p className="text-sm text-muted-foreground">
+                                Token: {appointment.tokenNumber}
                               </p>
-                            )}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Confirmed Appointments - Show "See Live Queue" button if any confirmed */}
-          {confirmedAppointments.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Confirmed Appointments</CardTitle>
-                <CardDescription>
-                  Your arrival has been confirmed. You can view your live queue status.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  className="w-full"
-                  onClick={() => router.push(`/live-token?clinicId=${clinicId}`)}
-                >
-                  <Clock className="mr-2 h-4 w-4" />
-                  See the Live Queue
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Skipped Appointments */}
-          {skippedAppointments.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Skipped Appointments</CardTitle>
-                <CardDescription>
-                  Update late minutes and confirm arrival to rejoin the queue.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {skippedAppointments.map((appointment) => {
-                  const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
-                  const appointmentTime = parseTime(appointment.time, appointmentDate);
-                  const reportingTime = subMinutes(appointmentTime, 15);
-                  const now = new Date();
-                  const lateMinutesForAppointment = appointment.lateMinutes || lateMinutes[appointment.id] || 0;
-                  const canUpdateLate = isBefore(now, appointmentTime);
-                  const maxLateTime = lateMinutesForAppointment > 0
-                    ? addMinutes(reportingTime, lateMinutesForAppointment)
-                    : reportingTime;
-                  const isExpanded = expandedAppointments.has(appointment.id);
-                  const isConfirmed = confirmedAppointments.some(apt => apt.patientName === appointment.patientName);
-
-                  return (
-                    <Card key={appointment.id} className="border-2 border-orange-200">
-                      <CardContent className="p-4 space-y-3">
-                        <div
-                          className="flex items-start justify-between cursor-pointer"
-                          onClick={() => toggleExpand(appointment.id)}
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-lg">{appointment.patientName}</h3>
-                              {isConfirmed && (
-                                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                              {lateMinutesForAppointment > 0 && (
+                                <p className="text-sm text-orange-600">
+                                  Late minutes: {lateMinutesForAppointment} min (No-show after: {format(maxLateTime, 'hh:mm a')})
+                                </p>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground">
-                              Age: {appointment.age} {appointment.place && `• ${appointment.place}`}
-                            </p>
-                            {isExpanded && (
-                              <div className="mt-2 space-y-1">
-                                <p className="text-sm text-muted-foreground">
-                                  Doctor: {appointment.doctor}
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                  Department: {appointment.department}
-                                </p>
-                                <p className="text-sm">
-                                  <Clock className="inline h-4 w-4 mr-1" />
-                                  {t.home.arriveBy}: {(() => {
-                                    const appointmentDoctor = doctors.find(d => d.name === appointment.doctor);
-                                    return getArriveByTimeFromAppointment(appointment, appointmentDoctor);
-                                  })()}
-                                </p>
-                                {appointment.delay && appointment.delay > 0 && (
-                                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                                    ⏱️ Delayed by {appointment.delay} min
-                                  </p>
-                                )}
-                                <p className="text-sm text-muted-foreground">
-                                  Token: {appointment.tokenNumber}
-                                </p>
-                                {lateMinutesForAppointment > 0 && (
-                                  <p className="text-sm text-orange-600">
-                                    Late minutes: {lateMinutesForAppointment} min (No-show after: {format(maxLateTime, 'hh:mm a')})
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {!isExpanded && (
-                              <Badge variant="destructive">{appointment.status}</Badge>
-                            )}
-                            {isExpanded ? (
-                              <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                            ) : (
-                              <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                            )}
-                          </div>
+                          )}
                         </div>
-                        {isExpanded && (
-                          <>
-                            <div className="flex items-center justify-end">
-                              <Badge variant="destructive">{appointment.status}</Badge>
+                        <div className="flex items-center gap-2">
+                          {!isExpanded && (
+                            <Badge variant="destructive">{appointment.status}</Badge>
+                          )}
+                          {isExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <>
+                          <div className="flex items-center justify-end">
+                            <Badge variant="destructive">{appointment.status}</Badge>
+                          </div>
+                          {canUpdateLate && (
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium">Update Late Minutes</label>
+                              <Select
+                                value={lateMinutesForAppointment.toString()}
+                                onValueChange={(value) => handleUpdateLateMinutes(appointment, parseInt(value))}
+                                disabled={isUpdatingLate === appointment.id}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select late minutes" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="0">0 minutes</SelectItem>
+                                  <SelectItem value="10">10 minutes</SelectItem>
+                                  <SelectItem value="15">15 minutes</SelectItem>
+                                  <SelectItem value="20">20 minutes</SelectItem>
+                                  <SelectItem value="25">25 minutes</SelectItem>
+                                  <SelectItem value="30">30 minutes</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
-                            {canUpdateLate && (
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Update Late Minutes</label>
-                                <Select
-                                  value={lateMinutesForAppointment.toString()}
-                                  onValueChange={(value) => handleUpdateLateMinutes(appointment, parseInt(value))}
-                                  disabled={isUpdatingLate === appointment.id}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select late minutes" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="0">0 minutes</SelectItem>
-                                    <SelectItem value="10">10 minutes</SelectItem>
-                                    <SelectItem value="15">15 minutes</SelectItem>
-                                    <SelectItem value="20">20 minutes</SelectItem>
-                                    <SelectItem value="25">25 minutes</SelectItem>
-                                    <SelectItem value="30">30 minutes</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
+                          )}
+                          <Button
+                            className="w-full"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConfirmArrival(appointment);
+                            }}
+                            disabled={!isLocationValid || isConfirming === appointment.id}
+                          >
+                            {isConfirming === appointment.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Rejoining Queue...
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="mr-2 h-4 w-4" />
+                                Rejoin Queue
+                              </>
                             )}
-                            <Button
-                              className="w-full"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleConfirmArrival(appointment);
-                              }}
-                              disabled={!isLocationValid || isConfirming === appointment.id}
-                            >
-                              {isConfirming === appointment.id ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Rejoining Queue...
-                                </>
-                              ) : (
-                                <>
-                                  <UserPlus className="mr-2 h-4 w-4" />
-                                  Rejoin Queue
-                                </>
-                              )}
-                            </Button>
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
+                          </Button>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
-          {pendingAppointments.length === 0 && skippedAppointments.length === 0 && (
-            <Card>
-              <CardContent className="p-6 text-center">
-                <p className="text-muted-foreground">No pending or skipped appointments found for today.</p>
-              </CardContent>
-            </Card>
-          )}
+        {pendingAppointments.length === 0 && skippedAppointments.length === 0 && (
+          <Card>
+            <CardContent className="p-6 text-center">
+              <p className="text-muted-foreground">No pending or skipped appointments found for today.</p>
+            </CardContent>
+          </Card>
+        )}
 
-        </main>
-      </div>
-      <BottomNav />
+      </main>
     </div>
-  );
+    <BottomNav />
+  </div>
+);
 }
 
 function ConfirmArrivalPageWithAuth() {

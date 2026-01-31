@@ -29,9 +29,14 @@ import {
     buildCandidateSlots,
     calculatePerSessionReservedSlots,
     fetchDayAppointments,
-    findActiveSessionIndex,
-    findTargetSessionForForceBooking
+    findTargetSessionForForceBooking,
+    findActiveSessionIndex
 } from './walk-in.service';
+import {
+    getClassicTokenCounterId,
+    prepareNextClassicTokenNumber,
+    commitNextClassicTokenNumber
+} from './appointment-service';
 import { getClinicNow, getClinicDateString, getClinicTimeString, getClinicDayOfWeek, parseClinicTime } from '../utils/date-utils';
 import { parseTime } from '../utils/break-helpers';
 import { generateWalkInTokenNumber } from '../utils/token-utils';
@@ -60,6 +65,7 @@ export interface BookingResult {
     numericToken: number;
     estimatedTime: string;
     patientsAhead: number;
+    classicTokenNumber?: string;
 }
 
 /**
@@ -185,6 +191,15 @@ export async function completeStaffWalkInBooking(
         const reservationRef = doc(firestore, 'slot-reservations', reservationId);
         const reservationSnap = await transaction.get(reservationRef);
 
+        // A4. Classic Token Counter (Read before any writes)
+        let classicCounterState: any = null;
+        let classicCounterRef: any = null;
+        if (tokenDistribution !== 'advanced') {
+            const classicCounterId = getClassicTokenCounterId(clinicId, doctor.name, dateStr);
+            classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
+            classicCounterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+        }
+
         if (reservationSnap.exists()) {
             const resData = reservationSnap.data();
             // If already booked, check if it's a known appointment that can be shifted
@@ -288,6 +303,12 @@ export async function completeStaffWalkInBooking(
             ? new Date(walkInDetails.estimatedTime)
             : shiftPlan.newAssignment.slotTime;
 
+        let classicTokenNumber: string | undefined;
+        if (tokenDistribution !== 'advanced' && classicCounterState && classicCounterRef) {
+            classicTokenNumber = classicCounterState.nextNumber.toString().padStart(3, '0');
+            commitNextClassicTokenNumber(transaction, classicCounterRef, classicCounterState);
+        }
+
         const appointmentData = {
             id: newDocRef.id,
             patientId,
@@ -313,7 +334,7 @@ export async function completeStaffWalkInBooking(
             cutOffTime: Timestamp.fromDate(subMinutes(appointmentTime, 15)),
             noShowTime: Timestamp.fromDate(addMinutes(appointmentTime, 15)),
             isForceBooked: finalForceBook,
-            ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
+            ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp(), classicTokenNumber }),
         };
         transaction.set(newDocRef, appointmentData);
 
@@ -358,6 +379,7 @@ export async function completeStaffWalkInBooking(
             numericToken: nextWalkInNumericToken,
             estimatedTime: shiftPlan.newAssignment.slotTime.toISOString(),
             patientsAhead: walkInDetails.patientsAhead,
+            classicTokenNumber,
         };
     });
 
@@ -506,26 +528,14 @@ export async function completePatientWalkInBooking(
             .filter(s => s.exists())
             .map(s => ({ ...s.data(), id: s.id } as Appointment));
 
-        // REMOVED: Naive reservation check.
-        // We rely on prepareAdvanceShift to handle reservation logic (staleness, shifting, etc.)
-        // The check here was causing false positives for stale reservations that prepareAdvanceShift would otherwise clean up.
-        /*
-        const reservationId = buildReservationDocId(clinicId, doctor.name, dateStr, walkInDetails.slotIndex);
-        const reservationRef = doc(firestore, 'slot-reservations', reservationId);
-        const reservationSnap = await transaction.get(reservationRef);
-
-        if (reservationSnap.exists()) {
-            const resData = reservationSnap.data();
-            if (resData?.status === 'booked') {
-                const blockingApptId = resData.appointmentId;
-                const isShiftable = effectiveAppointments.some(a => a.id === blockingApptId);
-
-                if (!isShiftable) {
-                    throw new Error('Slot already booked.');
-                }
-            }
+        // A4. Classic Token Counter (Read before any writes)
+        let classicCounterState: any = null;
+        let classicCounterRef: any = null;
+        if (tokenDistribution !== 'advanced') {
+            const classicCounterId = getClassicTokenCounterId(clinicId, doctor.name, dateStr);
+            classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
+            classicCounterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
         }
-        */
 
         // B. Logic Section
         const nextWalkInNumericToken = doctorData.slots.length + counterState.nextNumber + 100;
@@ -614,6 +624,12 @@ export async function completePatientWalkInBooking(
             ? new Date(walkInDetails.estimatedTime)
             : shiftPlan.newAssignment.slotTime;
 
+        let classicTokenNumber: string | undefined;
+        if (tokenDistribution !== 'advanced' && classicCounterState && classicCounterRef) {
+            classicTokenNumber = classicCounterState.nextNumber.toString().padStart(3, '0');
+            commitNextClassicTokenNumber(transaction, classicCounterRef, classicCounterState);
+        }
+
         transaction.set(newDocRef, {
             id: newDocRef.id,
             patientId,
@@ -642,7 +658,7 @@ export async function completePatientWalkInBooking(
             isForceBooked: finalForceBook,
             patientProfile: patientProfile ?? null,
             walkInPatientsAhead: (walkInDetails.perceivedPatientsAhead !== undefined) ? walkInDetails.perceivedPatientsAhead : walkInDetails.patientsAhead,
-            ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp() }),
+            ...(tokenDistribution !== 'advanced' && { confirmedAt: serverTimestamp(), classicTokenNumber }),
         });
 
         for (const update of finalAppointmentUpdates) {
@@ -684,6 +700,7 @@ export async function completePatientWalkInBooking(
             numericToken: nextWalkInNumericToken,
             estimatedTime: shiftPlan.newAssignment.slotTime.toISOString(),
             patientsAhead: (walkInDetails.perceivedPatientsAhead !== undefined) ? walkInDetails.perceivedPatientsAhead : walkInDetails.patientsAhead,
+            classicTokenNumber,
         };
     });
 }

@@ -1253,7 +1253,7 @@ function BookingSummaryPage() {
                                         <p className="text-sm text-muted-foreground">{t.liveToken.yourToken}</p>
                                         <p className="text-4xl font-bold text-primary">
                                             {clinicData?.tokenDistribution === 'classic'
-                                                ? (language === 'ml' ? 'ക്ലിനിക്കിൽ എത്തുക' : 'Arrive at Clinic')
+                                                ? '--'
                                                 : generatedToken
                                             }
                                         </p>

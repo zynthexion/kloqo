@@ -165,7 +165,7 @@ const WalkInCard = ({ appointment, allClinicAppointments, userDoctors, t, depart
                             <p className="font-bold text-lg">{t.home.yourWalkInToken}</p>
                             <p className="text-3xl font-bold">
                                 {isClassic
-                                    ? (appointment.classicTokenNumber ? `#${appointment.classicTokenNumber}` : "Arrive at Clinic")
+                                    ? (appointment.classicTokenNumber ? `#${appointment.classicTokenNumber}` : "--")
                                     : appointment.tokenNumber
                                 }
                             </p>

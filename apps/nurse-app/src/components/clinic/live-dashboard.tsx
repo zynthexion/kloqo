@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useCallback, useRef, useTransition } from
 import type { Appointment, Doctor } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { format, isWithinInterval, addMinutes, parse, isAfter, isBefore } from 'date-fns';
-import { collection, getDocs, query, onSnapshot, doc, updateDoc, where, writeBatch, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, query, onSnapshot, doc, updateDoc, where, writeBatch, getDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { parseTime } from '@/lib/utils';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber } from '@kloqo/shared-core';
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -418,46 +418,40 @@ export default function LiveDashboard() {
 
     startTransition(async () => {
       try {
-        const updateData: any = { status: 'Confirmed', updatedAt: serverTimestamp() };
+        let finalClassicTokenNumber: string | undefined;
 
-        if (clinicDetails?.tokenDistribution === 'classic') {
-          updateData.confirmedAt = serverTimestamp();
+        await runTransaction(db, async (transaction) => {
+          const appointmentRef = doc(db, 'appointments', appointmentToAddToQueue.id);
+          const appointmentSnap = await transaction.get(appointmentRef);
 
-          // --- CLASSIC TOKEN GENERATION ---
-          // If already has classicToken, don't regenerate (though usually Pending won't have it).
-          if (!appointmentToAddToQueue.classicTokenNumber) {
-            // Find current max token for this doctor/date
-            const todayStr = format(new Date(), 'd MMMM yyyy'); // Standard format
-            const q = query(
-              collection(db, 'appointments'),
-              where('clinicId', '==', clinicId),
-              where('doctor', '==', currentDoctor?.name || appointmentToAddToQueue.doctor),
-              where('date', '==', todayStr),
-              where('status', 'in', ['Confirmed', 'Completed', 'Skipped']) // Only count those who have "arrived"
-            );
+          if (!appointmentSnap.exists()) throw new Error("Appointment not found.");
+          const apptData = appointmentSnap.data();
+          if (apptData.status !== 'Pending') throw new Error("Not Pending.");
 
-            // Note: We might need a better way to get doctor name if selectedDoctor is just ID
-            // But typically appointmentToAddToQueue.doctor holds the name.
+          const updateData: any = { status: 'Confirmed', updatedAt: serverTimestamp() };
 
-            const snapshot = await getDocs(q);
-            let maxToken = 0;
-            snapshot.forEach(doc => {
-              const data = doc.data();
-              if (data.classicTokenNumber) {
-                const num = parseInt(data.classicTokenNumber, 10);
-                if (!isNaN(num) && num > maxToken) {
-                  maxToken = num;
-                }
-              }
-            });
+          if (clinicDetails?.tokenDistribution === 'classic') {
+            updateData.confirmedAt = serverTimestamp();
 
-            const newTokenNum = maxToken + 1;
-            // Pad with zeros, e.g., "001", "010", "100"
-            updateData.classicTokenNumber = newTokenNum.toString().padStart(3, '0');
+            // --- CLASSIC TOKEN GENERATION ---
+            if (!apptData.classicTokenNumber) {
+              const dateStr = apptData.date || format(new Date(), 'd MMMM yyyy');
+              const doctorName = currentDoctor?.name || apptData.doctor;
+
+              const classicCounterId = getClassicTokenCounterId(clinicId!, doctorName, dateStr);
+              const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+              const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+
+              finalClassicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+              updateData.classicTokenNumber = finalClassicTokenNumber;
+              commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+            } else {
+              finalClassicTokenNumber = apptData.classicTokenNumber;
+            }
           }
-        }
 
-        await updateDoc(doc(db, 'appointments', appointmentToAddToQueue.id), updateData);
+          transaction.update(appointmentRef, updateData);
+        });
 
         toast({
           title: "Result",
@@ -470,7 +464,7 @@ export default function LiveDashboard() {
           a.id === appointmentToAddToQueue.id ? {
             ...a,
             status: 'Confirmed' as const,
-            classicTokenNumber: updateData.classicTokenNumber // Optimistically set
+            classicTokenNumber: finalClassicTokenNumber // Optimistically set
           } : a
         );
         setAppointments(updatedAppointments);
@@ -499,17 +493,48 @@ export default function LiveDashboard() {
           newTimeStr = isAfter(now, scheduledTime) ? format(addMinutes(noShowTime, 15), 'hh:mm a') : format(noShowTime, 'hh:mm a');
         }
 
-        const updateData: any = {
-          status: 'Confirmed',
-          time: newTimeStr,
-          updatedAt: serverTimestamp(),
-          ...(clinicDetails?.tokenDistribution !== 'advanced' ? { confirmedAt: serverTimestamp() } : {})
-        };
-        await updateDoc(doc(db, 'appointments', appointment.id), updateData);
+        let finalClassicTokenNumber: string | undefined;
+
+        await runTransaction(db, async (transaction) => {
+          const appointmentRef = doc(db, 'appointments', appointment.id);
+          const appointmentSnap = await transaction.get(appointmentRef);
+
+          if (!appointmentSnap.exists()) throw new Error("Appointment not found.");
+          const apptData = appointmentSnap.data();
+
+          const updateData: any = {
+            status: 'Confirmed',
+            time: newTimeStr,
+            updatedAt: serverTimestamp(),
+          };
+
+          if (clinicDetails?.tokenDistribution === 'classic') {
+            updateData.confirmedAt = serverTimestamp();
+
+            // --- CLASSIC TOKEN GENERATION ---
+            const dateStr = apptData.date || format(new Date(), 'd MMMM yyyy');
+            const doctorName = apptData.doctor;
+
+            const classicCounterId = getClassicTokenCounterId(clinicId!, doctorName, dateStr);
+            const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+            const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+
+            finalClassicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            updateData.classicTokenNumber = finalClassicTokenNumber;
+            commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+          }
+
+          transaction.update(appointmentRef, updateData);
+        });
 
         // Optimistic Update
         const updatedAppointments = appointments.map(a =>
-          a.id === appointment.id ? { ...a, status: 'Confirmed' as const, time: newTimeStr } : a
+          a.id === appointment.id ? {
+            ...a,
+            status: 'Confirmed' as const,
+            time: newTimeStr,
+            classicTokenNumber: finalClassicTokenNumber // Optimistically set
+          } : a
         );
         setAppointments(updatedAppointments);
         toast({ title: "Patient Rejoined", description: `${appointment.patientName} rejoined.` });

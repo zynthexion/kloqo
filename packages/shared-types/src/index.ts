@@ -98,7 +98,7 @@ export type Appointment = {
     treatment?: string; // Optional - not collected from users, kept for backward compatibility
     tokenNumber: string;
     numericToken: number;
-    classicTokenNumber?: number;
+    classicTokenNumber?: string | number;
     bookedVia: 'Advanced Booking' | 'Walk-in' | 'Online';
     place?: string;
     isSkipped?: boolean;
@@ -144,6 +144,7 @@ export type Patient = {
     relatedPatientIds?: string[];
     isPrimary?: boolean;
     isKloqoMember?: boolean;
+    isLinkPending?: boolean;
 };
 
 export type NewRelative = Omit<Patient, 'id' | 'clinicIds' | 'visitHistory' | 'totalAppointments' | 'createdAt' | 'updatedAt' | 'relatedPatientIds'> & { phone?: string };

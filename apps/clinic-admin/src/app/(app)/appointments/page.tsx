@@ -18,7 +18,7 @@ import { collection, getDocs, setDoc, doc, query, where, getDoc as getFirestoreD
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { parse, isSameDay, parse as parseDateFns, format, getDay, isPast, isFuture, isToday, startOfYear, endOfYear, addMinutes, isBefore, subMinutes, isAfter, startOfDay, addHours, differenceInMinutes, parseISO, addDays, isSameMinute } from "date-fns";
-import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes } from '@kloqo/shared-core';
+import { getClinicNow, getClinicTimeString, getClinicDateString, getClinicDayOfWeek, updateAppointmentAndDoctorStatuses, isSlotBlockedByLeave, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber } from '@kloqo/shared-core';
 import { cn, parseTime as parseTimeUtil } from "@/lib/utils";
 import {
   Form,
@@ -1472,7 +1472,17 @@ export default function AppointmentsPage() {
                 timestamp: new Date().toISOString()
               });
 
+              let finalAppointmentData = { ...appointmentData };
 
+              // Handle Classic Token Generation
+              if (clinicDetails?.tokenDistribution === 'classic') {
+                const classicCounterId = getClassicTokenCounterId(clinicId || '', selectedDoctor.name, appointmentDateStr);
+                const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+                const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+                finalAppointmentData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+                finalAppointmentData.confirmedAt = serverTimestamp() as any;
+                commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+              }
 
               // CRITICAL: Mark reservation as booked instead of deleting it
               // This acts as a persistent lock to prevent race conditions where other clients
@@ -1484,9 +1494,7 @@ export default function AppointmentsPage() {
               });
 
               // Create appointment atomically in the same transaction
-              transaction.set(appointmentRef, appointmentData);
-
-
+              transaction.set(appointmentRef, finalAppointmentData);
             });
 
 
@@ -2433,38 +2441,54 @@ export default function AppointmentsPage() {
 
     startTransition(async () => {
       try {
-        const appointmentRef = doc(db, 'appointments', appointment.id);
-        const updateData: any = {
-          status: 'Confirmed',
-          ...(clinicDetails?.tokenDistribution === 'advanced' ? {} : { confirmedAt: serverTimestamp() })
-        };
-
-        // Refill buffer if doctor is 'In'
-        const doctor = doctors.find(d => d.name === appointment.doctor);
-        if (doctor?.consultationStatus === 'In') {
-          // Re-derive confirmed list from appointments state
-          const latestConfirmed = appointments
-            .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor)
-            .sort(clinicDetails?.tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
-
-          const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
-          if (currentBuffered.length < 2) {
-            updateData.isInBuffer = true;
+        await runTransaction(db, async (transaction) => {
+          const appointmentRef = doc(db, 'appointments', appointment.id);
+          const apptSnap = await transaction.get(appointmentRef);
+          if (!apptSnap.exists() || apptSnap.data()?.status !== 'Pending') {
+            throw new Error('Appointment status changed or not found.');
           }
-        }
 
-        await updateDoc(appointmentRef, updateData);
+          const updateData: any = {
+            status: 'Confirmed',
+            updatedAt: serverTimestamp(),
+            ...(clinicDetails?.tokenDistribution === 'advanced' ? {} : { confirmedAt: serverTimestamp() })
+          };
+
+          // Handle Classic Token Generation
+          if (clinicDetails?.tokenDistribution !== 'advanced') {
+            const classicCounterId = getClassicTokenCounterId(clinicId || '', appointment.doctor, appointment.date);
+            const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+            const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+            updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+          }
+
+          // Refill buffer if doctor is 'In'
+          const doctor = doctors.find(d => d.name === appointment.doctor);
+          if (doctor?.consultationStatus === 'In') {
+            const latestConfirmed = appointments
+              .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor)
+              .sort(clinicDetails?.tokenDistribution === 'advanced' ? compareAppointments : compareAppointmentsClassic);
+
+            const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
+            if (currentBuffered.length < 2) {
+              updateData.isInBuffer = true;
+            }
+          }
+
+          transaction.update(appointmentRef, updateData);
+        });
 
         toast({
           title: "Patient Added to Queue",
           description: `${appointment.patientName} has been confirmed and added to the queue.`
         });
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error adding to queue:", error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Failed to add patient to queue."
+          description: error.message || "Failed to add patient to queue."
         });
       }
     });
@@ -2477,7 +2501,6 @@ export default function AppointmentsPage() {
       const now = new Date();
 
       try {
-        const appointmentRef = doc(db, 'appointments', appointment.id);
         let newTimeString: string;
 
         // Different logic for No-show vs Skipped
@@ -2513,39 +2536,54 @@ export default function AppointmentsPage() {
           newTimeString = format(newTimeDate, 'hh:mm a');
         }
 
-        const updateData: any = {
-          status: 'Confirmed',
-          time: newTimeString,
-          updatedAt: serverTimestamp(),
-          ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
-        };
+        await runTransaction(db, async (transaction) => {
+          const appointmentRef = doc(db, 'appointments', appointment.id);
+          const apptSnap = await transaction.get(appointmentRef);
+          if (!apptSnap.exists()) throw new Error('Appointment not found.');
 
-        // Refill buffer if doctor is 'In'
-        const doctor = doctors.find(d => d.name === appointment.doctor);
-        if (doctor?.consultationStatus === 'In') {
-          // Re-derive confirmed list from appointments state
-          const latestConfirmed = appointments
-            .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor && a.id !== appointment.id)
-            .sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+          const updateData: any = {
+            status: 'Confirmed',
+            time: newTimeString,
+            updatedAt: serverTimestamp(),
+            ...(clinicDetails?.tokenDistribution === 'classic' ? { confirmedAt: serverTimestamp() } : {})
+          };
 
-          const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
-          if (currentBuffered.length < 2) {
-            updateData.isInBuffer = true;
+          // Handle Classic Token Generation
+          if (clinicDetails?.tokenDistribution === 'classic') {
+            const classicCounterId = getClassicTokenCounterId(clinicId, appointment.doctor, appointment.date);
+            const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+            const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+            updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
           }
-        }
 
-        await updateDoc(appointmentRef, updateData);
+          // Refill buffer if doctor is 'In'
+          const doctor = doctors.find(d => d.name === appointment.doctor);
+          if (doctor?.consultationStatus === 'In') {
+            // Re-derive confirmed list from appointments state
+            const latestConfirmed = appointments
+              .filter(a => a.date === format(new Date(), 'd MMMM yyyy') && a.status === 'Confirmed' && a.doctor === appointment.doctor && a.id !== appointment.id)
+              .sort(clinicDetails?.tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+
+            const currentBuffered = latestConfirmed.filter(a => a.isInBuffer);
+            if (currentBuffered.length < 2) {
+              updateData.isInBuffer = true;
+            }
+          }
+
+          transaction.update(appointmentRef, updateData);
+        });
 
         toast({
           title: "Patient Re-joined Queue",
-          description: `${appointment.patientName} has been added back to the queue at ${newTimeString}.`
+          description: `${appointment.patientName} has been confirmed and added back to the queue at ${newTimeString}.`
         });
       } catch (error: any) {
         console.error("Error re-joining queue:", error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Could not re-join the patient to the queue."
+          description: error.message || "Could not re-join the patient to the queue."
         });
       }
     });

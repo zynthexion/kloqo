@@ -9,7 +9,7 @@ import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carouse
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
-import { collection, getDocs, query, onSnapshot, doc, updateDoc, Query, where, writeBatch, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, query, onSnapshot, doc, updateDoc, Query, where, writeBatch, getDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -30,7 +30,7 @@ import {
 import ClinicHeader from './header';
 import AppointmentList from './appointment-list';
 import { useRouter, usePathname } from 'next/navigation';
-import { errorEmitter, compareAppointments, compareAppointmentsClassic, FirestorePermissionError } from '@kloqo/shared-core';
+import { errorEmitter, compareAppointments, compareAppointmentsClassic, FirestorePermissionError, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber } from '@kloqo/shared-core';
 
 
 export default function ClinicDashboard() {
@@ -409,17 +409,43 @@ export default function ClinicDashboard() {
     }
 
     startTransition(async () => {
+      if (!clinicId) return;
       try {
-        const appointmentRef = doc(db, "appointments", appointment.id);
-        const updateData: any = {
-          status: 'Confirmed',
-          updatedAt: serverTimestamp(),
-          ...(clinicDetails?.tokenDistribution !== 'advanced' ? { confirmedAt: serverTimestamp() } : {})
-        };
-        await updateDoc(appointmentRef, updateData);
+        let finalClassicTokenNumber: string | undefined;
+
+        await runTransaction(db, async (transaction) => {
+          const appointmentRef = doc(db, 'appointments', appointment.id);
+          const apptSnap = await transaction.get(appointmentRef);
+          if (!apptSnap.exists()) throw new Error('Appointment not found.');
+
+          const updateData: any = {
+            status: 'Confirmed',
+            updatedAt: serverTimestamp(),
+          };
+
+          if (clinicDetails?.tokenDistribution === 'classic') {
+            updateData.confirmedAt = serverTimestamp();
+
+            // --- CLASSIC TOKEN GENERATION ---
+            const dateStr = appointment.date || format(new Date(), 'd MMMM yyyy');
+            const classicCounterId = getClassicTokenCounterId(clinicId!, appointment.doctor, dateStr);
+            const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+            const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+
+            finalClassicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            updateData.classicTokenNumber = finalClassicTokenNumber;
+            commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+          }
+
+          transaction.update(appointmentRef, updateData);
+        });
 
         setAppointments(prev => prev.map(a =>
-          a.id === appointment.id ? { ...a, status: 'Confirmed' as const } : a
+          a.id === appointment.id ? {
+            ...a,
+            status: 'Confirmed' as const,
+            classicTokenNumber: finalClassicTokenNumber
+          } : a
         ));
 
         toast({
@@ -473,11 +499,34 @@ export default function ClinicDashboard() {
           newTimeString = format(newTimeDate, 'hh:mm a');
         }
 
-        await updateDoc(appointmentRef, {
-          status: 'Confirmed',
-          time: newTimeString,
-          updatedAt: serverTimestamp(),
-          ...(clinicDetails?.tokenDistribution !== 'advanced' ? { confirmedAt: serverTimestamp() } : {})
+        let finalClassicTokenNumber: string | undefined;
+
+        await runTransaction(db, async (transaction) => {
+          const appointmentRef = doc(db, 'appointments', appointment.id);
+          const apptSnap = await transaction.get(appointmentRef);
+          if (!apptSnap.exists()) throw new Error('Appointment not found.');
+
+          const updateData: any = {
+            status: 'Confirmed',
+            time: newTimeString,
+            updatedAt: serverTimestamp(),
+          };
+
+          if (clinicDetails?.tokenDistribution === 'classic') {
+            updateData.confirmedAt = serverTimestamp();
+
+            // --- CLASSIC TOKEN GENERATION ---
+            const dateStr = appointment.date || format(new Date(), 'd MMMM yyyy');
+            const classicCounterId = getClassicTokenCounterId(clinicId!, appointment.doctor, dateStr);
+            const classicCounterRef = doc(db, 'token-counters', classicCounterId);
+            const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
+
+            finalClassicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            updateData.classicTokenNumber = finalClassicTokenNumber;
+            commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+          }
+
+          transaction.update(appointmentRef, updateData);
         });
 
         // Update local state
@@ -487,7 +536,8 @@ export default function ClinicDashboard() {
               return {
                 ...a,
                 status: 'Confirmed' as const,
-                time: newTimeString
+                time: newTimeString,
+                classicTokenNumber: finalClassicTokenNumber
               };
             }
             return a;

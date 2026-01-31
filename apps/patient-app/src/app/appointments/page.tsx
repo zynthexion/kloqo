@@ -305,7 +305,7 @@ const AppointmentCard = ({ appointment, isHistory = false, user, t, departments,
                             <p className="text-sm text-muted-foreground mt-1">{t.appointments.token}: <span className="font-semibold">
                                 {clinic?.tokenDistribution === 'classic'
                                     ? (appointment.status === 'Pending'
-                                        ? (language === 'ml' ? 'ക്ലിനിക്കിൽ എത്തുക' : 'Arrive at Clinic')
+                                        ? '--'
                                         : (appointment.classicTokenNumber ? `#${appointment.classicTokenNumber.toString().padStart(3, '0')}` : '--'))
                                     : appointment.tokenNumber
                                 }

@@ -2942,3 +2942,98 @@ export function compareAppointmentsClassic(a: Appointment, b: Appointment): numb
   return compareAppointments(a, b);
 }
 
+
+/**
+ * Generates the document ID for the classic token counter.
+ */
+export function getClassicTokenCounterId(clinicId: string, doctorName: string, date: string): string {
+  return `classic_${clinicId}_${doctorName}_${date}`
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_]/g, '');
+}
+
+/**
+ * Prepares the next classic token number inside a transaction.
+ * Similar to walk-in counters but for classic tokens.
+ */
+export async function prepareNextClassicTokenNumber(
+  transaction: Transaction,
+  counterRef: DocumentReference
+): Promise<{ nextNumber: number; exists: boolean }> {
+  try {
+    const counterDoc = await transaction.get(counterRef);
+
+    if (counterDoc.exists()) {
+      const currentCount = counterDoc.data()?.count || 0;
+      return {
+        nextNumber: currentCount + 1,
+        exists: true,
+      };
+    }
+
+    return { nextNumber: 1, exists: false };
+  } catch (error) {
+    console.error('Error preparing classic token number:', error);
+    throw error;
+  }
+}
+
+/**
+ * Commits the next classic token number inside a transaction.
+ */
+export function commitNextClassicTokenNumber(
+  transaction: Transaction,
+  counterRef: DocumentReference,
+  state: { nextNumber: number; exists: boolean }
+): void {
+  if (state.exists) {
+    transaction.update(counterRef, {
+      count: state.nextNumber,
+      lastUpdated: serverTimestamp(),
+    });
+  } else {
+    transaction.set(counterRef, {
+      count: state.nextNumber,
+      lastUpdated: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    });
+  }
+}
+
+/**
+ * DEPRECATED: Use prepareNextClassicTokenNumber + commitNextClassicTokenNumber inside a transaction.
+ * Generates the next classic token number for a given doctor and date by querying (Vulnerable to race conditions).
+ */
+export async function getNextClassicTokenNumber(
+  firestore: any,
+  clinicId: string,
+  doctorName: string,
+  date: string
+): Promise<string> {
+  // Existing query-based implementation logic kept for backward compatibility during transition
+  const appointmentsRef = collection(firestore, 'appointments');
+  const q = query(
+    appointmentsRef,
+    where('clinicId', '==', clinicId),
+    where('doctor', '==', doctorName),
+    where('date', '==', date),
+    where('status', 'in', ['Confirmed', 'Completed', 'Skipped'])
+  );
+
+  const snapshot = await getDocs(q);
+  let maxToken = 0;
+  snapshot.forEach(doc => {
+    const data = doc.data() as Appointment;
+    if (data.classicTokenNumber) {
+      const num = typeof data.classicTokenNumber === 'string'
+        ? parseInt(data.classicTokenNumber, 10)
+        : data.classicTokenNumber;
+      if (!isNaN(num) && num > maxToken) {
+        maxToken = num;
+      }
+    }
+  });
+
+  const newTokenNum = maxToken + 1;
+  return newTokenNum.toString().padStart(3, '0');
+}

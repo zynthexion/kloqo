@@ -585,6 +585,8 @@ function AppointmentDetailsFormContent() {
                     arriveByTime: newAppointment.arriveByTime,
                     tokenNumber: newAppointment.tokenNumber,
                     bookedBy: 'nurse',
+                    communicationPhone: newAppointment.communicationPhone,
+                    patientName: newAppointment.patientName,
                 });
             } catch (notifError) {
                 console.error('Failed to send appointment booked notification from nurse app:', notifError);

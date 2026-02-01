@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useFirestore } from '@/firebase';
 import { useUser } from '@/firebase/auth/use-user';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { sendAppointmentReminderNotification } from '@/lib/notification-service';
 import { parseAppointmentDateTime } from '@/lib/utils';
 import { differenceInHours } from 'date-fns';
@@ -63,6 +63,19 @@ export function useAppointmentReminders() {
               // More precise check: between 1h 50min and 2h 10min
               const minutesUntilAppointment = (appointmentDateTime.getTime() - now.getTime()) / (1000 * 60);
               if (minutesUntilAppointment >= 110 && minutesUntilAppointment <= 130) {
+                // Fetch clinic data to get tokenDistribution
+                let tokenDistribution: 'classic' | 'advanced' = 'advanced';
+                try {
+                  if (appointment.clinicId) {
+                    const clinicDoc = await getDoc(doc(firestore, 'clinics', appointment.clinicId));
+                    if (clinicDoc.exists()) {
+                      tokenDistribution = clinicDoc.data()?.tokenDistribution || 'advanced';
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error fetching clinic data for reminder:', error);
+                }
+
                 // Send reminder notification
                 await sendAppointmentReminderNotification({
                   firestore,
@@ -71,6 +84,7 @@ export function useAppointmentReminders() {
                   doctorName: appointment.doctor,
                   time: appointment.time,
                   tokenNumber: appointment.tokenNumber,
+                  tokenDistribution,
                   cancelledByBreak: appointment.cancelledByBreak,
                 });
 

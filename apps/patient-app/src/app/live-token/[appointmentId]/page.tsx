@@ -24,7 +24,7 @@ import { useDoctors } from '@/firebase/firestore/use-doctors';
 import { parseAppointmentDateTime, parseTime, getArriveByTime, getArriveByTimeFromAppointment, getActualAppointmentTime, buildBreakIntervals } from '@/lib/utils';
 import { formatDate } from '@/lib/date-utils';
 import type { Appointment, Doctor, Clinic } from '@/lib/types';
-import { collection, query, where, onSnapshot, DocumentData, QuerySnapshot, doc, updateDoc, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, DocumentData, QuerySnapshot, doc, updateDoc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import { BottomNav } from '@/components/bottom-nav';
 import { AuthGuard } from '@/components/auth-guard';
@@ -35,7 +35,7 @@ import { useLanguage } from '@/contexts/language-context';
 import { useMasterDepartments } from '@/hooks/use-master-departments';
 import { getLocalizedDepartmentName } from '@/lib/department-utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, getClinicNow, getClinicDateString, calculateEstimatedTimes } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, getClinicNow, getClinicDateString, calculateEstimatedTimes, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber } from '@kloqo/shared-core';
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371e3;
@@ -1201,88 +1201,62 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
         try {
             const appointmentRef = doc(firestore, 'appointments', yourAppointment.id);
 
-            // Helper function to parse appointment time
-            const parseAppointmentTime = (apt: Appointment): Date => {
-                try {
-                    const appointmentDate = parse(apt.date, 'd MMMM yyyy', new Date());
-                    return parseTime(apt.time, appointmentDate);
-                } catch {
-                    return new Date(0); // Fallback for invalid dates
-                }
-            };
-
             let newTimeString: string | null = null; // Track new time for skipped and pending appointments
 
-            let classicUpdates = {};
-            if (clinicData?.tokenDistribution === 'classic') {
-                const updates: any = { confirmedAt: serverTimestamp() };
+            await runTransaction(firestore, async (transaction) => {
+                const apptSnap = await transaction.get(appointmentRef);
+                if (!apptSnap.exists()) throw new Error('Appointment not found.');
+                const apptData = apptSnap.data() as Appointment;
 
-                // Generate classicTokenNumber if not already present
-                if (!yourAppointment.classicTokenNumber) {
-                    const doctorApps = allTodaysAppointments.filter(a => a.doctor === yourAppointment.doctor);
-                    const usedTokens = doctorApps
-                        .map(a => a.classicTokenNumber)
-                        .filter((t): t is number => typeof t === 'number');
-                    const maxToken = usedTokens.length > 0 ? Math.max(...usedTokens) : 0;
-                    updates.classicTokenNumber = maxToken + 1;
-                }
-                classicUpdates = updates;
-            }
-
-            if (yourAppointment.status === 'Pending') {
-                // For Pending appointments, simple status update
-                await updateDoc(appointmentRef, {
+                const updateData: any = {
                     status: 'Confirmed',
                     updatedAt: serverTimestamp(),
-                    ...classicUpdates
-                });
-                // Get the appointment time
-                const arriveByString = yourAppointment.arriveByTime || getArriveByTimeFromAppointment(yourAppointment, yourAppointmentDoctor);
-                newTimeString = arriveByString;
-            } else if (yourAppointment.status === 'No-show') {
-                // For No-show appointments, set to current time + 30 minutes
-                const now = new Date();
-                newTimeString = format(addMinutes(now, 30), 'hh:mm a');
+                };
 
-                await updateDoc(appointmentRef, {
-                    status: 'Confirmed',
-                    time: newTimeString,
-                    updatedAt: serverTimestamp(),
-                    ...classicUpdates
-                });
-            } else if (yourAppointment.status === 'Skipped') {
-                // For Skipped appointments, rejoin queue using deterministic logic
-                const now = new Date();
-                const appointmentDate = parse(yourAppointment.date, 'd MMMM yyyy', new Date());
-                const scheduledTime = parseTime(yourAppointment.time, appointmentDate);
+                // Handle Classic Token Generation
+                if (clinicData?.tokenDistribution === 'classic') {
+                    updateData.confirmedAt = serverTimestamp();
 
-                const noShowTime = (yourAppointment.noShowTime as any)?.toDate
-                    ? (yourAppointment.noShowTime as any).toDate()
-                    : parseTime(yourAppointment.noShowTime!, appointmentDate);
+                    // Generate classicTokenNumber if not already present
+                    if (!apptData.classicTokenNumber) {
+                        const classicCounterId = getClassicTokenCounterId(clinicId || '', apptData.doctor, apptData.date, apptData.sessionIndex || 0);
+                        const classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
+                        const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
 
-                if (isAfter(now, scheduledTime)) {
-                    // If rejoined after scheduled time, give noShowTime + 15 mins
-                    newTimeString = format(addMinutes(noShowTime, 15), 'hh:mm a');
-                } else {
-                    // If rejoined before scheduled time, give noShowTime
-                    newTimeString = format(noShowTime, 'hh:mm a');
+                        updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+                        commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
+                    }
                 }
 
-                // Update the skipped appointment: only change status and time, keep everything else
-                await updateDoc(appointmentRef, {
-                    status: 'Confirmed',
-                    time: newTimeString,
-                    updatedAt: serverTimestamp(),
-                    ...classicUpdates
-                });
-            } else {
-                // For other statuses, just update status
-                await updateDoc(appointmentRef, {
-                    status: 'Confirmed',
-                    updatedAt: serverTimestamp(),
-                    ...classicUpdates
-                });
-            }
+                if (apptData.status === 'Pending') {
+                    // No additional time updates for Pending
+                } else if (apptData.status === 'No-show') {
+                    // For No-show appointments, set to current time + 30 minutes
+                    const now = new Date();
+                    newTimeString = format(addMinutes(now, 30), 'hh:mm a');
+                    updateData.time = newTimeString;
+                } else if (apptData.status === 'Skipped') {
+                    // For Skipped appointments, rejoin queue using deterministic logic
+                    const now = new Date();
+                    const appointmentDate = parse(apptData.date, 'd MMMM yyyy', new Date());
+                    const scheduledTime = parseTime(apptData.time, appointmentDate);
+
+                    const noShowTime = (apptData.noShowTime as any)?.toDate
+                        ? (apptData.noShowTime as any).toDate()
+                        : parseTime(apptData.noShowTime!, appointmentDate);
+
+                    if (isAfter(now, scheduledTime)) {
+                        // If rejoined after scheduled time, give noShowTime + 15 mins
+                        newTimeString = format(addMinutes(noShowTime, 15), 'hh:mm a');
+                    } else {
+                        // If rejoined before scheduled time, give noShowTime
+                        newTimeString = format(noShowTime, 'hh:mm a');
+                    }
+                    updateData.time = newTimeString;
+                }
+
+                transaction.update(appointmentRef, updateData);
+            });
 
             setLocationStatus('success');
             onAppointmentConfirmed?.(yourAppointment.id);

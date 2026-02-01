@@ -146,6 +146,102 @@ export async function sendNotificationToPatient(params: {
 }
 
 /**
+ * Send WhatsApp message using the clinic's local API
+ */
+export async function sendWhatsAppMessage(params: {
+    to: string;
+    message?: string;
+    contentSid?: string;
+    contentVariables?: any;
+}): Promise<boolean> {
+    try {
+        const { to, message, contentSid, contentVariables } = params;
+
+        // Build API URL
+        let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+
+        if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+            // For local development, use the current origin
+            baseUrl = window.location.origin;
+        }
+
+        // Fallback or default
+        baseUrl = baseUrl || 'https://app.kloqo.com';
+
+        const apiUrl = `${baseUrl}/api/send-sms`;
+        console.log(`[WhatsApp] 🎯 DEBUG: Calling WhatsApp API: ${apiUrl} for: ${to}`);
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                to,
+                message,
+                channel: 'whatsapp',
+                contentSid,
+                contentVariables,
+            }),
+        });
+
+        if (!response.ok) {
+            console.error(`[WhatsApp] ❌ API Failed for ${to}:`, response.statusText, response.status);
+            return false;
+        }
+
+        console.log(`[WhatsApp] ✅ Successfully triggered WhatsApp for ${to}`);
+        return true;
+    } catch (error) {
+        console.error('[WhatsApp] ❌ Error calling WhatsApp API:', error);
+        return false;
+    }
+}
+
+/**
+ * Send WhatsApp confirmation for staff-booked appointments
+ */
+export async function sendWhatsAppAppointmentConfirmed(params: {
+    communicationPhone: string;
+    patientName: string;
+    doctorName: string;
+    clinicName: string;
+    date: string;
+    time: string;
+    arriveByTime: string;
+    tokenNumber: string;
+    appointmentId: string;
+}): Promise<boolean> {
+    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId } = params;
+
+    const contentSid = process.env.NEXT_PUBLIC_TWILIO_CONTENT_SID_CONFIRMED || 'HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+
+    // Patient app URL
+    let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
+    const liveStatusLink = `${patientAppBaseUrl}/live-token/${appointmentId}`;
+
+    const contentVariables = {
+        "1": patientName,
+        "2": doctorName,
+        "3": clinicName,
+        "4": date,
+        "5": time,
+        "6": arriveByTime,
+        "7": tokenNumber,
+        "8": liveStatusLink
+    };
+
+    console.log(`[WhatsApp] 📄 Using Content Template: kloqo_appointment_confirmed (SID: ${contentSid})`);
+    console.log(`[WhatsApp] 📝 Message Preview: Hello ${patientName}, your appointment with Dr. ${doctorName} at ${clinicName} is confirmed. Please arrive by ${arriveByTime} on ${date}. Token: ${tokenNumber}. View live status: ${liveStatusLink}`);
+
+    return sendWhatsAppMessage({
+        to: communicationPhone,
+        contentSid,
+        contentVariables
+    });
+}
+
+/**
  * Send appointment confirmed notification when nurse/clinic books appointment
  */
 export async function sendAppointmentBookedByStaffNotification(params: {
@@ -160,8 +256,24 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     bookedBy: 'nurse' | 'admin';
     arriveByTime?: string;
     cancelledByBreak?: boolean;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, bookedBy, arriveByTime, cancelledByBreak } = params;
+    const {
+        firestore,
+        patientId,
+        appointmentId,
+        doctorName,
+        clinicName,
+        date,
+        time,
+        tokenNumber,
+        bookedBy,
+        arriveByTime,
+        cancelledByBreak,
+        communicationPhone,
+        patientName
+    } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping booked notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -186,7 +298,7 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         console.error('Error calculating displayTime for booking notification:', error);
     }
 
-    return sendNotificationToPatient({
+    const pwaResult = await sendNotificationToPatient({
         firestore,
         patientId,
         title: 'Appointment Booked',
@@ -202,6 +314,29 @@ export async function sendAppointmentBookedByStaffNotification(params: {
             url: '/appointments', // Click will open appointments page
         },
     });
+
+    // Handle WhatsApp notification for "A" tokens
+    const isAdvancedBooking = tokenNumber && tokenNumber.startsWith('A');
+    if (isAdvancedBooking && communicationPhone) {
+        try {
+            console.log(`[Notification] 📱 Triggering WhatsApp for Advanced Booking: ${tokenNumber}`);
+            await sendWhatsAppAppointmentConfirmed({
+                communicationPhone: communicationPhone,
+                patientName: patientName || 'Patient',
+                doctorName,
+                clinicName,
+                date,
+                time: displayTime,
+                arriveByTime: arriveByTime || time,
+                tokenNumber,
+                appointmentId
+            });
+        } catch (error) {
+            console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);
+        }
+    }
+
+    return pwaResult;
 }
 
 /**

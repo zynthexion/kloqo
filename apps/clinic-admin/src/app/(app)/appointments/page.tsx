@@ -1476,7 +1476,7 @@ export default function AppointmentsPage() {
 
               // Handle Classic Token Generation
               if (clinicDetails?.tokenDistribution === 'classic') {
-                const classicCounterId = getClassicTokenCounterId(clinicId || '', selectedDoctor.name, appointmentDateStr);
+                const classicCounterId = getClassicTokenCounterId(clinicId || '', selectedDoctor.name, appointmentDateStr, actualSessionIndex || 0);
                 const classicCounterRef = doc(db, 'token-counters', classicCounterId);
                 const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
                 finalAppointmentData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
@@ -2014,12 +2014,14 @@ export default function AppointmentsPage() {
                 patientId: patientForAppointmentId,
                 appointmentId: newAppointmentId,
                 doctorName: appointmentData.doctor,
-                clinicName: 'The clinic',
+                clinicName: clinicDetails?.name || 'The clinic',
                 date: appointmentData.date,
                 time: appointmentData.time,
                 arriveByTime: appointmentData.arriveByTime,
                 tokenNumber: appointmentData.tokenNumber,
                 bookedBy: 'admin',
+                communicationPhone: communicationPhone,
+                patientName: patientForAppointmentName,
               });
             } catch (notifError) {
               console.error('Failed to send booking notification:', notifError);
@@ -2456,7 +2458,7 @@ export default function AppointmentsPage() {
 
           // Handle Classic Token Generation
           if (clinicDetails?.tokenDistribution !== 'advanced') {
-            const classicCounterId = getClassicTokenCounterId(clinicId || '', appointment.doctor, appointment.date);
+            const classicCounterId = getClassicTokenCounterId(clinicId || '', appointment.doctor, appointment.date, appointment.sessionIndex || 0);
             const classicCounterRef = doc(db, 'token-counters', classicCounterId);
             const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
             updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
@@ -2550,7 +2552,7 @@ export default function AppointmentsPage() {
 
           // Handle Classic Token Generation
           if (clinicDetails?.tokenDistribution === 'classic') {
-            const classicCounterId = getClassicTokenCounterId(clinicId, appointment.doctor, appointment.date);
+            const classicCounterId = getClassicTokenCounterId(clinicId, appointment.doctor, appointment.date, appointment.sessionIndex || 0);
             const classicCounterRef = doc(db, 'token-counters', classicCounterId);
             const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
             updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');

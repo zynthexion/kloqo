@@ -81,6 +81,7 @@ export async function sendNotification(params: {
         body,
         data,
         userId, // Pass userId to API for history storage
+        language: userData.language || 'en', // Pass user language preference
       }),
     });
 
@@ -107,9 +108,10 @@ export async function sendAppointmentConfirmedNotification(params: {
   date: string;
   time: string;
   tokenNumber: string;
+  tokenDistribution?: 'classic' | 'advanced';
   cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, date, time, tokenNumber, cancelledByBreak } = params;
+  const { firestore, userId, appointmentId, doctorName, date, time, tokenNumber, tokenDistribution, cancelledByBreak } = params;
 
   if (cancelledByBreak) {
     logger.info(`Skipping confirmed notification for break-affected appointment ${appointmentId}`);
@@ -126,11 +128,14 @@ export async function sendAppointmentConfirmedNotification(params: {
     console.error('Error calculating display time for confirmed notification:', error);
   }
 
+  // For classic clinics, don't show token number in the notification body
+  const showToken = tokenDistribution !== 'classic' && tokenNumber;
+
   return sendNotification({
     firestore,
     userId,
     title: 'Appointment Confirmed',
-    body: `Your appointment with Dr. ${doctorName} is confirmed for ${date} at ${displayTime}. Token: ${tokenNumber}`,
+    body: `Your appointment with Dr. ${doctorName} is confirmed for ${date} at ${displayTime}.${showToken ? ` Token: ${tokenNumber}` : ''}`,
     data: {
       type: 'appointment_confirmed',
       appointmentId,
@@ -152,9 +157,10 @@ export async function sendAppointmentReminderNotification(params: {
   doctorName: string;
   time: string;
   tokenNumber: string;
+  tokenDistribution?: 'classic' | 'advanced';
   cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, time, tokenNumber, cancelledByBreak } = params;
+  const { firestore, userId, appointmentId, doctorName, time, tokenNumber, tokenDistribution, cancelledByBreak } = params;
 
   if (cancelledByBreak) {
     logger.info(`Skipping reminder notification for break-affected appointment ${appointmentId}`);
@@ -171,11 +177,14 @@ export async function sendAppointmentReminderNotification(params: {
     console.error('Error calculating display time for reminder:', error);
   }
 
+  // For classic clinics, don't show token number in the body
+  const showToken = tokenDistribution !== 'classic' && tokenNumber;
+
   return sendNotification({
     firestore,
     userId,
     title: 'Upcoming Appointment',
-    body: `Your appointment with Dr. ${doctorName} is in 2 hours at ${displayTime}. Token: ${tokenNumber}`,
+    body: `Your appointment with Dr. ${doctorName} is in 2 hours at ${displayTime}.${showToken ? ` Token: ${tokenNumber}` : ''}`,
     data: {
       type: 'appointment_reminder',
       appointmentId,

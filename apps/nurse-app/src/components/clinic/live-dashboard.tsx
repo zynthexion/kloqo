@@ -438,7 +438,7 @@ export default function LiveDashboard() {
               const dateStr = apptData.date || format(new Date(), 'd MMMM yyyy');
               const doctorName = currentDoctor?.name || apptData.doctor;
 
-              const classicCounterId = getClassicTokenCounterId(clinicId!, doctorName, dateStr);
+              const classicCounterId = getClassicTokenCounterId(clinicId!, doctorName, dateStr, apptData.sessionIndex || 0);
               const classicCounterRef = doc(db, 'token-counters', classicCounterId);
               const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
 
@@ -515,7 +515,7 @@ export default function LiveDashboard() {
             const dateStr = apptData.date || format(new Date(), 'd MMMM yyyy');
             const doctorName = apptData.doctor;
 
-            const classicCounterId = getClassicTokenCounterId(clinicId!, doctorName, dateStr);
+            const classicCounterId = getClassicTokenCounterId(clinicId!, doctorName, dateStr, apptData.sessionIndex || 0);
             const classicCounterRef = doc(db, 'token-counters', classicCounterId);
             const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
 

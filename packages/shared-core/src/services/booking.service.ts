@@ -195,7 +195,7 @@ export async function completeStaffWalkInBooking(
         let classicCounterState: any = null;
         let classicCounterRef: any = null;
         if (tokenDistribution !== 'advanced') {
-            const classicCounterId = getClassicTokenCounterId(clinicId, doctor.name, dateStr);
+            const classicCounterId = getClassicTokenCounterId(clinicId, doctor.name, dateStr, activeSessionIndex);
             classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
             classicCounterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
         }
@@ -532,7 +532,7 @@ export async function completePatientWalkInBooking(
         let classicCounterState: any = null;
         let classicCounterRef: any = null;
         if (tokenDistribution !== 'advanced') {
-            const classicCounterId = getClassicTokenCounterId(clinicId, doctor.name, dateStr);
+            const classicCounterId = getClassicTokenCounterId(clinicId, doctor.name, dateStr, activeSessionIndex);
             classicCounterRef = doc(firestore, 'token-counters', classicCounterId);
             classicCounterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
         }

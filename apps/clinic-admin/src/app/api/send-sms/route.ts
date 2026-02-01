@@ -3,11 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
 
 export async function POST(request: NextRequest) {
-  const { to, message, channel = 'sms' } = await request.json(); // Default to 'sms'
+  const body = await request.json();
+  const { to, message, channel = 'sms' } = body;
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  
+
   let from: string | undefined;
   let toFormatted: string;
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-  
+
   // Check for placeholder credentials
   if (accountSid === 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' || authToken === 'your_auth_token') {
     console.warn("Using placeholder Twilio credentials. Message will not be sent.");
@@ -41,11 +42,23 @@ export async function POST(request: NextRequest) {
   const client = twilio(accountSid, authToken);
 
   try {
-    const result = await client.messages.create({
-      body: message,
+    const messageOptions: any = {
       from,
       to: toFormatted,
-    });
+    };
+
+    if (channel === 'whatsapp' && body.contentSid) {
+      messageOptions.contentSid = body.contentSid;
+      if (body.contentVariables) {
+        messageOptions.contentVariables = typeof body.contentVariables === 'string'
+          ? body.contentVariables
+          : JSON.stringify(body.contentVariables);
+      }
+    } else {
+      messageOptions.body = message;
+    }
+
+    const result = await client.messages.create(messageOptions);
 
     console.log(`Twilio ${channel} message sent successfully:`, result.sid);
     return NextResponse.json({ success: true, sid: result.sid });
@@ -53,7 +66,7 @@ export async function POST(request: NextRequest) {
     console.error(`Twilio ${channel} error:`, error);
     // Provide a more helpful error for common WhatsApp issues
     if (channel === 'whatsapp' && error.code === 21612) {
-       return NextResponse.json(
+      return NextResponse.json(
         { success: false, error: "The recipient has not yet opted in to receive messages from this WhatsApp number. They must first send a message to your Twilio WhatsApp number." },
         { status: 400 }
       );

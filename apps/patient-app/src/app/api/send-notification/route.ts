@@ -224,9 +224,10 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
 
   switch (type) {
     case 'appointment_confirmed':
+      const confirmTokenSuffix = data.tokenNumber ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
       return {
         title: 'അപ്പോയിന്റ്മെന്റ് സ്ഥിരീകരിച്ചു',
-        body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് ${data.date}, ${data.time}-ന് സ്ഥിരീകരിച്ചു. ടോക്കൺ: ${data.tokenNumber}`
+        body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് ${data.date}, ${data.time}-ന് സ്ഥിരീകരിച്ചു.${confirmTokenSuffix}`
       };
     case 'token_called':
       return {
@@ -273,6 +274,12 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
       return {
         title: 'കൺസൾട്ടേഷൻ ആരംഭിച്ചു',
         body: `ഡോ. ${data.doctorName}, ${data.clinicName}-ൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചു. നിങ്ങളുടെ സമയം: ${data.appointmentTime}.`
+      };
+    case 'appointment_reminder':
+      const tokenSuffix = data.tokenNumber ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
+      return {
+        title: 'വരാനിരിക്കുന്ന അപ്പോയിന്റ്മെന്റ്',
+        body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് 2 മണിക്കൂറിനുള്ളിൽ ${data.time}-ന് ആണ്.${tokenSuffix}`
       };
     case 'free_followup_expiry':
       return {

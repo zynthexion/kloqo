@@ -2945,9 +2945,10 @@ export function compareAppointmentsClassic(a: Appointment, b: Appointment): numb
 
 /**
  * Generates the document ID for the classic token counter.
+ * Includes sessionIndex to support per-session counter resets.
  */
-export function getClassicTokenCounterId(clinicId: string, doctorName: string, date: string): string {
-  return `classic_${clinicId}_${doctorName}_${date}`
+export function getClassicTokenCounterId(clinicId: string, doctorName: string, date: string, sessionIndex: number): string {
+  return `classic_${clinicId}_${doctorName}_${date}_s${sessionIndex}`
     .replace(/\s+/g, '_')
     .replace(/[^a-zA-Z0-9_]/g, '');
 }
@@ -3008,7 +3009,8 @@ export async function getNextClassicTokenNumber(
   firestore: any,
   clinicId: string,
   doctorName: string,
-  date: string
+  date: string,
+  sessionIndex: number = 0
 ): Promise<string> {
   // Existing query-based implementation logic kept for backward compatibility during transition
   const appointmentsRef = collection(firestore, 'appointments');
@@ -3017,6 +3019,7 @@ export async function getNextClassicTokenNumber(
     where('clinicId', '==', clinicId),
     where('doctor', '==', doctorName),
     where('date', '==', date),
+    where('sessionIndex', '==', sessionIndex), // Session-aware reset
     where('status', 'in', ['Confirmed', 'Completed', 'Skipped'])
   );
 

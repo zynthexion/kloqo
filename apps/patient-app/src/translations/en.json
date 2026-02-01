@@ -334,7 +334,7 @@
     "noShowCallClinic": "Call Clinic",
     "confirmArrival": "Confirm Arrival at Clinic",
     "confirmedPatientsAhead": "Confirmed patients ahead of you",
-    "arriveAtClinicInstruction": "Please arrive at the clinic. Your position will update as patients are consulted.",
+    "arriveAtClinicInstruction": "Your position will update as patients are consulted.",
     "showLiveQueue": "Show Live Queue"
   },
   "clinics": {

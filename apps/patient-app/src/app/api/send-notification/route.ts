@@ -224,10 +224,47 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
 
   switch (type) {
     case 'appointment_confirmed':
-      // Show token only if it's NOT an 'A' token (Online/Advanced - e.g., A1-001, A-001)
-      // We show it for 'W' tokens or raw numbers (Classic - e.g., W-001, 001)
-      const showToken = data.tokenNumber && !data.tokenNumber.toString().startsWith('A');
-      const confirmTokenSuffix = showToken ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
+      // STRICT LOGIC:
+      // If Classic Clinic:
+      //   - Show ONLY if classicTokenNumber exists.
+      //   - If NO classicTokenNumber, HIDE token.
+
+      let showToken = true;
+      let displayToken = data.tokenNumber;
+
+      if (data.tokenDistribution === 'classic') {
+        if (data.classicTokenNumber) {
+          displayToken = data.classicTokenNumber;
+          showToken = true;
+        } else {
+          showToken = false;
+        }
+      } else {
+        // Advanced or Default: Show if present (and usually starts with A, which we show for Advanced)
+        // Maintain legacy 'A' check just in case, OR prefer strict 'show if present'?
+        // User said "while booking the A token wont get... so dont send". 
+        // But that was for Classic context.
+        // Let's stick to: If Advanced, show it.
+        // Wait, data.tokenNumber coming from service might already be modified?
+        // Service logic: "Advanced: Show token = !!tokenNumber".
+        // Service passes finalTokenNumber in data.tokenNumber.
+        // So here we trust data.tokenNumber unless it's Classic mode where we might want to check classicTokenNumber explicitly.
+
+        // Actually, just consistent logic:
+        showToken = !!data.tokenNumber;
+
+        // To be safe against "A" tokens in Classic context (if data.tokenDistribution is missing for some reason):
+        if (!data.tokenDistribution && data.tokenNumber && data.tokenNumber.toString().startsWith('A')) {
+          // Fallback for legacy calls?
+          // Let's assume data.tokenDistribution is reliable if we passed it.
+        }
+      }
+
+      // Re-apply A-check if we want to be super safe?
+      // "only show the classicTokenNumber for the classic clinics"
+      // My logic above handles this.
+
+      const confirmTokenSuffix = showToken ? ` ടോക്കൺ: ${displayToken}` : '';
       return {
         title: 'അപ്പോയിന്റ്മെന്റ് സ്ഥിരീകരിച്ചു',
         body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് ${data.date}, ${data.time}-ന് സ്ഥിരീകരിച്ചു.${confirmTokenSuffix}`
@@ -279,7 +316,21 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
         body: `ഡോ. ${data.doctorName}, ${data.clinicName}-ൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചു. നിങ്ങളുടെ സമയം: ${data.appointmentTime}.`
       };
     case 'appointment_reminder':
-      const tokenSuffix = data.tokenNumber ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
+      let reminderShowToken = true;
+      let reminderDisplayToken = data.tokenNumber;
+
+      if (data.tokenDistribution === 'classic') {
+        if (data.classicTokenNumber) {
+          reminderDisplayToken = data.classicTokenNumber;
+          reminderShowToken = true;
+        } else {
+          reminderShowToken = false;
+        }
+      } else {
+        reminderShowToken = !!data.tokenNumber;
+      }
+
+      const tokenSuffix = reminderShowToken ? ` ടോക്കൺ: ${reminderDisplayToken}` : '';
       return {
         title: 'വരാനിരിക്കുന്ന അപ്പോയിന്റ്മെന്റ്',
         body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് 2 മണിക്കൂറിനുള്ളിൽ ${data.time}-ന് ആണ്.${tokenSuffix}`

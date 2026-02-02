@@ -129,17 +129,26 @@ export async function sendAppointmentConfirmedNotification(params: {
     console.error('Error calculating display time for confirmed notification:', error);
   }
 
-  // Show token logic:
-  // 1. If classicTokenNumber exists, use it and ALWAYS show (for Classic clinics)
-  // 2. Else use tokenNumber but HIDE if it starts with 'A' (Online/Advanced)
+  // STRICT LOGIC:
+  // If Classic Clinic:
+  //   - Show ONLY if classicTokenNumber exists.
+  //   - If NO classicTokenNumber, HIDE token (don't show internal 'A' token).
+  // If Advanced Clinic or Unknown:
+  //   - Show whatever token is present.
 
   let finalTokenNumber = tokenNumber;
-  let showToken = tokenNumber && !tokenNumber.startsWith('A');
+  let showToken = true;
 
-  if (classicTokenNumber) {
-    // If classic token exists, prefer it and force show
-    finalTokenNumber = classicTokenNumber;
-    showToken = true;
+  if (tokenDistribution === 'classic') {
+    if (classicTokenNumber) {
+      finalTokenNumber = classicTokenNumber;
+      showToken = true;
+    } else {
+      showToken = false;
+    }
+  } else {
+    // Advanced: Show token
+    showToken = !!tokenNumber;
   }
 
   return sendNotification({
@@ -154,6 +163,8 @@ export async function sendAppointmentConfirmedNotification(params: {
       date,
       time: displayTime,
       tokenNumber: finalTokenNumber,
+      classicTokenNumber,
+      tokenDistribution,
     },
   });
 }
@@ -189,16 +200,20 @@ export async function sendAppointmentReminderNotification(params: {
     console.error('Error calculating display time for reminder:', error);
   }
 
-  // Simplified Logic:
-  // 1. If classicTokenNumber exists, use it and ALWAYS show (for Classic clinics)
-  // 2. Else use tokenNumber but only if NOT classic distribution (legacy safety)
+  // STRICT LOGIC for Reminders:
 
   let finalTokenNumber = tokenNumber;
-  let showToken = tokenDistribution !== 'classic' && tokenNumber;
+  let showToken = true;
 
-  if (classicTokenNumber) {
-    finalTokenNumber = classicTokenNumber;
-    showToken = true;
+  if (tokenDistribution === 'classic') {
+    if (classicTokenNumber) {
+      finalTokenNumber = classicTokenNumber;
+      showToken = true;
+    } else {
+      showToken = false;
+    }
+  } else {
+    showToken = !!tokenNumber;
   }
 
   return sendNotification({
@@ -212,6 +227,8 @@ export async function sendAppointmentReminderNotification(params: {
       doctorName,
       time: displayTime,
       tokenNumber: finalTokenNumber,
+      classicTokenNumber,
+      tokenDistribution,
     },
   });
 }

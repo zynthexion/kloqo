@@ -531,9 +531,22 @@ function ConfirmArrivalPage() {
     // Only redirect if we have clinicId, user is loaded, and appointments have been checked
     if (!clinicId || !user?.patientId || !firestore) return;
 
-    // If there are confirmed appointments, stay on the page (don't redirect)
+    // If there are confirmed appointments, redirect to live token page
     if (confirmedAppointments.length > 0) {
-      return;
+      // Find the most relevant confirmed appointment (e.g., the soonest one)
+      // Since confirmedAppointments list is already filtered by clinic and sorted, we can take the first one?
+      // Actually confirmedAppointments definition above doesn't have sort. Let's sort it here to be safe.
+      const sortedConfirmed = [...confirmedAppointments].sort((a, b) => {
+        const timeA = parseTime(a.time, new Date()).getTime();
+        const timeB = parseTime(b.time, new Date()).getTime();
+        return timeA - timeB;
+      });
+
+      const targetAppointment = sortedConfirmed[0];
+      if (targetAppointment) {
+        router.push(`/live-token/${targetAppointment.id}`);
+        return;
+      }
     }
 
     // Wait for appointments to load before checking

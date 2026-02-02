@@ -128,8 +128,9 @@ export async function sendAppointmentConfirmedNotification(params: {
     console.error('Error calculating display time for confirmed notification:', error);
   }
 
-  // For classic clinics, don't show token number in the notification body
-  const showToken = tokenDistribution !== 'classic' && tokenNumber;
+  // Show token only if it's NOT an 'A' token (Online/Advanced)
+  // We show it for 'W' tokens or raw numbers (Classic)
+  const showToken = tokenNumber && !tokenNumber.startsWith('A-');
 
   return sendNotification({
     firestore,

@@ -224,7 +224,10 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
 
   switch (type) {
     case 'appointment_confirmed':
-      const confirmTokenSuffix = data.tokenNumber ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
+      // Show token only if it's NOT an 'A' token (Online/Advanced)
+      // We show it for 'W' tokens or raw numbers (Classic)
+      const showToken = data.tokenNumber && !data.tokenNumber.toString().startsWith('A-');
+      const confirmTokenSuffix = showToken ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
       return {
         title: 'അപ്പോയിന്റ്മെന്റ് സ്ഥിരീകരിച്ചു',
         body: `ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് ${data.date}, ${data.time}-ന് സ്ഥിരീകരിച്ചു.${confirmTokenSuffix}`

@@ -108,10 +108,11 @@ export async function sendAppointmentConfirmedNotification(params: {
   date: string;
   time: string;
   tokenNumber: string;
+  classicTokenNumber?: string;
   tokenDistribution?: 'classic' | 'advanced';
   cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, date, time, tokenNumber, tokenDistribution, cancelledByBreak } = params;
+  const { firestore, userId, appointmentId, doctorName, date, time, tokenNumber, classicTokenNumber, tokenDistribution, cancelledByBreak } = params;
 
   if (cancelledByBreak) {
     logger.info(`Skipping confirmed notification for break-affected appointment ${appointmentId}`);
@@ -128,22 +129,31 @@ export async function sendAppointmentConfirmedNotification(params: {
     console.error('Error calculating display time for confirmed notification:', error);
   }
 
-  // Show token only if it's NOT an 'A' token (Online/Advanced)
-  // We show it for 'W' tokens or raw numbers (Classic)
-  const showToken = tokenNumber && !tokenNumber.startsWith('A-');
+  // Show token logic:
+  // 1. If classicTokenNumber exists, use it and ALWAYS show (for Classic clinics)
+  // 2. Else use tokenNumber but HIDE if it starts with 'A' (Online/Advanced)
+
+  let finalTokenNumber = tokenNumber;
+  let showToken = tokenNumber && !tokenNumber.startsWith('A');
+
+  if (classicTokenNumber) {
+    // If classic token exists, prefer it and force show
+    finalTokenNumber = classicTokenNumber;
+    showToken = true;
+  }
 
   return sendNotification({
     firestore,
     userId,
     title: 'Appointment Confirmed',
-    body: `Your appointment with Dr. ${doctorName} is confirmed for ${date} at ${displayTime}.${showToken ? ` Token: ${tokenNumber}` : ''}`,
+    body: `Your appointment with Dr. ${doctorName} is confirmed for ${date} at ${displayTime}.${showToken ? ` Token: ${finalTokenNumber}` : ''}`,
     data: {
       type: 'appointment_confirmed',
       appointmentId,
       doctorName,
       date,
       time: displayTime,
-      tokenNumber,
+      tokenNumber: finalTokenNumber,
     },
   });
 }
@@ -158,10 +168,11 @@ export async function sendAppointmentReminderNotification(params: {
   doctorName: string;
   time: string;
   tokenNumber: string;
+  classicTokenNumber?: string;
   tokenDistribution?: 'classic' | 'advanced';
   cancelledByBreak?: boolean;
 }): Promise<boolean> {
-  const { firestore, userId, appointmentId, doctorName, time, tokenNumber, tokenDistribution, cancelledByBreak } = params;
+  const { firestore, userId, appointmentId, doctorName, time, tokenNumber, classicTokenNumber, tokenDistribution, cancelledByBreak } = params;
 
   if (cancelledByBreak) {
     logger.info(`Skipping reminder notification for break-affected appointment ${appointmentId}`);
@@ -178,20 +189,29 @@ export async function sendAppointmentReminderNotification(params: {
     console.error('Error calculating display time for reminder:', error);
   }
 
-  // For classic clinics, don't show token number in the body
-  const showToken = tokenDistribution !== 'classic' && tokenNumber;
+  // Simplified Logic:
+  // 1. If classicTokenNumber exists, use it and ALWAYS show (for Classic clinics)
+  // 2. Else use tokenNumber but only if NOT classic distribution (legacy safety)
+
+  let finalTokenNumber = tokenNumber;
+  let showToken = tokenDistribution !== 'classic' && tokenNumber;
+
+  if (classicTokenNumber) {
+    finalTokenNumber = classicTokenNumber;
+    showToken = true;
+  }
 
   return sendNotification({
     firestore,
     userId,
     title: 'Upcoming Appointment',
-    body: `Your appointment with Dr. ${doctorName} is in 2 hours at ${displayTime}.${showToken ? ` Token: ${tokenNumber}` : ''}`,
+    body: `Your appointment with Dr. ${doctorName} is in 2 hours at ${displayTime}.${showToken ? ` Token: ${finalTokenNumber}` : ''}`,
     data: {
       type: 'appointment_reminder',
       appointmentId,
       doctorName,
       time: displayTime,
-      tokenNumber,
+      tokenNumber: finalTokenNumber,
     },
   });
 }

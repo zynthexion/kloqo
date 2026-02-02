@@ -224,9 +224,9 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
 
   switch (type) {
     case 'appointment_confirmed':
-      // Show token only if it's NOT an 'A' token (Online/Advanced)
-      // We show it for 'W' tokens or raw numbers (Classic)
-      const showToken = data.tokenNumber && !data.tokenNumber.toString().startsWith('A-');
+      // Show token only if it's NOT an 'A' token (Online/Advanced - e.g., A1-001, A-001)
+      // We show it for 'W' tokens or raw numbers (Classic - e.g., W-001, 001)
+      const showToken = data.tokenNumber && !data.tokenNumber.toString().startsWith('A');
       const confirmTokenSuffix = showToken ? ` ടോക്കൺ: ${data.tokenNumber}` : '';
       return {
         title: 'അപ്പോയിന്റ്മെന്റ് സ്ഥിരീകരിച്ചു',

@@ -68,6 +68,7 @@ function AppointmentDetailsFormContent() {
     const [doctor, setDoctor] = useState<Doctor | null>(null);
     const [patient, setPatient] = useState<Patient | null>(null);
     const [clinicId, setClinicId] = useState<string | null>(null);
+    const [tokenDistribution, setTokenDistribution] = useState<'classic' | 'advanced'>('advanced');
 
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -587,6 +588,7 @@ function AppointmentDetailsFormContent() {
                     bookedBy: 'nurse',
                     communicationPhone: newAppointment.communicationPhone,
                     patientName: newAppointment.patientName,
+                    tokenDistribution: tokenDistribution,
                 });
             } catch (notifError) {
                 console.error('Failed to send appointment booked notification from nurse app:', notifError);
@@ -659,6 +661,15 @@ function AppointmentDetailsFormContent() {
                         console.error('❌ [NURSE APP] Patient document not found in database');
                         toast({ variant: 'destructive', title: 'Error', description: 'Patient details could not be found.' });
                     }
+                }
+
+                // Fetch Clinic Details to get tokenDistribution
+                const clinicRef = doc(db, 'clinics', clinicId);
+                const clinicSnap = await getDoc(clinicRef);
+                if (clinicSnap.exists()) {
+                    const clinicData = clinicSnap.data();
+                    // Default to advanced if missing, or use what's there
+                    setTokenDistribution(clinicData.tokenDistribution || 'advanced');
                 }
             } catch (error: any) {
                 if (error.name !== 'FirestorePermissionError') {

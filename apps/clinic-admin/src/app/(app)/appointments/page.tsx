@@ -2022,6 +2022,7 @@ export default function AppointmentsPage() {
                 bookedBy: 'admin',
                 communicationPhone: communicationPhone,
                 patientName: patientForAppointmentName,
+                tokenDistribution: clinicDetails?.tokenDistribution,
               });
             } catch (notifError) {
               console.error('Failed to send booking notification:', notifError);

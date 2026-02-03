@@ -710,6 +710,8 @@ function WalkInRegistrationContent() {
             arriveByTime: result.estimatedTime,
             tokenNumber: result.tokenNumber,
             bookedBy: 'admin',
+            tokenDistribution: clinicDoc.exists() ? clinicDoc.data().tokenDistribution : undefined,
+            classicTokenNumber: result.tokenNumber, // Walk-ins have direct tokens
           }).catch(err => console.error('Failed to send walk-in notification:', err));
         } catch (err) {
           console.error('Error preparing notification:', err);

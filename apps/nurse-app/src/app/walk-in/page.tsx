@@ -800,11 +800,15 @@ function WalkInRegistrationContent() {
 
       console.log('[NURSE:GET-TOKEN] Preview appointment created:', {
         patientName: previewAppointment.patientName,
-        tokenNumber: previewTokenNumber,
+        tokenNumber: previewAppointment.tokenNumber,
         time: previewAppointment.time,
         arriveByTime: previewAppointment.arriveByTime,
         slotIndex: previewAppointment.slotIndex,
         sessionIndex: previewAppointment.sessionIndex,
+        bookedBy: 'nurse',
+        communicationPhone: previewAppointment.communicationPhone,
+        tokenDistribution: clinicDetails?.tokenDistribution, // Assuming clinicDetails is available in scope
+        classicTokenNumber: previewAppointment.tokenNumber, // Walk-ins have direct tokens
       });
 
       setAppointmentToSave(previewAppointment);

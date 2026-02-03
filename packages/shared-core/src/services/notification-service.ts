@@ -211,28 +211,47 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     arriveByTime: string;
     tokenNumber: string;
     appointmentId: string;
+    showToken?: boolean; // New param
 }): Promise<boolean> {
-    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId } = params;
+    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true } = params;
 
-    const contentSid = process.env.NEXT_PUBLIC_TWILIO_CONTENT_SID_CONFIRMED || 'HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+    const contentSidWithToken = process.env.NEXT_PUBLIC_TWILIO_CONTENT_SID_CONFIRMED || 'HX08166827af694ffd8802a6b1b352365b';
+    const contentSidNoToken = process.env.NEXT_PUBLIC_TWILIO_CONTENT_SID_CONFIRMED_NO_TOKEN || 'HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
 
     // Patient app URL
     let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
     const liveStatusLink = `${patientAppBaseUrl}/live-token/${appointmentId}`;
 
-    const contentVariables = {
-        "1": patientName,
-        "2": doctorName,
-        "3": clinicName,
-        "4": date,
-        "5": time,
-        "6": arriveByTime,
-        "7": tokenNumber,
-        "8": liveStatusLink
-    };
+    let contentSid = contentSidWithToken;
+    let contentVariables: any = {};
 
-    console.log(`[WhatsApp] 📄 Using Content Template: kloqo_appointment_confirmed (SID: ${contentSid})`);
-    console.log(`[WhatsApp] 📝 Message Preview: Hello ${patientName}, your appointment with Dr. ${doctorName} at ${clinicName} is confirmed. Please arrive by ${arriveByTime} on ${date}. Token: ${tokenNumber}. View live status: ${liveStatusLink}`);
+    if (showToken) {
+        contentSid = contentSidWithToken;
+        contentVariables = {
+            "1": patientName,
+            "2": doctorName,
+            "3": clinicName,
+            "4": date,
+            "5": time,
+            "6": arriveByTime,
+            // "7": tokenNumber, // REMOVED as per user request
+            "7": liveStatusLink // Index 7 is now Link (was 8)
+        };
+        console.log(`[WhatsApp] 📄 Using Standard Template (kloqo_appointment_confirmed) - No Token Shown`);
+    } else {
+        contentSid = contentSidNoToken;
+        contentVariables = {
+            "1": patientName,
+            "2": doctorName,
+            "3": clinicName,
+            "4": date,
+            "5": arriveByTime, // Note: Index 5 in this template is Arrive Time
+            "6": liveStatusLink // Index 6 is Link
+        };
+        console.log(`[WhatsApp] 📄 Using No-Token Template (kloqo_appointment_confirmed_no_token)`);
+    }
+
+    console.log(`[WhatsApp] 📝 Message Preview (SID: ${contentSid}): Hello ${patientName}, your appointment...`);
 
     return sendWhatsAppMessage({
         to: communicationPhone,
@@ -258,6 +277,8 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     cancelledByBreak?: boolean;
     communicationPhone?: string; // New: optional phone for WhatsApp
     patientName?: string; // New: for WhatsApp template
+    tokenDistribution?: 'classic' | 'advanced'; // New: needed for logic
+    classicTokenNumber?: string; // New: needed for logic
 }): Promise<boolean> {
     const {
         firestore,
@@ -272,7 +293,9 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         arriveByTime,
         cancelledByBreak,
         communicationPhone,
-        patientName
+        patientName,
+        tokenDistribution,
+        classicTokenNumber,
     } = params;
 
     if (cancelledByBreak) {
@@ -298,18 +321,43 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         console.error('Error calculating displayTime for booking notification:', error);
     }
 
+    // STRICT LOGIC for Push Notification (matches client-side service):
+    // If Classic Clinic -> Only show classicTokenNumber (if exists).
+    // If Advanced -> Show tokenNumber.
+    // For Staff Booking, tokenNumber might be 'A...' or 'W...'. 
+
+    let pushShowToken = true;
+    let pushTokenDisplay = tokenNumber;
+
+    if (tokenDistribution === 'classic') {
+        if (classicTokenNumber) {
+            pushTokenDisplay = classicTokenNumber;
+            pushShowToken = true;
+        } else if (tokenNumber && (tokenNumber.startsWith('W') || /^\d+$/.test(tokenNumber))) {
+            // Walk-in / numeric -> Show it
+            pushTokenDisplay = tokenNumber;
+            pushShowToken = true;
+        } else {
+            // Classic mode but 'A' token -> Hide it
+            pushShowToken = false;
+        }
+    } else {
+        // Advanced -> Show whatever token we have
+        pushShowToken = !!tokenNumber;
+    }
+
     const pwaResult = await sendNotificationToPatient({
         firestore,
         patientId,
         title: 'Appointment Booked',
-        body: `${clinicName} has booked an appointment with Dr. ${doctorName} on ${date} at ${displayTime}.${(tokenNumber && !tokenNumber.startsWith('A') && !tokenNumber.startsWith('W')) ? ` Token: ${tokenNumber}` : ''}`,
+        body: `${clinicName} has booked an appointment with Dr. ${doctorName} on ${date} at ${displayTime}.${pushShowToken ? ` Token: ${pushTokenDisplay}` : ''}`,
         data: {
             type: 'appointment_confirmed',
             appointmentId,
             doctorName,
             date,
             time: displayTime,
-            tokenNumber,
+            tokenNumber: pushTokenDisplay,
             bookedBy,
             url: '/appointments', // Click will open appointments page
         },
@@ -318,8 +366,28 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     // Handle WhatsApp notification for "A" tokens
     const isAdvancedBooking = tokenNumber && tokenNumber.startsWith('A');
     if (isAdvancedBooking && communicationPhone) {
+        // Determine if we show token in WhatsApp
+        // Same logic: If Classic mode AND no classicTokenNumber -> HIDE.
+        // But 'A' token usually implies no classicTokenNumber yet (pre-arrival).
+
+        let whatsappShowToken = true;
+        if (tokenDistribution === 'classic') {
+            if (classicTokenNumber) {
+                // If we somehow have a classic token for an A booking (maybe confirmed?), show it.
+                // But usually A token means pre-arrival.
+                // If we want to show classic token, we should pass THAT number.
+                // But params.tokenNumber is 'A...'.
+                // If classicTokenNumber exists, we probably want to send THAT too?
+                // But this block is specifically "Handle WhatsApp for 'A' tokens".
+                // If it's Classic, we want to HIDE the 'A' token.
+                whatsappShowToken = false;
+            } else {
+                whatsappShowToken = false; // Confirm hide A token for Classic
+            }
+        }
+
         try {
-            console.log(`[Notification] 📱 Triggering WhatsApp for Advanced Booking: ${tokenNumber}`);
+            console.log(`[Notification] 📱 Triggering WhatsApp for Advanced Booking: ${tokenNumber} (ShowToken: ${whatsappShowToken})`);
             await sendWhatsAppAppointmentConfirmed({
                 communicationPhone: communicationPhone,
                 patientName: patientName || 'Patient',
@@ -329,7 +397,8 @@ export async function sendAppointmentBookedByStaffNotification(params: {
                 time: displayTime,
                 arriveByTime: arriveByTime || time,
                 tokenNumber,
-                appointmentId
+                appointmentId,
+                showToken: whatsappShowToken
             });
         } catch (error) {
             console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);

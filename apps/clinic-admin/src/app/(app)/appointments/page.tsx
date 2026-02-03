@@ -1085,6 +1085,7 @@ export default function AppointmentsPage() {
             name: patientDataToUpdate.name,
             place: patientDataToUpdate.place,
             communicationPhone: patientDataToUpdate.communicationPhone,
+            isLinkPending: false,
             updatedAt: serverTimestamp()
           };
 
@@ -1116,6 +1117,7 @@ export default function AppointmentsPage() {
             sex: patientDataToUpdate.sex,
             place: patientDataToUpdate.place,
             communicationPhone: patientDataToUpdate.communicationPhone,
+            isLinkPending: false,
             updatedAt: serverTimestamp()
           };
           // Only update phone field if patient already has a phone (not a relative without phone)

@@ -698,6 +698,7 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                         clinicIds: [selectedDoctor.clinicId],
                         isPrimary: true,
                         isKloqoMember: false,
+                        isLinkPending: false,
                         relatedPatientIds: [],
                         totalAppointments: 0,
                         visitHistory: [],
@@ -783,7 +784,11 @@ export function PatientForm({ selectedDoctor, appointmentType, renderLoadingOver
                     } else if (selectedPatientId) {
                         const patientToUpdate = displayedPatients.find(p => p.id === selectedPatientId);
                         if (!patientToUpdate) throw new Error("Patient not found");
-                        const updatedData: any = { name, age, sex, place, updatedAt: serverTimestamp() };
+                        const updatedData: any = {
+                            name, age, sex, place,
+                            updatedAt: serverTimestamp(),
+                            isLinkPending: false // Reset flag when updating
+                        };
                         if (!patientToUpdate.isPrimary && phone && phone.trim().length > 0) {
                             // Check if the phone number matches primary patient's phone
                             const primaryPhone = primaryPatient?.phone || primaryPatient?.communicationPhone;

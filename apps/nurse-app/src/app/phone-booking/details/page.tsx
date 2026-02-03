@@ -442,6 +442,7 @@ function PhoneBookingDetailsContent() {
                     place: values.place,
                     sex: values.sex,
                     clinicIds: arrayUnion(clinicId!),
+                    isLinkPending: false,
                     updatedAt: serverTimestamp(),
                 }).catch(async (serverError: any) => {
                     console.error('❌ [NURSE APP - PHONE BOOKING] Error updating patient document:', serverError);

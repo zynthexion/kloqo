@@ -53,6 +53,11 @@ export async function managePatient(patientData: PatientInput): Promise<string> 
                 updateData.sex = sex;
             }
 
+            // Clear isLinkPending flag when patient provides their name
+            if (name && name.trim().length > 0) {
+                updateData.isLinkPending = false;
+            }
+
             // Remove undefined values - Firestore doesn't allow undefined
             const cleanedUpdateData = Object.fromEntries(
                 Object.entries(updateData).filter(([_, v]) => v !== undefined)
@@ -129,6 +134,9 @@ export async function managePatient(patientData: PatientInput): Promise<string> 
                 if (sex !== undefined && sex !== null && sex !== '') {
                     (newRelativeData as any).sex = sex;
                 }
+
+                // Relatives created via this flow (with name) are never link-pending
+                (newRelativeData as any).isLinkPending = false;
             } else {
                 // If duplicate phone or no phone provided, use primary patient's communication phone
                 newRelativeData = {

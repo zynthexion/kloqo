@@ -158,15 +158,14 @@ export async function sendWhatsAppMessage(params: {
         const { to, message, contentSid, contentVariables } = params;
 
         // Build API URL
-        let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-
-        if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-            // For local development, use the current origin
+        let baseUrl: string;
+        if (typeof window !== 'undefined') {
+            // Use the current origin (nurse.kloqo.com, admin.kloqo.com, or localhost)
             baseUrl = window.location.origin;
+        } else {
+            // Fallback for server-side or non-browser environments
+            baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.kloqo.com';
         }
-
-        // Fallback or default
-        baseUrl = baseUrl || 'https://app.kloqo.com';
 
         const apiUrl = `${baseUrl}/api/send-sms`;
         console.log(`[WhatsApp] 🎯 DEBUG: Calling WhatsApp API: ${apiUrl} for: ${to}`);

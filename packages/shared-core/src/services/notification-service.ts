@@ -393,8 +393,8 @@ export async function sendAppointmentBookedByStaffNotification(params: {
                 doctorName,
                 clinicName,
                 date,
-                time: displayTime,
-                arriveByTime: arriveByTime || time,
+                time: arriveByTime || time, // Slot time
+                arriveByTime: displayTime,  // Reporting time (15m early)
                 tokenNumber,
                 appointmentId,
                 showToken: whatsappShowToken

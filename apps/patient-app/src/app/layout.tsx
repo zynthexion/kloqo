@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Toaster } from "@/components/ui/toaster";
 import './globals.css';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
@@ -92,7 +93,9 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
 
         {/* Microsoft Clarity Tracking */}
-        <script
+        <Script
+          id="microsoft-clarity"
+          strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               (function(c,l,a,r,i,t,y){

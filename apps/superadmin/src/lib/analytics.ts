@@ -353,3 +353,25 @@ export async function fetchPunctualityLogs(): Promise<PunctualityLog[]> {
     return [];
   }
 }
+/**
+ * Fetch punctuality logs for a specific doctor
+ */
+export async function fetchPunctualityLogsByDoctorId(doctorId: string): Promise<PunctualityLog[]> {
+  try {
+    const logsRef = collection(db, 'doctor_punctuality_logs');
+    const q = query(
+      logsRef,
+      where('doctorId', '==', doctorId),
+      orderBy('timestamp', 'desc')
+    );
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as PunctualityLog[];
+  } catch (error) {
+    console.error('Error fetching doctor punctuality logs:', error);
+    return [];
+  }
+}

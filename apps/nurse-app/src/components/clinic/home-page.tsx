@@ -147,8 +147,14 @@ export default function HomePage() {
       const session = todaysAvailability.timeSlots[i];
       const sessionStart = parseTime(session.from, now);
       const sessionEnd = parseTime(session.to, now);
+
+      // Leniency:
+      // Start window: 30 mins before
+      // End window: 120 mins (2 hours) after session formally ends (to handle significant delays)
       const windowStart = subMinutes(sessionStart, 30);
-      if (now >= windowStart && now <= sessionEnd) {
+      const windowEnd = addMinutes(sessionEnd, 120);
+
+      if (now >= windowStart && now <= windowEnd) {
         return i;
       }
     }

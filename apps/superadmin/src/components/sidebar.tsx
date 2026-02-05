@@ -12,7 +12,8 @@ import {
   AlertTriangle,
   Activity,
   SlidersHorizontal,
-  User, // <-- add User icon for doctors menu
+  User,
+  CreditCard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +28,7 @@ const menuItems = [
   { href: '/dashboard/departments', icon: SlidersHorizontal, label: 'Departments' },
   { href: '/dashboard/errors', icon: AlertTriangle, label: 'Error Logs' },
   { href: '/dashboard/health', icon: Activity, label: 'App Health' },
+  { href: '/dashboard/plans', icon: CreditCard, label: 'Pricing Plans' },
 ];
 
 export function Sidebar() {
@@ -40,7 +42,7 @@ export function Sidebar() {
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(item.href));
-            
+
             return (
               <Link
                 key={item.href}

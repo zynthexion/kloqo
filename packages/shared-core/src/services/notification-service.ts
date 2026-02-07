@@ -169,7 +169,7 @@ export async function sendWhatsAppMessage(params: {
         }
 
         const apiUrl = `${baseUrl}/api/send-sms`;
-        console.log(`[WhatsApp] 🎯 DEBUG: Calling WhatsApp API: ${apiUrl} for: ${to}`);
+        console.log(`[WhatsApp] 🎯 DEBUG: Calling WhatsApp API: ${apiUrl} for: ${to} (BaseURL: ${baseUrl})`);
 
         const response = await fetch(apiUrl, {
             method: 'POST',

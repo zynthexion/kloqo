@@ -210,52 +210,102 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     arriveByTime: string;
     tokenNumber: string;
     appointmentId: string;
-    showToken?: boolean; // New param
+    showToken?: boolean;
 }): Promise<boolean> {
     const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true } = params;
 
-    const contentSidWithToken = process.env.NEXT_PUBLIC_TWILIO_CONTENT_SID_CONFIRMED || 'HX08166827af694ffd8802a6b1b352365b';
-    const contentSidNoToken = process.env.NEXT_PUBLIC_TWILIO_CONTENT_SID_CONFIRMED_NO_TOKEN || 'HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+    // Meta Template Names
+    const templateWithToken = 'appointment_confirmed_ml';
+    const templateNoToken = 'appointment_confirmed_no_token_ml';
 
-    // Patient app URL
+    // Patient app URL with attribution
     let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
-    const liveStatusLink = `${patientAppBaseUrl}/live-token/${appointmentId}`;
 
-    let contentSid = contentSidWithToken;
+    let templateName = templateWithToken;
     let contentVariables: any = {};
 
     if (showToken) {
-        contentSid = contentSidWithToken;
-        contentVariables = {
-            "1": patientName,
-            "2": doctorName,
-            "3": clinicName,
-            "4": date,
-            "5": time,
-            "6": arriveByTime,
-            // "7": tokenNumber, // REMOVED as per user request
-            "7": liveStatusLink // Index 7 is now Link (was 8)
-        };
-        console.log(`[WhatsApp] 📄 Using Standard Template (kloqo_appointment_confirmed) - No Token Shown`);
-    } else {
-        contentSid = contentSidNoToken;
-        contentVariables = {
-            "1": patientName,
-            "2": doctorName,
-            "3": clinicName,
-            "4": date,
-            "5": arriveByTime, // Note: Index 5 in this template is Arrive Time
-            "6": liveStatusLink // Index 6 is Link
-        };
-        console.log(`[WhatsApp] 📄 Using No-Token Template (kloqo_appointment_confirmed_no_token)`);
-    }
+        templateName = templateWithToken;
+        const liveStatusRef = `whatsapp_confirmation`; // USER REQUESTED: Template 1 use whatsapp_confirmation
+        const liveStatusLink = `${appointmentId}?ref=${liveStatusRef}`;
 
-    console.log(`[WhatsApp] 📝 Message Preview (SID: ${contentSid}): Hello ${patientName}, your appointment...`);
+        contentVariables = {
+            "1": patientName,
+            "2": doctorName,
+            "3": clinicName,
+            "4": date,
+            "5": tokenNumber || '--',
+            "6": arriveByTime,
+            "7": liveStatusLink // Button dynamic URL suffix
+        };
+        console.log(`[WhatsApp] 📄 Using Meta Template (appointment_confirmed_ml) - Token: ${tokenNumber}`);
+    } else {
+        templateName = templateNoToken;
+        const liveStatusRef = `whatsapp_confirmation_no_token`;
+        const liveStatusLink = `${appointmentId}?ref=${liveStatusRef}`;
+
+        contentVariables = {
+            "1": patientName,
+            "2": doctorName,
+            "3": clinicName,
+            "4": date,
+            "5": arriveByTime,
+            "6": liveStatusLink
+        };
+        console.log(`[WhatsApp] 📄 Using Meta Template (appointment_confirmed_no_token_ml)`);
+    }
 
     return sendWhatsAppMessage({
         to: communicationPhone,
-        contentSid,
+        contentSid: templateName, // Using templateName as contentSid for the API route to handle
         contentVariables
+    });
+}
+
+/**
+ * Send WhatsApp booking link for pending appointments
+ */
+export async function sendWhatsAppBookingLink(params: {
+    communicationPhone: string;
+    patientName: string;
+    clinicName: string;
+    clinicCode: string; // e.g., c12345
+    patientId: string;
+}): Promise<boolean> {
+    const { communicationPhone, patientName, clinicName, clinicCode, patientId } = params;
+
+    const templateName = 'appointment_request_ml';
+    const ref = 'whatsapp_booking_link';
+    const linkSuffix = `${clinicCode}?ref=${ref}`;
+
+    const contentVariables = {
+        "1": patientName,
+        "2": clinicName,
+        "3": patientId, // Reference ID
+        "4": linkSuffix
+    };
+
+    console.log(`[WhatsApp] 📄 Using Meta Template (appointment_request_ml) for ${patientName}`);
+
+    return sendWhatsAppMessage({
+        to: communicationPhone,
+        contentSid: templateName,
+        contentVariables
+    });
+}
+
+/**
+ * Sends a free-form text message via WhatsApp (24h window only).
+ */
+export async function sendWhatsAppText(params: {
+    to: string;
+    text: string;
+}): Promise<boolean> {
+    const { to, text } = params;
+    return sendWhatsAppMessage({
+        to,
+        contentSid: 'text_message', // Special flag for text
+        contentVariables: { text }
     });
 }
 

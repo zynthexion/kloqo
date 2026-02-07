@@ -49,6 +49,12 @@ export async function POST(request: NextRequest) {
           { type: 'body', parameters: bodyParams },
           { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
         ];
+      } else if (templateName === 'text_message') {
+        // Free-text message
+        const textContent = vars.text || '';
+        components = [
+          { type: 'body', parameters: [{ type: 'text', text: String(textContent) }] }
+        ];
       }
 
       await whatsappService.sendTemplateMessage(to, templateName, 'ml', components);

@@ -13,9 +13,10 @@ import {
     getRelativesByPatientId,
     GlobalSearchService,
     MagicLinkService,
-    getFirebaseAdmin,
-    sendWhatsAppAIFallback
+    sendWhatsAppAIFallback,
 } from '@kloqo/shared-core';
+import { getFirebaseAdmin } from '../../../../../../../packages/shared-core/src/utils/firebase-admin';
+import { MagicLinkAdminService } from '../../../../../../../packages/shared-core/src/services/magic-link-admin-service';
 import { AIService, AI_ERROR_BUSY } from '../../../../../../../packages/shared-core/src/services/ai-service';
 import { collection, query, where, getDocs, doc, getDoc, Timestamp, getFirestore, setDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import {
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest) {
                                 console.log(`[WhatsApp Webhook] 🔗 Generating Magic Link for ${from} | Clinic: ${clinicData?.name}`);
 
                                 // Use Admin SDK to bypass client permissions
-                                const magicToken = await MagicLinkService.generateTokenAdmin(adminDb, from, `/book-appointment?clinicId=${session.clinicId}`);
+                                const magicToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, `/book-appointment?clinicId=${session.clinicId}`);
                                 console.log(`[WhatsApp Webhook] ✅ Magic Token Generated: ${magicToken.slice(0, 8)}...`);
 
                                 const success = await sendWhatsAppBookingLink({
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
                                 );
 
                                 if (aiResponse === AI_ERROR_BUSY) {
-                                    const magicToken = await MagicLinkService.generateTokenAdmin(adminDb, from, '/home');
+                                    const magicToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, '/home');
                                     await sendWhatsAppAIFallback({
                                         communicationPhone: from,
                                         patientName: patientName,
@@ -259,7 +260,7 @@ export async function POST(request: NextRequest) {
                         );
 
                         if (aiResponse === AI_ERROR_BUSY) {
-                            const magicToken = await MagicLinkService.generateTokenAdmin(adminDb, from, '/home');
+                            const magicToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, '/home');
                             await sendWhatsAppAIFallback({
                                 communicationPhone: from,
                                 patientName: patientName,
@@ -400,7 +401,7 @@ async function handleBookingWizard(from: string, message: string, session: any, 
                     const adminApp = getFirebaseAdmin();
                     const adminDb = adminApp.firestore();
                     // Use Admin SDK to bypass client permissions
-                    magicToken = await MagicLinkService.generateTokenAdmin(adminDb, from, `/live-token/${apptRef.id}`);
+                    magicToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, `/live-token/${apptRef.id}`);
                     console.log(`[MagicLink] Generated token(Admin) for ${from}: ${magicToken}`);
                 } catch (e) {
                     console.error('[MagicLink] Failed to generate token:', e);

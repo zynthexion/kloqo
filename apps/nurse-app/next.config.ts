@@ -89,6 +89,23 @@ const nextConfig: NextConfig = {
       }
     }
 
+    // Prevent Node.js modules from being bundled in client-side code
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        net: false,
+        tls: false,
+        fs: false,
+        dns: false,
+        http2: false,
+        child_process: false,
+        'node:events': false,
+        'node:stream': false,
+        'node:buffer': false,
+        'node:util': false,
+      };
+    }
+
     return config;
   },
 

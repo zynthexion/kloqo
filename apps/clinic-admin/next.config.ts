@@ -52,7 +52,34 @@ const nextConfig: NextConfig = {
   },
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-  }
+  },
+  // Webpack optimizations
+  webpack: (config, { dev, isServer }) => {
+    // Only apply optimizations in production
+    if (!dev) {
+      config.optimization.usedExports = true;
+      config.optimization.sideEffects = false;
+    }
+
+    // Prevent Node.js modules from being bundled in client-side code
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        net: false,
+        tls: false,
+        fs: false,
+        dns: false,
+        http2: false,
+        child_process: false,
+        'node:events': false,
+        'node:stream': false,
+        'node:buffer': false,
+        'node:util': false,
+      };
+    }
+
+    return config;
+  },
 };
 
 export default nextConfig;

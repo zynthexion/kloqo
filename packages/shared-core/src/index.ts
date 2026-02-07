@@ -19,6 +19,7 @@ export * from './services/code-service';
 export * from './services/whatsapp-session-service';
 export * from './services/global-search-service';
 export * from './services/magic-link-service';
+// export * from './services/magic-link-admin-service'; // Server-only: Import directly
 // Note: AIService is not exported here to avoid forcing @google/generative-ai dependency on all apps
 // Import directly from './services/ai-service' if needed
 
@@ -26,7 +27,7 @@ export * from './utils/date-utils';
 export { getClinicDateString, getClinicNow } from './utils/date-utils';
 export * from './utils/reservation-utils';
 export * from './utils/errors';
-export * from './utils/firebase-admin';
+// export * from './utils/firebase-admin'; // Server-only: Import directly
 export * from './utils/error-emitter';
 export * from './utils/text-utils';
 export * from './utils/token-utils';

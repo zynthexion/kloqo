@@ -560,9 +560,9 @@ export default function LiveDashboard() {
           try {
             await sendWhatsAppArrivalConfirmed({
               firestore: db,
-              communicationPhone: appointment.communicationPhone || appointment.phone || '',
+              communicationPhone: appointment.communicationPhone || '',
               patientName: appointment.patientName,
-              tokenNumber: appointment.classicTokenNumber || appointment.tokenNumber,
+              tokenNumber: String(appointment.classicTokenNumber || appointment.tokenNumber),
               appointmentId: appointment.id
             });
           } catch (e) { console.error("Notify Rejoin Error", e); }

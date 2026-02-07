@@ -1,8 +1,8 @@
 
 
 import { NextRequest, NextResponse } from 'next/server';
-import { CodeService } from '../../../../../../packages/shared-core/src/services/code-service';
-import { sendWhatsAppText } from '../../../../../../packages/shared-core/src/services/notification-service';
+import { CodeService } from '@kloqo/shared-core';
+import { sendWhatsAppText } from '@kloqo/shared-core';
 
 const VERIFY_TOKEN = 'kloqo-whatsapp-webhook-verify-token'; // Define a secure token
 

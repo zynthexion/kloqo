@@ -12,7 +12,10 @@ export * from './utils/break-helpers';
 export { previewWalkInPlacement, calculateWalkInDetails, type DailySlot } from './services/walk-in.service';
 export * from './services/walk-in-scheduler';
 export * from './services/booking.service';
+export * from './services/whatsapp-service';
 export * from './services/punctuality-service';
+export * from './services/code-service';
+export * from './services/ai-service';
 
 export * from './utils/date-utils';
 export * from './utils/reservation-utils';

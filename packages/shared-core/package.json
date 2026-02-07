@@ -11,8 +11,7 @@
         "date-fns": "^3.6.0",
         "firebase": "^11.9.1",
         "@kloqo/shared-firebase": "*",
-        "@kloqo/shared-types": "*",
-        "@google/generative-ai": "^0.21.0"
+        "@kloqo/shared-types": "*"
     },
     "devDependencies": {
         "@types/node": "^20",

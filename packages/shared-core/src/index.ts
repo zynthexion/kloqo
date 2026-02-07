@@ -15,7 +15,8 @@ export * from './services/booking.service';
 export * from './services/whatsapp-service';
 export * from './services/punctuality-service';
 export * from './services/code-service';
-export * from './services/ai-service';
+// Note: AIService is not exported here to avoid forcing @google/generative-ai dependency on all apps
+// Import directly from './services/ai-service' if needed
 
 export * from './utils/date-utils';
 export * from './utils/reservation-utils';

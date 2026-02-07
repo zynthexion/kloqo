@@ -165,7 +165,7 @@ export async function sendWhatsAppMessage(params: {
             baseUrl = window.location.origin;
         } else {
             // Fallback for server-side or non-browser environments
-            baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.kloqo.com';
+            baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://app.kloqo.com');
         }
 
         const apiUrl = `${baseUrl}/api/send-sms`;

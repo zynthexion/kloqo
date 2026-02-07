@@ -1,6 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
+import { WhatsAppService, WhatsAppTemplateComponent } from '@kloqo/shared-core';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -8,44 +9,90 @@ export async function POST(request: NextRequest) {
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const whatsappPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
+  // Handle direct WhatsApp API (Meta)
+  if (channel === 'whatsapp' && whatsappPhoneId && whatsappToken) {
+    try {
+      const whatsappService = new WhatsAppService(whatsappPhoneId, whatsappToken);
+
+      let components: WhatsAppTemplateComponent[] = [];
+      const templateName = body.contentSid;
+      const vars = body.contentVariables || {};
+
+      // Mapping logic for Malayalam templates with buttons
+      if (templateName === 'appointment_confirmed_ml') {
+        const bodyParams = ["1", "2", "3", "4", "5", "6"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
+        const buttonParams = [{ type: 'text' as const, text: String(vars["7"] || '') }];
+
+        components = [
+          { type: 'body', parameters: bodyParams },
+          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+        ];
+      } else if (templateName === 'appointment_confirmed_no_token_ml') {
+        const bodyParams = ["1", "2", "3", "4", "5"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
+        const buttonParams = [{ type: 'text' as const, text: String(vars["6"] || '') }];
+
+        components = [
+          { type: 'body', parameters: bodyParams },
+          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+        ];
+      } else if (templateName === 'appointment_request_ml') {
+        const bodyParams = ["1", "2", "3"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
+        const buttonParams = [{ type: 'text' as const, text: String(vars["4"] || '') }];
+
+        components = [
+          { type: 'body', parameters: bodyParams },
+          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+        ];
+      }
+
+      await whatsappService.sendTemplateMessage(to, templateName, 'ml', components);
+
+      return NextResponse.json({
+        success: true,
+        message: "WhatsApp message sent successfully via Meta API"
+      });
+    } catch (error: any) {
+      console.error('[WhatsApp API] Error:', error);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+  }
+
+  // Fallback to Twilio for SMS
   let from: string | undefined;
   let toFormatted: string;
 
   if (channel === 'whatsapp') {
+    // If it's a Meta template, DO NOT fall back to Twilio as it will fail
+    const metaTemplates = ['appointment_confirmed_ml', 'appointment_confirmed_no_token_ml', 'appointment_request_ml'];
+    if (metaTemplates.includes(body.contentSid)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Meta WhatsApp credentials missing or invalid. Check .env.local'
+      }, { status: 400 });
+    }
+
     from = process.env.TWILIO_WHATSAPP_NUMBER;
     toFormatted = `whatsapp:${to}`;
-    if (from) {
-      from = `whatsapp:${from}`;
-    }
+    if (from) from = `whatsapp:${from}`;
   } else {
     from = process.env.TWILIO_PHONE_NUMBER;
     toFormatted = to;
   }
 
-  // Check if Twilio credentials are configured in .env
   if (!accountSid || !authToken || !from) {
-    console.error("Twilio credentials are not configured in .env file for the selected channel.");
     return NextResponse.json(
-      { success: false, error: 'SMS/WhatsApp service is not configured. Please contact support.' },
+      { success: false, error: 'Messaging service is not configured.' },
       { status: 500 }
     );
-  }
-
-  // Check for placeholder credentials
-  if (accountSid === 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' || authToken === 'your_auth_token') {
-    console.warn("Using placeholder Twilio credentials. Message will not be sent.");
-    // Simulate a successful response for development/testing without real credentials
-    return NextResponse.json({ success: true, message: "Message sending is in simulation mode." });
   }
 
   const client = twilio(accountSid, authToken);
 
   try {
-    const messageOptions: any = {
-      from,
-      to: toFormatted,
-    };
+    const messageOptions: any = { from, to: toFormatted };
 
     if (channel === 'whatsapp' && body.contentSid) {
       messageOptions.contentSid = body.contentSid;
@@ -59,21 +106,10 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await client.messages.create(messageOptions);
-
-    console.log(`Twilio ${channel} message sent successfully:`, result.sid);
     return NextResponse.json({ success: true, sid: result.sid });
+
   } catch (error: any) {
-    console.error(`Twilio ${channel} error:`, error);
-    // Provide a more helpful error for common WhatsApp issues
-    if (channel === 'whatsapp' && error.code === 21612) {
-      return NextResponse.json(
-        { success: false, error: "The recipient has not yet opted in to receive messages from this WhatsApp number. They must first send a message to your Twilio WhatsApp number." },
-        { status: 400 }
-      );
-    }
-    return NextResponse.json(
-      { success: false, error: error.message || `Failed to send ${channel} via Twilio.` },
-      { status: 500 }
-    );
+    console.error('Twilio Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

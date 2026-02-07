@@ -18,6 +18,7 @@ export type AppUser = {
     clinicIds?: string[];
     role?: 'patient' | 'clinicAdmin'; // User role for routing and permissions
     pwaInstalled?: boolean;
+    acquisitionSource?: string;
 };
 
 type UserContextType = {
@@ -128,7 +129,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                             place: patientData.place || '',
                             clinicIds: clinicIds,
                             role: 'patient' as const,
-                            pwaInstalled: userDocData.pwaInstalled
+                            pwaInstalled: userDocData.pwaInstalled,
+                            acquisitionSource: userDocData.acquisitionSource
                         };
                     }
                 }
@@ -147,7 +149,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             place: '',
             clinicIds: [],
             role: 'patient' as const,
-            pwaInstalled: false
+            pwaInstalled: false,
+            acquisitionSource: undefined
         };
     }, [firestore]);
 

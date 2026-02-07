@@ -13,6 +13,7 @@ import { GlobalErrorHandler } from '@/components/GlobalErrorHandler';
 import { RoutePrefetcher } from '@/components/route-prefetcher';
 import { ReviewChecker, AppointmentReminderHandler } from '@/components/deferred-components';
 import { PwaTracker } from '@/components/pwa-tracker';
+import { AttributionTracker } from '@/components/attribution/attribution-tracker';
 
 
 export const metadata: Metadata = {
@@ -124,6 +125,7 @@ export default function RootLayout({
             <PwaTracker />
             <MessagingInitializer />
             <NotificationOnboard />
+            <AttributionTracker />
           </LanguageProvider>
         </FirebaseClientProvider>
       </body>

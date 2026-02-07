@@ -1,5 +1,7 @@
 
-import { db } from '../firebase/firebase';
+
+import { db } from '@kloqo/shared-firebase';
+
 import { collection, query, where, getDocs, updateDoc, doc, getDoc } from 'firebase/firestore';
 
 export class CodeService {

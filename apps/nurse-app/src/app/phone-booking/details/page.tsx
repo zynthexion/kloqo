@@ -17,9 +17,7 @@ import { collection, getDocs, doc, getDoc, query, where, updateDoc, serverTimest
 import { db } from '@/lib/firebase';
 import type { Doctor, Patient, User } from '@/lib/types';
 import AppFrameLayout from '@/components/layout/app-frame';
-import { errorEmitter } from '@kloqo/shared-core';
-import { FirestorePermissionError } from '@kloqo/shared-core';
-import { managePatient } from '@kloqo/shared-core';
+import { errorEmitter, FirestorePermissionError, managePatient, sendWhatsAppBookingLink, isSlotBlockedByLeave } from '@kloqo/shared-core';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
@@ -27,7 +25,6 @@ import { AddRelativeDialog } from '@/components/patients/add-relative-dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { format, addDays, isBefore, isAfter, startOfDay, addMinutes, subMinutes, isSameDay } from 'date-fns';
 import { parseTime, parseAppointmentDateTime } from '@/lib/utils';
-import { isSlotBlockedByLeave } from '@kloqo/shared-core';
 
 
 const formSchema = z.object({
@@ -587,31 +584,16 @@ function PhoneBookingDetailsContent() {
             const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
             const clinicDetails = clinicDoc.exists() ? clinicDoc.data() : null;
 
-            // Send WhatsApp message with booking link
-            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.kloqo.com';
-            const clinicName = clinicDetails?.name || 'the clinic';
-            const bookingLink = `${baseUrl}/clinics/${clinicId}`;
-            const message = `Your request for appointment is received in '${clinicName}'. Use this link to complete the booking: ${bookingLink}`;
-
-            const response = await fetch('/api/send-sms', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    to: fullPhoneNumber,
-                    channel: 'whatsapp',
-                    contentSid: 'HX8a0b3ef6c58c59d6af56aa45103552b9',
-                    contentVariables: {
-                        "1": clinicName,
-                        "2": bookingLink
-                    }
-                }),
+            // Send WhatsApp message with booking link via the shared service
+            const result = await sendWhatsAppBookingLink({
+                communicationPhone: fullPhoneNumber,
+                patientName: phoneNumber, // Use phone number as name since it's a new request
+                clinicName: clinicDetails?.name || 'the clinic',
+                clinicCode: clinicId!,
+                patientId: fullPhoneNumber // Using phone as reference ID for this case
             });
 
-            const result = await response.json();
-
-            if (result.success) {
+            if (result) {
                 toast({
                     title: "Link Sent Successfully",
                     description: `A booking link has been sent to ${fullPhoneNumber}.${isNewUser ? ' New user and patient records created.' : ''}`
@@ -620,7 +602,7 @@ function PhoneBookingDetailsContent() {
                 toast({
                     variant: "destructive",
                     title: "Failed to Send Link",
-                    description: result.error || "Could not send the booking link."
+                    description: "Could not send the booking link via WhatsApp."
                 });
             }
 

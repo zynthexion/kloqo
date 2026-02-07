@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { managePatient } from '@kloqo/shared-core';
-import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, getClinicDayOfWeek, getClinicDateString, getClinicNow, generateWalkInTokenNumber, calculateEstimatedTimes, compareAppointmentsClassic } from '@kloqo/shared-core';
+import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, getClinicDayOfWeek, getClinicDateString, getClinicNow, generateWalkInTokenNumber, calculateEstimatedTimes, compareAppointmentsClassic, sendWhatsAppArrivalConfirmed } from '@kloqo/shared-core';
 
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { getCurrentActiveSession, getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, type BreakInterval } from '@kloqo/shared-core';
@@ -350,7 +350,7 @@ function WalkInRegistrationContent() {
             counts[sIndex] = (counts[sIndex] || 0) + 1;
           }
         }
-        if (data.status === 'Confirmed' || data.status === 'Arrived') {
+        if (data.status === 'Confirmed') {
           arrived.push(data);
         }
       });
@@ -1046,14 +1046,17 @@ function WalkInRegistrationContent() {
         setIsTokenModalOpen(true);
 
         // Send notification (fire and forget)
+        // Notifications
         try {
           const clinicDoc = await getDoc(doc(db, 'clinics', clinicId));
-          const clinicName = clinicDoc.exists() ? clinicDoc.data().name : 'The Clinic';
+          const clinicDetails = clinicDoc.exists() ? clinicDoc.data() : null;
+          const clinicName = clinicDetails?.name || 'The Clinic';
 
           const appointmentDateObj = new Date();
           const appointmentDateStr = getClinicDateString(appointmentDateObj);
 
-          sendAppointmentBookedByStaffNotification({
+          // 1. Existing staff booking notification (Standard)
+          await sendAppointmentBookedByStaffNotification({
             firestore: db,
             patientId: appointmentToSave.patientId!,
             appointmentId: result.appointmentId,
@@ -1064,7 +1067,21 @@ function WalkInRegistrationContent() {
             tokenNumber: result.tokenNumber,
             bookedBy: 'nurse',
             arriveByTime: getClinicTimeString(new Date(result.estimatedTime)),
-          }).catch(err => console.error('Failed to send walk-in notification:', err));
+            patientName: appointmentToSave.patientName,
+            tokenDistribution: clinicDetails?.tokenDistribution,
+            classicTokenNumber: result.tokenNumber,
+          });
+
+          // 2. NEW: Special Malayalam "Arrival Confirmed" message with Magic Link
+          if (appointmentToSave.communicationPhone) {
+            await sendWhatsAppArrivalConfirmed({
+              firestore: db,
+              communicationPhone: appointmentToSave.communicationPhone,
+              patientName: appointmentToSave.patientName,
+              tokenNumber: result.tokenNumber,
+              appointmentId: result.appointmentId
+            });
+          }
         } catch (err) {
           console.error('Error preparing notification:', err);
         }

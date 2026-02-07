@@ -1,7 +1,7 @@
 
 'use client';
 
-import { ArrowLeft, LogOut, ChevronRight, CalendarDays, CalendarX, Settings, Clock } from 'lucide-react';
+import { ArrowLeft, LogOut, ChevronRight, CalendarDays, CalendarX, Settings, Clock, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,12 @@ export default function SettingsPage() {
             icon: Clock,
             href: "/settings/operating-hours",
             color: "text-orange-600"
+        },
+        {
+            title: "WhatsApp Bot",
+            icon: MessageSquare,
+            href: "/settings/whatsapp",
+            color: "text-green-600"
         },
         {
             title: "Log Out",

@@ -67,7 +67,7 @@ function DoctorCard({ doctor, t, departments, language }: { doctor: Doctor; t: a
                                 <Badge variant="secondary">{getLocalizedDepartmentName(doctor.department, language, departments)}</Badge>
                             )}
                         </div>
-                        
+
                         <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                             {(doctor as any).education && (
                                 <div className="flex items-center gap-1">
@@ -75,8 +75,8 @@ function DoctorCard({ doctor, t, departments, language }: { doctor: Doctor; t: a
                                 </div>
                             )}
                         </div>
-                        
-                        <Button 
+
+                        <Button
                             onClick={handleBookAppointment}
                             className="w-full"
                             size="sm"
@@ -96,12 +96,12 @@ function ClinicDetailsPage() {
     const router = useRouter();
     const params = useParams();
     const clinicId = params.id as string;
-    
+
     const firestore = useFirestore();
     const { user, loading: userLoading } = useUser();
     const { t, language } = useLanguage();
     const { departments } = useMasterDepartments();
-    
+
     const [clinic, setClinic] = useState<Clinic | null>(null);
     const [doctors, setDoctors] = useState<Doctor[]>([]);
     const [loading, setLoading] = useState(true);
@@ -115,13 +115,13 @@ function ClinicDetailsPage() {
                 // Fetch clinic details
                 const clinicDocRef = doc(firestore, 'clinics', clinicId);
                 const clinicDoc = await getDoc(clinicDocRef);
-                
+
                 if (clinicDoc.exists()) {
                     setClinic({
                         id: clinicDoc.id,
                         ...clinicDoc.data()
                     } as Clinic);
-                    
+
                     // Fetch doctors for this clinic
                     const doctorsQuery = query(
                         collection(firestore, 'doctors'),
@@ -153,11 +153,15 @@ function ClinicDetailsPage() {
             // Save the current path so we can redirect back after login
             const currentPath = window.location.pathname;
             localStorage.setItem('redirectAfterLogin', currentPath);
-            
-            // Check if clinicId is in URL and add it as query param for login
+
+            // Check if clinicId or magicToken is in URL and add them as query params for login
             const loginParams = new URLSearchParams();
             loginParams.set('clinicId', clinicId);
-            
+            const magicToken = new URLSearchParams(window.location.search).get('magicToken');
+            if (magicToken) {
+                loginParams.set('magicToken', magicToken);
+            }
+
             router.push(`/login?${loginParams.toString()}`);
         }
     }, [user, userLoading, router, clinicId]);
@@ -173,9 +177,9 @@ function ClinicDetailsPage() {
             {/* Header - Always show immediately */}
             <div className="sticky top-0 bg-background border-b z-10">
                 <div className="flex items-center p-4">
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
+                    <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-8 w-8"
                         onClick={() => router.back()}
                     >
@@ -204,54 +208,54 @@ function ClinicDetailsPage() {
                     </Card>
                 ) : (
                     <Card className="mb-6 relative">
-                    {clinic.latitude && clinic.longitude && (
-                        <Button
-                            variant="default"
-                            size="icon"
-                            className="absolute bottom-4 right-4 h-14 w-14 rounded-full shadow-lg"
-                            onClick={() => {
-                                const googleMapsUrl = `https://www.google.com/maps?q=${clinic.latitude},${clinic.longitude}`;
-                                window.open(googleMapsUrl, '_blank');
-                            }}
-                        >
-                            <MapPin className="h-6 w-6" />
-                        </Button>
-                    )}
-                    <CardContent className="p-6">
-                        <div className="flex gap-4">
-                            {clinic.logoUrl ? (
-                                <Avatar className="h-20 w-20 rounded-lg">
-                                    <AvatarImage src={clinic.logoUrl} alt={clinic.name} />
-                                    <AvatarFallback>{clinic.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                                </Avatar>
-                            ) : (
-                                <div className="h-20 w-20 rounded-lg bg-primary/10 flex items-center justify-center">
-                                    <Building2 className="h-10 w-10 text-primary" />
-                                </div>
-                            )}
-                            <div className="flex-grow space-y-2 pr-20">
-                                <div>
-                                    <h2 className="text-xl font-bold">{clinic.name}</h2>
-                                    <p className="text-sm text-muted-foreground">{clinic.type}</p>
-                                </div>
-                                
-                                {clinic.address && (
-                                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                                        <MapPin className="w-4 h-4 mt-0.5" />
-                                        <span>{clinic.address}</span>
+                        {clinic.latitude && clinic.longitude && (
+                            <Button
+                                variant="default"
+                                size="icon"
+                                className="absolute bottom-4 right-4 h-14 w-14 rounded-full shadow-lg"
+                                onClick={() => {
+                                    const googleMapsUrl = `https://www.google.com/maps?q=${clinic.latitude},${clinic.longitude}`;
+                                    window.open(googleMapsUrl, '_blank');
+                                }}
+                            >
+                                <MapPin className="h-6 w-6" />
+                            </Button>
+                        )}
+                        <CardContent className="p-6">
+                            <div className="flex gap-4">
+                                {clinic.logoUrl ? (
+                                    <Avatar className="h-20 w-20 rounded-lg">
+                                        <AvatarImage src={clinic.logoUrl} alt={clinic.name} />
+                                        <AvatarFallback>{clinic.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                                    </Avatar>
+                                ) : (
+                                    <div className="h-20 w-20 rounded-lg bg-primary/10 flex items-center justify-center">
+                                        <Building2 className="h-10 w-10 text-primary" />
                                     </div>
                                 )}
-                                
-                                <div className="flex items-center gap-4 text-sm">
-                                    <div className="flex items-center gap-1">
-                                        <Users className="w-4 h-4" />
-                                        <span>{doctors.length} {doctors.length !== 1 ? t.clinics.doctorsPlural : t.clinics.doctors}</span>
+                                <div className="flex-grow space-y-2 pr-20">
+                                    <div>
+                                        <h2 className="text-xl font-bold">{clinic.name}</h2>
+                                        <p className="text-sm text-muted-foreground">{clinic.type}</p>
+                                    </div>
+
+                                    {clinic.address && (
+                                        <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                                            <MapPin className="w-4 h-4 mt-0.5" />
+                                            <span>{clinic.address}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-4 text-sm">
+                                        <div className="flex items-center gap-1">
+                                            <Users className="w-4 h-4" />
+                                            <span>{doctors.length} {doctors.length !== 1 ? t.clinics.doctorsPlural : t.clinics.doctors}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
                 )}
 
                 {/* Doctors Section - Show skeletons while loading */}

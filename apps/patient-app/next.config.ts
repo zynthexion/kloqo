@@ -206,6 +206,29 @@ const nextConfig: NextConfig = {
 
   // Webpack optimizations
   webpack: (config, { dev, isServer }) => {
+    // Enable WebAssembly support
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+    };
+
+    // Prevent Node.js modules from being bundled in client-side code
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        net: false,
+        tls: false,
+        fs: false,
+        dns: false,
+        http2: false,
+        child_process: false,
+        'node:events': false,
+        'node:stream': false,
+        'node:buffer': false,
+        'node:util': false,
+      };
+    }
+
     // Only apply optimizations in production
     if (!dev) {
       config.optimization.usedExports = true;

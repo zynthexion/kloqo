@@ -9,6 +9,7 @@ import { parseTime } from '../utils/break-helpers';
 import { getClinicTimeString, getClinicISOString, getClinicNow } from '../utils/date-utils';
 import { compareAppointments } from './appointment-service';
 import type { Appointment } from '@kloqo/shared-types';
+import { MagicLinkService } from './magic-link-service';
 
 declare const window: any;
 
@@ -211,8 +212,9 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     tokenNumber: string;
     appointmentId: string;
     showToken?: boolean;
+    magicToken?: string; // NEW: Supporting magic links
 }): Promise<boolean> {
-    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true } = params;
+    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true, magicToken } = params;
 
     // Meta Template Names
     const templateWithToken = 'appointment_confirmed_ml';
@@ -227,7 +229,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     if (showToken) {
         templateName = templateWithToken;
         const liveStatusRef = `whatsapp_confirmation`; // USER REQUESTED: Template 1 use whatsapp_confirmation
-        const liveStatusLink = `${appointmentId}?ref=${liveStatusRef}`;
+        const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
+        const liveStatusLink = magicToken ? `${baseUrl}&magicToken=${magicToken}` : baseUrl;
 
         contentVariables = {
             "1": patientName,
@@ -242,7 +245,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     } else {
         templateName = templateNoToken;
         const liveStatusRef = `whatsapp_confirmation_no_token`;
-        const liveStatusLink = `${appointmentId}?ref=${liveStatusRef}`;
+        const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
+        const liveStatusLink = magicToken ? `${baseUrl}&magicToken=${magicToken}` : baseUrl;
 
         contentVariables = {
             "1": patientName,
@@ -263,29 +267,111 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
 }
 
 /**
+ * Send WhatsApp "Arrival Confirmed" with Magic Link for status transitions
+ */
+export async function sendWhatsAppArrivalConfirmed(params: {
+    firestore: Firestore;
+    communicationPhone: string;
+    patientName: string;
+    tokenNumber: string;
+    appointmentId: string;
+}): Promise<boolean> {
+    const { firestore, communicationPhone, patientName, tokenNumber, appointmentId } = params;
+
+    try {
+        // 1. Generate a magic token
+        const token = await MagicLinkService.generateToken(params.firestore || (null as any), communicationPhone, `live-token/${appointmentId}`);
+
+        // 2. Prepare Template
+        const templateName = 'appointment_status_confirmed_ml';
+        const liveStatusRef = `status_confirmed`;
+        const linkSuffix = `${appointmentId}?ref=${liveStatusRef}&magicToken=${token}`;
+
+        const contentVariables = {
+            "1": patientName,
+            "2": tokenNumber,
+            "3": linkSuffix // Button dynamic URL suffix
+        };
+
+        console.log(`[WhatsApp] 📄 Using Meta Template (appointment_status_confirmed_ml) - Token: ${tokenNumber}`);
+
+        return sendWhatsAppMessage({
+            to: communicationPhone,
+            contentSid: templateName,
+            contentVariables
+        });
+    } catch (error) {
+        console.error('[WhatsApp] ❌ Error in sendWhatsAppArrivalConfirmed:', error);
+        return false;
+    }
+}
+
+/**
+ * Sends a professional AI Fallback message with a Magic Link when AI is busy/exhausted.
+ */
+export async function sendWhatsAppAIFallback(params: {
+    communicationPhone: string;
+    patientName?: string;
+    magicToken: string;
+    clinicId?: string;
+}): Promise<boolean> {
+    const { communicationPhone, patientName, magicToken, clinicId } = params;
+
+    try {
+        const templateName = 'ai_fallback_ml';
+        // Redirect to clinic home or global home
+        const redirectPath = clinicId ? `/home?clinicId=${clinicId}` : '/home';
+        const linkSuffix = `?ref=ai_fallback&magicToken=${magicToken}`;
+
+        const contentVariables = {
+            "1": patientName || 'സുഹൃത്തേ',
+            "2": linkSuffix // Button dynamic URL suffix
+        };
+
+        console.log(`[WhatsApp] 🤖 Sending AI Fallback (ai_fallback_ml) to: ${communicationPhone}`);
+
+        return sendWhatsAppMessage({
+            to: communicationPhone,
+            contentSid: templateName,
+            contentVariables
+        });
+    } catch (error) {
+        console.error('[WhatsApp] ❌ Error in sendWhatsAppAIFallback:', error);
+        return false;
+    }
+}
+
+/**
  * Send WhatsApp booking link for pending appointments
  */
 export async function sendWhatsAppBookingLink(params: {
     communicationPhone: string;
     patientName: string;
     clinicName: string;
-    clinicCode: string; // e.g., c12345
-    patientId: string;
+    clinicCode: string; // e.g., KQ-NZYX (for display in body)
+    clinicId: string; // Firestore ID for the URL
+    magicToken?: string;
+    redirectPath?: string;
 }): Promise<boolean> {
-    const { communicationPhone, patientName, clinicName, clinicCode, patientId } = params;
+    const { communicationPhone, patientName, clinicName, clinicCode, clinicId, magicToken, redirectPath } = params;
 
-    const templateName = 'appointment_request_ml';
+    const templateName = 'appointment_requested_ml';
     const ref = 'whatsapp_booking_link';
-    const linkSuffix = `${clinicCode}?ref=${ref}`;
+
+    // Meta template button URL is: https://app.kloqo.com/clinics/{{1}}
+    // So {{1}} will be replaced with the button parameter
+    // We need to send: clinicId?ref=...&redirect=...&magicToken=...
+    const baseSuffix = `${clinicId}?ref=${ref}${redirectPath ? `&redirect=${encodeURIComponent(redirectPath)}` : ''}`;
+    const linkSuffix = magicToken ? `${baseSuffix}&magicToken=${magicToken}` : baseSuffix;
 
     const contentVariables = {
         "1": patientName,
         "2": clinicName,
-        "3": patientId, // Reference ID
-        "4": linkSuffix
+        "3": clinicCode, // Reference ID / Code (for display in message body)
+        "4": linkSuffix // This goes to the button URL as {{1}}
     };
 
-    console.log(`[WhatsApp] 📄 Using Meta Template (appointment_request_ml) for ${patientName}`);
+    console.log(`[WhatsApp] 📄 Using Meta Template (appointment_requested_ml) for ${patientName}`);
 
     return sendWhatsAppMessage({
         to: communicationPhone,
@@ -1027,7 +1113,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
             const patientSlotIndex = appointment.slotIndex || -1;
 
             if (patientSlotIndex !== -1) {
-                // Sum up durations of dummy break appointments that appear before this patient 
+                // Sum up durations of dummy break appointments that appear before this patient
                 // but after the completed one
                 const now = getClinicNow();
                 const breaksBeforePatient = breaks.filter(b => {

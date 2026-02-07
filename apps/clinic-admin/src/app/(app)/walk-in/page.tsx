@@ -30,7 +30,7 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import { managePatient } from '@kloqo/shared-core';
 import { calculateWalkInDetails, generateNextTokenAndReserveSlot, sendAppointmentBookedByStaffNotification, completeStaffWalkInBooking, getClinicTimeString, generateWalkInTokenNumber, calculateEstimatedTimes, getClinicDateString, getClinicNow } from '@kloqo/shared-core';
 
-import { getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing } from '@kloqo/shared-core';
+import { getSessionEnd, getSessionBreakIntervals, isWithin15MinutesOfClosing, sendWhatsAppArrivalConfirmed } from '@kloqo/shared-core';
 import PatientSearchResults from '@/components/clinic/patient-search-results';
 import { Suspense } from 'react';
 
@@ -697,9 +697,11 @@ function WalkInRegistrationContent() {
         // Send notification (fire and forget)
         try {
           const clinicDoc = await getDoc(doc(db, 'clinics', clinicId!));
-          const clinicName = clinicDoc.exists() ? clinicDoc.data().name : 'The Clinic';
+          const clinicDetails = clinicDoc.exists() ? clinicDoc.data() : null;
+          const clinicName = clinicDetails?.name || 'The Clinic';
 
-          sendAppointmentBookedByStaffNotification({
+          // 1. Existing staff booking notification (Standard)
+          await sendAppointmentBookedByStaffNotification({
             firestore: db,
             patientId: appointmentToSave.patientId!,
             appointmentId: result.appointmentId,
@@ -710,9 +712,20 @@ function WalkInRegistrationContent() {
             arriveByTime: result.estimatedTime,
             tokenNumber: result.tokenNumber,
             bookedBy: 'admin',
-            tokenDistribution: clinicDoc.exists() ? clinicDoc.data().tokenDistribution : undefined,
+            tokenDistribution: clinicDetails?.tokenDistribution,
             classicTokenNumber: result.tokenNumber, // Walk-ins have direct tokens
-          }).catch(err => console.error('Failed to send walk-in notification:', err));
+          });
+
+          // 2. NEW: Special Malayalam "Arrival Confirmed" message with Magic Link
+          if (appointmentToSave.communicationPhone) {
+            await sendWhatsAppArrivalConfirmed({
+              firestore: db,
+              communicationPhone: appointmentToSave.communicationPhone,
+              patientName: appointmentToSave.patientName,
+              tokenNumber: result.tokenNumber,
+              appointmentId: result.appointmentId
+            });
+          }
         } catch (err) {
           console.error('Error preparing notification:', err);
         }

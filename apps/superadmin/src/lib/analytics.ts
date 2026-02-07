@@ -35,6 +35,8 @@ export interface Clinic {
   plan?: string;
   walkInTokenAllotment?: number;
   departments?: string[];
+  shortCode?: string;
+  showEstimatedWaitTime?: boolean;
 }
 
 export interface Patient {
@@ -61,6 +63,7 @@ export interface Appointment {
   createdAt?: any;
   bookedVia?: string;
   tokenNumber?: string;
+  time?: string;
 }
 
 export interface User {

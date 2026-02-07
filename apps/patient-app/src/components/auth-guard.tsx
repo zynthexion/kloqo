@@ -194,11 +194,16 @@ export function AuthGuard({ children }: AuthGuardProps) {
     if (typeof window !== 'undefined') {
       localStorage.setItem('redirectAfterLogin', fullPath);
 
-      // Build login URL with any clinicId from current URL
+      // Build login URL with any clinicId or magicToken from current URL
       const loginParams = new URLSearchParams();
       const clinicId = searchParams.get('clinicId');
+      const magicToken = searchParams.get('magicToken');
+
       if (clinicId) {
         loginParams.set('clinicId', clinicId);
+      }
+      if (magicToken) {
+        loginParams.set('magicToken', magicToken);
       }
 
       const loginUrl = loginParams.toString()

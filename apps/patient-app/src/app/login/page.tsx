@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth, useFirestore } from '@/firebase';
 import { collection, doc, serverTimestamp, setDoc, getDoc, updateDoc, arrayUnion, query, where, getDocs } from 'firebase/firestore';
-import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from 'firebase/auth';
+import { RecaptchaVerifier, signInWithPhoneNumber, signInWithCustomToken, type ConfirmationResult } from 'firebase/auth';
 import { Stethoscope, Loader2 } from 'lucide-react';
 import { useUser } from '@/firebase/auth/use-user';
 import { useLanguage } from '@/contexts/language-context';
@@ -125,6 +125,51 @@ function LoginContent() {
             }
         }
     }, [step, phoneNumber, confirmationResult]);
+
+    // ** MAGIC LOGIN LOGIC **
+    useEffect(() => {
+        const magicToken = searchParams.get('magicToken');
+        if (magicToken && auth) {
+            handleMagicLogin(magicToken);
+        }
+    }, [auth, searchParams]);
+
+    const handleMagicLogin = async (token: string) => {
+        setIsLoading(true);
+        try {
+            console.log('[MagicLogin] Attempting silent login with token...');
+            const response = await fetch('/api/auth/magic-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ magicToken: token })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Magic login failed');
+            }
+
+            const { customToken, redirectPath } = await response.json();
+
+            // Sign in with Firebase Custom Token
+            if (auth) {
+                await signInWithCustomToken(auth, customToken);
+                console.log('[MagicLogin] Successfully signed in with custom token');
+            }
+
+            // Redirect to target path
+            const finalRedirect = searchParams.get('redirect') || redirectPath || '/live-token';
+            window.location.href = finalRedirect;
+        } catch (error: any) {
+            console.error('[MagicLogin] Error:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Login Failed',
+                description: 'The magic link was invalid or has expired. Please log in normally.'
+            });
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
         // Only redirect if we're actually on the login page and user is fully authenticated

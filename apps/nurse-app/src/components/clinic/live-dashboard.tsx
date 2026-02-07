@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { parseTime } from '@/lib/utils';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber, sendWhatsAppArrivalConfirmed } from '@kloqo/shared-core';
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -472,6 +472,19 @@ export default function LiveDashboard() {
         // --- CHECK REFILL ---
         await checkAndRefillBuffer(updatedAppointments);
 
+        // --- SEND NOTIFICATION ---
+        if (appointmentToAddToQueue.communicationPhone) {
+          try {
+            await sendWhatsAppArrivalConfirmed({
+              firestore: db,
+              communicationPhone: appointmentToAddToQueue.communicationPhone,
+              patientName: appointmentToAddToQueue.patientName,
+              tokenNumber: finalClassicTokenNumber || appointmentToAddToQueue.tokenNumber,
+              appointmentId: appointmentToAddToQueue.id
+            });
+          } catch (e) { console.error("Notify Confirm Error", e); }
+        }
+
       } catch (error) {
         console.error("Error adding to queue:", error);
         toast({ variant: "destructive", title: "Error" });
@@ -541,6 +554,19 @@ export default function LiveDashboard() {
 
         // --- CHECK REFILL ---
         await checkAndRefillBuffer(updatedAppointments);
+
+        // --- SEND NOTIFICATION ---
+        if (appointment.communicationPhone) { // Trigger WhatsApp Notification
+          try {
+            await sendWhatsAppArrivalConfirmed({
+              firestore: db,
+              communicationPhone: appointment.communicationPhone || appointment.phone || '',
+              patientName: appointment.patientName,
+              tokenNumber: appointment.classicTokenNumber || appointment.tokenNumber,
+              appointmentId: appointment.id
+            });
+          } catch (e) { console.error("Notify Rejoin Error", e); }
+        }
 
       } catch (error) {
         console.error("Error re-joining:", error);

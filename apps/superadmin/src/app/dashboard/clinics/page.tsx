@@ -46,7 +46,7 @@ export default function ClinicsPage() {
               const doctorsQuery = query(collection(db, 'doctors'), where('clinicId', '==', clinic.id));
               const doctorsSnapshot = await getDocs(doctorsQuery);
               const actualDoctorCount = doctorsSnapshot.size;
-              
+
               // If the stored count doesn't match, update it (but don't update state here, just use for display)
               // We'll use the actual count for display
               return {
@@ -74,15 +74,15 @@ export default function ClinicsPage() {
 
   // Filter clinics
   const filteredClinics = clinics.filter((clinic) => {
-    const matchesSearch = 
+    const matchesSearch =
       !searchTerm ||
       clinic.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       clinic.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       clinic.district?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       clinic.clinicRegNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       clinic.ownerEmail?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesFilter = 
+
+    const matchesFilter =
       filterStatus === 'all' ||
       (filterStatus === 'active' && clinic.onboardingStatus === 'Completed' && clinic.registrationStatus === 'Approved') ||
       (filterStatus === 'pending' && clinic.registrationStatus === 'Pending') ||
@@ -97,7 +97,7 @@ export default function ClinicsPage() {
     const clinicAppointments = appointments.filter(apt => apt.clinicId === clinic.id);
     const last30Days = new Date();
     const healthScore = calculateClinicHealth(clinic, clinicAppointments, last30Days);
-    
+
     return {
       totalAppointments: clinicAppointments.length,
       healthScore,
@@ -126,7 +126,7 @@ export default function ClinicsPage() {
         registrationStatus: 'Approved',
       });
 
-      setClinics(prev => prev.map(c => 
+      setClinics(prev => prev.map(c =>
         c.id === clinic.id ? { ...c, registrationStatus: 'Approved' } : c
       ));
 
@@ -148,7 +148,7 @@ export default function ClinicsPage() {
         registrationStatus: 'Rejected',
       });
 
-      setClinics(prev => prev.map(c => 
+      setClinics(prev => prev.map(c =>
         c.id === clinic.id ? { ...c, registrationStatus: 'Rejected' } : c
       ));
 
@@ -269,6 +269,7 @@ export default function ClinicsPage() {
                     <th className="text-left p-3 text-sm font-medium">Clinic Name</th>
                     <th className="text-left p-3 text-sm font-medium">Owner Email</th>
                     <th className="text-left p-3 text-sm font-medium">Location</th>
+                    <th className="text-left p-3 text-sm font-medium">Short Code</th>
                     <th className="text-left p-3 text-sm font-medium">Registration #</th>
                     <th className="text-left p-3 text-sm font-medium">Registration Status</th>
                     <th className="text-left p-3 text-sm font-medium">Onboarding Status</th>
@@ -293,8 +294,8 @@ export default function ClinicsPage() {
                         <td className="p-3">
                           <div className="flex items-center gap-2">
                             {clinic.logoUrl && (
-                              <img 
-                                src={clinic.logoUrl} 
+                              <img
+                                src={clinic.logoUrl}
                                 alt={clinic.name}
                                 className="w-8 h-8 object-cover rounded border"
                               />
@@ -313,6 +314,15 @@ export default function ClinicsPage() {
                             {clinic.city || 'N/A'}
                             {clinic.district && <div className="text-xs text-muted-foreground">{clinic.district}</div>}
                           </div>
+                        </td>
+                        <td className="p-3">
+                          {clinic.shortCode ? (
+                            <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-mono">
+                              {clinic.shortCode}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">Not Set</span>
+                          )}
                         </td>
                         <td className="p-3 text-sm">{clinic.clinicRegNumber || 'N/A'}</td>
                         <td className="p-3">
@@ -334,10 +344,9 @@ export default function ClinicsPage() {
                         </td>
                         <td className="p-3 text-sm font-medium">{stats.totalAppointments}</td>
                         <td className="p-3">
-                          <div className={`text-sm font-bold ${
-                            stats.healthScore >= 80 ? 'text-green-600' :
+                          <div className={`text-sm font-bold ${stats.healthScore >= 80 ? 'text-green-600' :
                             stats.healthScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-                          }`}>
+                            }`}>
                             {stats.healthScore}
                           </div>
                         </td>

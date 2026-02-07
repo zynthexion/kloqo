@@ -139,11 +139,31 @@ export function parseClinicTime(timeStr: string, baseDate: Date): Date {
 }
 
 /**
- * Parses a date string (e.g., "4 January 2026"), 
+ * Parses a date string (e.g., "4 January 2026", "2026-02-10"), 
  * interpreting it specifically in the Asia/Kolkata timezone.
+ * Returns an "Invalid Date" object if parsing fails.
  */
 export function parseClinicDate(dateStr: string): Date {
-    const localDate = parse(dateStr, 'd MMMM yyyy', new Date());
+    let localDate: Date;
+
+    // Try YYYY-MM-DD (ISO style) first
+    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+        localDate = new Date(dateStr);
+    }
+    // Try "d MMMM yyyy"
+    else {
+        localDate = parse(dateStr, 'd MMMM yyyy', new Date());
+    }
+
+    // Fallback to native parsing
+    if (isNaN(localDate.getTime())) {
+        localDate = new Date(dateStr);
+    }
+
+    if (isNaN(localDate.getTime())) {
+        return localDate; // Return Invalid Date
+    }
+
     localDate.setHours(0, 0, 0, 0);
     const IST_OFFSET = 330;
     const systemOffset = -localDate.getTimezoneOffset();

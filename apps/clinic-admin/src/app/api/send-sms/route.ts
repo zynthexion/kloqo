@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
           { type: 'body', parameters: bodyParams },
           { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
         ];
-      } else if (templateName === 'appointment_request_ml') {
+      } else if (templateName === 'appointment_requested_ml') {
         const bodyParams = ["1", "2", "3"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
         const buttonParams = [{ type: 'text' as const, text: String(vars["4"] || '') }];
 
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
 
   if (channel === 'whatsapp') {
     // If it's a Meta template, DO NOT fall back to Twilio as it will fail
-    const metaTemplates = ['appointment_confirmed_ml', 'appointment_confirmed_no_token_ml', 'appointment_request_ml'];
+    const metaTemplates = ['appointment_confirmed_ml', 'appointment_confirmed_no_token_ml', 'appointment_requested_ml'];
     if (metaTemplates.includes(body.contentSid)) {
       return NextResponse.json({
         success: false,

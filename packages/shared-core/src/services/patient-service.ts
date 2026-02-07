@@ -4,6 +4,66 @@ import type { Patient, User } from '@kloqo/shared-types';
 import { errorEmitter } from '../utils/error-emitter';
 import { FirestorePermissionError } from '../utils/errors';
 
+/**
+ * Finds a patient by their phone number.
+ * Handles various formats: 9074297611, 919074297611, +919074297611
+ */
+export async function getPatientByPhone(phone: string): Promise<Patient | null> {
+    try {
+        const db = getFirestore(getServerFirebaseApp());
+        const patientsRef = collection(db, 'patients');
+
+        // Clean phone: remove all non-digits
+        const digitsOnly = phone.replace(/\D/g, '');
+
+        // Get the last 10 digits (common local format)
+        const local10 = digitsOnly.slice(-10);
+
+        console.log(`[getPatientByPhone] Searching for: ${phone} (local10: ${local10})`);
+
+        // Search for EXACT match first
+        const qExact = query(patientsRef, where('phone', '==', phone));
+        const snapExact = await getDocs(qExact);
+        if (!snapExact.empty) {
+            console.log(`[getPatientByPhone] Found patient by exact match: ${snapExact.docs[0].id}`);
+            return { id: snapExact.docs[0].id, ...snapExact.docs[0].data() } as Patient;
+        }
+
+        // Search for 10-digit version
+        const q10 = query(patientsRef, where('phone', '==', local10));
+        const snap10 = await getDocs(q10);
+        if (!snap10.empty) {
+            console.log(`[getPatientByPhone] Found patient by 10-digit match: ${snap10.docs[0].id}`);
+            return { id: snap10.docs[0].id, ...snap10.docs[0].data() } as Patient;
+        }
+
+        // Search for 91-prefix version
+        const q91 = query(patientsRef, where('phone', '==', `91${local10}`));
+        const snap91 = await getDocs(q91);
+        if (!snap91.empty) {
+            console.log(`[getPatientByPhone] Found patient by 91-prefix match: ${snap91.docs[0].id}`);
+            return { id: snap91.docs[0].id, ...snap91.docs[0].data() } as Patient;
+        }
+
+        // Search for +91-prefix version
+        const qPlus91 = query(patientsRef, where('phone', '==', `+91${local10}`));
+        const snapPlus91 = await getDocs(qPlus91);
+        if (!snapPlus91.empty) {
+            console.log(`[getPatientByPhone] Found patient by +91-prefix match: ${snapPlus91.docs[0].id}`);
+            return { id: snapPlus91.docs[0].id, ...snapPlus91.docs[0].data() } as Patient;
+        }
+
+        console.log(`[getPatientByPhone] No patient found for ${phone}`);
+        return null;
+    } catch (error: any) {
+        console.error('[getPatientByPhone] Error:', error);
+        if (error.code === 'permission-denied') {
+            console.error('[getPatientByPhone] Security rules blocked access to patients collection.');
+        }
+        return null;
+    }
+}
+
 type PatientInput = {
     id?: string; // ID for updating an existing patient
     name: string;
@@ -357,5 +417,41 @@ export async function unlinkRelative(
         });
         errorEmitter.emit('permission-error', permissionError);
         throw permissionError;
+    }
+}
+/**
+ * Fetches all related patient documents for a given primary patient ID.
+ */
+export async function getRelativesByPatientId(primaryPatientId: string): Promise<Patient[]> {
+    try {
+        const db = getFirestore(getServerFirebaseApp());
+        const primaryRef = doc(db, 'patients', primaryPatientId);
+        const primarySnap = await getDoc(primaryRef);
+
+        if (!primarySnap.exists()) return [];
+
+        const primaryData = primarySnap.data() as Patient;
+        const relativeIds = primaryData.relatedPatientIds || [];
+
+        if (relativeIds.length === 0) return [];
+
+        const relatives: Patient[] = [];
+        // Firestore 'in' query has a limit of 10, which fits our "relative" use case well
+        const chunks = [];
+        for (let i = 0; i < relativeIds.length; i += 10) {
+            chunks.push(relativeIds.slice(i, i + 10));
+        }
+
+        const patientsRef = collection(db, 'patients');
+        for (const chunk of chunks) {
+            const q = query(patientsRef, where('id', 'in', chunk));
+            const snap = await getDocs(q);
+            snap.docs.forEach(d => relatives.push({ id: d.id, ...d.data() } as Patient));
+        }
+
+        return relatives;
+    } catch (error) {
+        console.error('[getRelativesByPatientId] Error:', error);
+        return [];
     }
 }

@@ -305,6 +305,16 @@ export default function ClinicDetailsPage() {
               <p className="font-medium">{clinic.clinicRegNumber || 'N/A'}</p>
             </div>
             <div>
+              <p className="text-sm text-muted-foreground mb-1">WhatsApp Short Code</p>
+              {clinic.shortCode ? (
+                <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-mono text-base px-3 py-1">
+                  {clinic.shortCode}
+                </Badge>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">Not Generated</p>
+              )}
+            </div>
+            <div>
               <p className="text-sm text-muted-foreground mb-1">Plan</p>
               <p className="font-medium">{clinic.plan || 'N/A'}</p>
             </div>
@@ -480,7 +490,7 @@ export default function ClinicDetailsPage() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
@@ -564,6 +574,7 @@ export default function ClinicDetailsPage() {
                 }
               }).forEach(apt => {
                 try {
+                  if (!apt.time) return false;
                   const aptTime = parse(apt.time, 'hh:mm a', new Date());
                   const hour = getHours(aptTime);
                   hourlyCounts[hour]++;

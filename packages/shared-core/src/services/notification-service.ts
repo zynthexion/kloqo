@@ -4,12 +4,13 @@
  */
 
 import { Firestore, doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
-import { parse, format, subMinutes, addMinutes } from 'date-fns';
+import { parse, format, subMinutes, addMinutes, addDays } from 'date-fns';
 import { parseTime } from '../utils/break-helpers';
-import { getClinicTimeString, getClinicISOString, getClinicNow } from '../utils/date-utils';
+import { getClinicTimeString, getClinicISOString, getClinicNow, getClinicDateString, parseClinicTime } from '../utils/date-utils';
 import { compareAppointments } from './appointment-service';
 import type { Appointment } from '@kloqo/shared-types';
 import { MagicLinkService } from './magic-link-service';
+import { WhatsAppSessionService } from './whatsapp-session-service';
 
 declare const window: any;
 
@@ -140,7 +141,6 @@ export async function sendNotificationToPatient(params: {
         console.error('🔔 DEBUG: Error sending notification to patient:', error);
         if (error instanceof Error) {
             console.error('🔔 DEBUG: Error message:', error.message);
-            console.error('🔔 DEBUG: Error stack:', error.stack);
         }
         return false;
     }
@@ -198,6 +198,7 @@ export async function sendWhatsAppMessage(params: {
     }
 }
 
+
 /**
  * Send WhatsApp confirmation for staff-booked appointments
  */
@@ -216,18 +217,15 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
 }): Promise<boolean> {
     const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true, magicToken } = params;
 
-    // Meta Template Names
-    const templateWithToken = 'appointment_confirmed_ml';
-    const templateNoToken = 'appointment_confirmed_no_token_ml';
+    // Meta Template Name
+    const templateName = 'appointment_reminder_v2';
 
     // Patient app URL with attribution
     let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
 
-    let templateName = templateWithToken;
     let contentVariables: any = {};
 
     if (showToken) {
-        templateName = templateWithToken;
         const liveStatusRef = `whatsapp_confirmation`; // USER REQUESTED: Template 1 use whatsapp_confirmation
         const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
         const liveStatusLink = magicToken ? `${baseUrl}&magicToken=${magicToken}` : baseUrl;
@@ -241,9 +239,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             "6": arriveByTime,
             "7": liveStatusLink // Button dynamic URL suffix
         };
-        console.log(`[WhatsApp] 📄 Using Meta Template (appointment_confirmed_ml) - Token: ${tokenNumber}`);
+        console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`);
     } else {
-        templateName = templateNoToken;
         const liveStatusRef = `whatsapp_confirmation_no_token`;
         const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
         const liveStatusLink = magicToken ? `${baseUrl}&magicToken=${magicToken}` : baseUrl;
@@ -253,10 +250,11 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             "2": doctorName,
             "3": clinicName,
             "4": date,
-            "5": arriveByTime,
-            "6": liveStatusLink
+            "5": '--', // No token
+            "6": arriveByTime,
+            "7": liveStatusLink
         };
-        console.log(`[WhatsApp] 📄 Using Meta Template (appointment_confirmed_no_token_ml)`);
+        console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`);
     }
 
     return sendWhatsAppMessage({
@@ -318,22 +316,21 @@ export async function sendWhatsAppAIFallback(params: {
     const { communicationPhone, patientName, magicToken, clinicId } = params;
 
     try {
-        const templateName = 'ai_fallback_ml';
-        // Redirect to clinic home or global home
-        const redirectPath = clinicId ? `/home?clinicId=${clinicId}` : '/home';
         const linkSuffix = `?ref=ai_fallback&magicToken=${magicToken}`;
+        // Patient app URL with attribution
+        let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
 
-        const contentVariables = {
-            "1": patientName || 'സുഹൃത്തേ',
-            "2": linkSuffix // Button dynamic URL suffix
-        };
+        // Construct full URL manually since we are using text
+        const redirectPath = clinicId ? `/home?clinicId=${clinicId}` : '/home';
+        const fullUrl = `${patientAppBaseUrl}${redirectPath}${linkSuffix}`;
 
-        console.log(`[WhatsApp] 🤖 Sending AI Fallback (ai_fallback_ml) to: ${communicationPhone}`);
+        console.log(`[WhatsApp] 🤖 Sending AI Fallback (text) to: ${communicationPhone}`);
 
-        return sendWhatsAppMessage({
+        const messageText = `ക്ഷമിക്കണം, എനിക്ക് പണിത്തിരക്കാണ്. ദയവായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്ത് തുടരുക:\n\n${fullUrl}`;
+
+        return sendWhatsAppText({
             to: communicationPhone,
-            contentSid: templateName,
-            contentVariables
+            text: messageText
         });
     } catch (error) {
         console.error('[WhatsApp] ❌ Error in sendWhatsAppAIFallback:', error);
@@ -341,6 +338,9 @@ export async function sendWhatsAppAIFallback(params: {
     }
 }
 
+/**
+ * Send WhatsApp booking link for pending appointments
+ */
 /**
  * Send WhatsApp booking link for pending appointments
  */
@@ -393,6 +393,55 @@ export async function sendWhatsAppText(params: {
         contentSid: 'text_message', // Special flag for text
         contentVariables: { text }
     });
+}
+
+/**
+ * Smart WhatsApp Notification - Optimizes cost by checking 24h window
+ * Sends free text if window is open, otherwise sends paid template or skips.
+ */
+export async function sendSmartWhatsAppNotification(params: {
+    to: string;
+    templateName?: string;
+    templateVariables?: any;
+    textFallback: string;
+    alwaysSend?: boolean; // If true, send template even if window closed (e.g., Doctor In)
+    skipIfClosed?: boolean; // If true, skip message if window closed (e.g., Review)
+}): Promise<boolean> {
+    const { to, templateName, templateVariables, textFallback, alwaysSend = false, skipIfClosed = false } = params;
+
+    try {
+        // Check if 24h window is open
+        const isWindowOpen = await WhatsAppSessionService.isWindowOpen(to);
+
+        if (isWindowOpen) {
+            // Window is open -> Send FREE text message
+            console.log(`[WhatsApp Smart] 💚 Window OPEN for ${to}. Sending FREE text.`);
+            return sendWhatsAppText({ to, text: textFallback });
+        } else {
+            // Window is closed
+            if (skipIfClosed) {
+                console.log(`[WhatsApp Smart] ⏭️ Window CLOSED for ${to}. Skipping message (skipIfClosed=true).`);
+                return false;
+            }
+
+            if (alwaysSend && templateName) {
+                // Send template even if window closed (e.g., Doctor In - critical info)
+                console.log(`[WhatsApp Smart] 📤 Window CLOSED for ${to}. Sending PAID template (alwaysSend=true). Cost: ~12p`);
+                return sendWhatsAppMessage({
+                    to,
+                    contentSid: templateName,
+                    contentVariables: templateVariables
+                });
+            }
+
+            // Default: Skip if no template or not alwaysSend
+            console.log(`[WhatsApp Smart] ⏭️ Window CLOSED for ${to}. No template provided or alwaysSend=false. Skipping.`);
+            return false;
+        }
+    } catch (error) {
+        console.error('[WhatsApp Smart] ❌ Error in sendSmartWhatsAppNotification:', error);
+        return false;
+    }
 }
 
 /**
@@ -498,45 +547,57 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         },
     });
 
-    // Handle WhatsApp notification for "A" tokens
+    // WhatsApp Split-Batch Logic:
+    // 1. If appointment is for TODAY AND it is currently after 7 PM -> Send Immediately.
+    // 2. Otherwise -> Skip (Will be caught by 5 PM / 7 AM batch reminders).
     const isAdvancedBooking = tokenNumber && tokenNumber.startsWith('A');
     if (isAdvancedBooking && communicationPhone) {
-        // Determine if we show token in WhatsApp
-        // Same logic: If Classic mode AND no classicTokenNumber -> HIDE.
-        // But 'A' token usually implies no classicTokenNumber yet (pre-arrival).
+        const now = getClinicNow();
+        const currentHour = now.getHours();
+        const todayStr = getClinicDateString(now);
+        const tomorrow = addDays(now, 1);
+        const tomorrowStr = getClinicDateString(tomorrow);
 
-        let whatsappShowToken = true;
-        if (tokenDistribution === 'classic') {
-            if (classicTokenNumber) {
-                // If we somehow have a classic token for an A booking (maybe confirmed?), show it.
-                // But usually A token means pre-arrival.
-                // If we want to show classic token, we should pass THAT number.
-                // But params.tokenNumber is 'A...'.
-                // If classicTokenNumber exists, we probably want to send THAT too?
-                // But this block is specifically "Handle WhatsApp for 'A' tokens".
-                // If it's Classic, we want to HIDE the 'A' token.
-                whatsappShowToken = false;
-            } else {
-                whatsappShowToken = false; // Confirm hide A token for Classic
+        const isAppointmentToday = date === todayStr;
+        const isAppointmentTomorrow = date === tomorrowStr;
+
+        // Condition for immediate sending:
+        // 1. If for TODAY and booked after 7 AM (Missed the morning batch)
+        // 2. If for TOMORROW and booked after 5 PM (Missed the evening batch)
+        const shouldSendImmediately =
+            (isAppointmentToday && currentHour >= 7) ||
+            (isAppointmentTomorrow && currentHour >= 17);
+
+        if (shouldSendImmediately) {
+            let whatsappShowToken = true;
+            if (tokenDistribution === 'classic') {
+                whatsappShowToken = !!classicTokenNumber;
             }
-        }
 
-        try {
-            console.log(`[Notification] 📱 Triggering WhatsApp for Advanced Booking: ${tokenNumber} (ShowToken: ${whatsappShowToken})`);
-            await sendWhatsAppAppointmentConfirmed({
-                communicationPhone: communicationPhone,
-                patientName: patientName || 'Patient',
-                doctorName,
-                clinicName,
-                date,
-                time: arriveByTime || time, // Slot time
-                arriveByTime: displayTime,  // Reporting time (15m early)
-                tokenNumber,
-                appointmentId,
-                showToken: whatsappShowToken
-            });
-        } catch (error) {
-            console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);
+            try {
+                console.log(`[Notification] 📱 Missed batch window detected (${date}, curr: ${currentHour}h). Sending WhatsApp immediately.`);
+                await sendWhatsAppAppointmentConfirmed({
+                    communicationPhone: communicationPhone,
+                    patientName: patientName || 'Patient',
+                    doctorName,
+                    clinicName,
+                    date,
+                    time: arriveByTime || time,
+                    arriveByTime: displayTime,
+                    tokenNumber,
+                    appointmentId,
+                    showToken: whatsappShowToken
+                });
+
+                // Mark as sent in Firestore
+                await updateDoc(doc(firestore, 'appointments', appointmentId), {
+                    whatsappConfirmationSent: true
+                });
+            } catch (error) {
+                console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);
+            }
+        } else {
+            console.log(`[Notification] ⏳ Appointment (${date}) outside immediate window. Scheduled for batch.`);
         }
     }
 
@@ -958,6 +1019,138 @@ export async function sendDoctorConsultationStartedNotification(params: {
         },
     });
 }
+/**
+ * Send notification when doctor starts consultation (status becomes 'In')
+ */
+export async function sendDoctorInNotification(params: {
+    firestore: Firestore;
+    patientId: string;
+    appointmentId: string;
+    doctorName: string;
+    clinicName: string;
+    cancelledByBreak?: boolean;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
+}): Promise<boolean> {
+    const { firestore, patientId, appointmentId, doctorName, clinicName, cancelledByBreak, communicationPhone, patientName } = params;
+
+    if (cancelledByBreak) {
+        console.info(`[Notification] ℹ️ Skipping doctor in notification for appointment ${appointmentId} because it was affected by a break.`);
+        return true;
+    }
+
+    // 1. Send PWA/Push Notification
+    const pwaResult = await sendNotificationToPatient({
+        firestore,
+        patientId,
+        title: 'Doctor is In!',
+        body: `Dr. ${doctorName} has arrived at ${clinicName} and started consultations. Your turn will be soon!`,
+        data: {
+            type: 'doctor_in',
+            appointmentId,
+            doctorName,
+            clinicName,
+            url: '/live-token', // Click will open live token page
+        },
+    });
+
+    // 2. Handle Smart WhatsApp for "Doctor In"
+    if (communicationPhone) {
+        try {
+            console.log(`[Notification] 📱 Triggering Smart WhatsApp for Doctor In: ${doctorName}`);
+
+            // Logic: 
+            // - If 24h window OPEN: Send FREE Malayalam text message.
+            // - If 24h window CLOSED: Send PAID 'doctor_in_pending_ml' template (alwaysSend=true).
+            const malayalamTextFallback = `നമസ്കാരം, ഡോ. ${doctorName} കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. നിങ്ങളുടെ ടോക്കൺ വിവരങ്ങൾ അറിയാനായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${appointmentId}`;
+
+            await sendSmartWhatsAppNotification({
+                to: communicationPhone,
+                templateName: 'doctor_in_pending_ml', // PAID template name
+                templateVariables: {
+                    "1": patientName || 'Patient',
+                    "2": doctorName,
+                    "3": clinicName,
+                    "4": appointmentId // Dynamic URL suffix for button
+                },
+                textFallback: malayalamTextFallback,
+                alwaysSend: true // Since this is critical "Doctor arrived" info, send paid template if window closed
+            });
+        } catch (error) {
+            console.error('[Notification] ❌ Failed to send Smart WhatsApp (Doctor In):', error);
+        }
+    }
+
+    return pwaResult;
+}
+
+/**
+ * Send notification when patient is checked out/consultation completed
+ */
+export async function sendPatientCheckoutNotification(params: {
+    firestore: Firestore;
+    patientId: string;
+    appointmentId: string;
+    doctorName: string;
+    clinicName: string;
+}): Promise<boolean> {
+    const { firestore, patientId, appointmentId, doctorName, clinicName } = params;
+
+    return sendNotificationToPatient({
+        firestore,
+        patientId,
+        title: 'Consultation Completed',
+        body: `Thank you for visiting ${clinicName}. Your consultation with Dr. ${doctorName} is complete.`,
+        data: {
+            type: 'consultation_completed',
+            appointmentId,
+            doctorName,
+            clinicName,
+        },
+    });
+}
+
+/**
+ * Send daily reminder for appointments
+ */
+export async function sendDailyReminderNotification(params: {
+    firestore: Firestore;
+    patientId: string;
+    appointmentId: string;
+    doctorName: string;
+    clinicName: string;
+    date: string;
+    time: string;
+    arriveByTime?: string;
+}): Promise<boolean> {
+    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, arriveByTime } = params;
+
+    // Always display user time based on arriveByTime - 15 minutes (or time - 15 if arriveByTime missing)
+    let displayTime = time;
+    try {
+        const appointmentDate = parse(date, 'd MMMM yyyy', new Date());
+        const baseTime = parseTime(arriveByTime || time, appointmentDate);
+        const shownTime = subMinutes(baseTime, 15);
+        displayTime = getClinicTimeString(shownTime);
+    } catch (error) {
+        console.error('Error calculating displayTime for daily reminder notification:', error);
+    }
+
+    return sendNotificationToPatient({
+        firestore,
+        patientId,
+        title: 'Appointment Reminder',
+        body: `Reminder: You have an appointment with Dr. ${doctorName} today, ${date} at ${displayTime}.`,
+        data: {
+            type: 'appointment_reminder',
+            appointmentId,
+            doctorName,
+            clinicName,
+            date,
+            time,
+        },
+    });
+}
 
 type ConsultationNotificationStatus = typeof CONSULTATION_NOTIFICATION_STATUSES[number];
 
@@ -1276,7 +1469,121 @@ export async function checkAndSendDailyReminders(params: {
         }
         console.log('[DAILY REMINDER] Check complete.');
 
+        // 4. Also process WhatsApp Batch Reminders (5 PM / 7 AM)
+        await processWhatsAppBatchReminders({ firestore, clinicId });
+
     } catch (error) {
         console.error('[DAILY REMINDER] Error:', error);
+    }
+}
+
+/**
+ * Process WhatsApp Batch Reminders (5 PM Day-Before / 7 AM Same-Day)
+ */
+export async function processWhatsAppBatchReminders(params: {
+    firestore: Firestore;
+    clinicId: string;
+}): Promise<void> {
+    const { firestore, clinicId } = params;
+    const now = getClinicNow();
+    const currentHour = now.getHours();
+    const todayStr = getClinicDateString(now);
+
+    // Determine batch type based on hour
+    // Batch 1: 5 PM - 7 PM (Day-before reminders for tomorrow)
+    // Batch 2: 7 AM - 9 AM (Same-day reminders for today)
+    let batchType: '5PM' | '7AM' | null = null;
+    let targetDateStr: string;
+
+    if (currentHour >= 17 && currentHour < 19) {
+        batchType = '5PM';
+        const tomorrow = addMinutes(now, 24 * 60);
+        targetDateStr = getClinicDateString(tomorrow);
+    } else if (currentHour >= 7 && currentHour < 9) {
+        batchType = '7AM';
+        targetDateStr = todayStr;
+    } else {
+        console.log(`[WhatsApp Batch] ⏳ Current time (${currentHour}h) is outside batch windows (7-9 AM, 5-7 PM).`);
+        return;
+    }
+
+    console.log(`[WhatsApp Batch] 🚀 Starting ${batchType} batch for clinic ${clinicId} (Appointments on ${targetDateStr})`);
+
+    try {
+        // Query appointments for the target date that haven't received this specific reminder
+        const trackingField = batchType === '5PM' ? 'whatsappReminder5PMSent' : 'whatsappReminder7AMSent';
+
+        const q = query(
+            collection(firestore, 'appointments'),
+            where('clinicId', '==', clinicId),
+            where('date', '==', targetDateStr),
+            where('status', 'in', ['Pending', 'Confirmed']),
+            where(trackingField, '!=', true)
+        );
+
+        const snapshot = await getDocs(q);
+        if (snapshot.empty) {
+            console.log(`[WhatsApp Batch] No pending appointments found for ${batchType} batch.`);
+            return;
+        }
+
+        // Get Clinic details for Magic Link logic
+        const clinicDoc = await getDoc(doc(firestore, 'clinics', clinicId));
+        const clinicData = clinicDoc.exists() ? clinicDoc.data() : {};
+        const clinicName = clinicData.name || 'The Clinic';
+        const tokenDistribution = clinicData.tokenDistribution || 'advanced';
+
+        for (const appDoc of snapshot.docs) {
+            const appointment = { id: appDoc.id, ...appDoc.data() } as Appointment;
+
+            // Skip if already confirmed immediately (for same-day evening bookings)
+            if (batchType === '7AM' && appointment.whatsappConfirmationSent) {
+                console.log(`[WhatsApp Batch] Skipping ${appointment.id} - already sent immediate confirmation.`);
+                continue;
+            }
+
+            // Variable Mapping
+            // 1: Patient, 2: Doctor, 3: Clinic, 4: Date, 5: Token, 6: ArriveBy, 7: Link
+            // Calculate display reporting time (15m before arriveBy or time)
+            let displayTime = appointment.time;
+            try {
+                const appointmentDate = parse(appointment.date, 'd MMMM yyyy', new Date());
+                const baseTime = parseClinicTime(appointment.arriveByTime || appointment.time, appointmentDate);
+                displayTime = getClinicTimeString(subMinutes(baseTime, 15));
+            } catch (e) {
+                console.error('Error parsing time for batch reminder:', e);
+            }
+
+            const tokenToDisplay = (tokenDistribution === 'classic' && appointment.classicTokenNumber)
+                ? String(appointment.classicTokenNumber)
+                : (tokenDistribution === 'classic' ? '--' : (appointment.tokenNumber || '--'));
+
+            try {
+                console.log(`[WhatsApp Batch] Sending ${batchType} reminder to ${appointment.patientName} (${appointment.id})`);
+                await sendWhatsAppAppointmentConfirmed({
+                    communicationPhone: appointment.communicationPhone,
+                    patientName: appointment.patientName,
+                    doctorName: appointment.doctor,
+                    clinicName,
+                    date: appointment.date,
+                    time: appointment.arriveByTime || appointment.time,
+                    arriveByTime: displayTime,
+                    tokenNumber: appointment.tokenNumber,
+                    appointmentId: appointment.id,
+                    showToken: tokenDistribution === 'advanced' || !!appointment.classicTokenNumber
+                });
+
+                // Update tracking fields
+                await updateDoc(doc(firestore, 'appointments', appDoc.id), {
+                    [trackingField]: true,
+                    whatsappConfirmationSent: true // Mark as confirmed overall so we don't send again
+                });
+            } catch (error) {
+                console.error(`[WhatsApp Batch] ❌ Failed to send for app ${appointment.id}:`, error);
+            }
+        }
+
+    } catch (error) {
+        console.error('[WhatsApp Batch] ❌ Error processing batch:', error);
     }
 }

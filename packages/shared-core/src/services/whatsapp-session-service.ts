@@ -7,6 +7,7 @@ export interface WhatsAppSession {
     clinicId: string;
     clinicName?: string;
     lastInteraction: any;
+    lastMessageAt?: any; // Timestamp of last user message for 24h window tracking
     updatedAt: any;
     // Booking Wizard State
     bookingState?: 'idle' | 'doctor_selection' | 'date_selection' | 'slot_selection' | 'patient_selection' | 'info_gathering' | 'confirm_booking';
@@ -131,6 +132,41 @@ export class WhatsAppSessionService {
         } catch (error) {
             console.error('[WhatsAppSessionService] Error updating booking state:', error);
             throw error;
+        }
+        /**
+     * Updates the last message timestamp for 24h window tracking.
+     */
+    static async updateLastUserMessage(phoneNumber: string): Promise<void> {
+        try {
+            const normalized = this.normalizePhoneNumber(phoneNumber);
+            const sessionRef = doc(db, this.COLLECTION, normalized);
+            await setDoc(sessionRef, {
+                lastMessageAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+        } catch (error) {
+            console.error('[WhatsAppSessionService] Error updating last message timestamp:', error);
+        }
+    }
+
+    /**
+     * Checks if the 24h free service window is open for a user.
+     */
+    static async isWindowOpen(phoneNumber: string): Promise<boolean> {
+        try {
+            const session = await this.getSession(phoneNumber);
+            if (!session?.lastMessageAt) return false;
+
+            const lastMessageTime = session.lastMessageAt.toDate();
+            const now = new Date();
+            const diffMs = now.getTime() - lastMessageTime.getTime();
+            const diffHours = diffMs / (1000 * 60 * 60);
+
+            console.log(`[WhatsAppSessionService] Window status for ${phoneNumber}: Last msg ${diffHours.toFixed(2)}h ago. Window Open: ${diffHours < 24}`);
+            return diffHours < 24;
+        } catch (error) {
+            console.error('[WhatsAppSessionService] Error checking window status:', error);
+            return false;
         }
     }
 }

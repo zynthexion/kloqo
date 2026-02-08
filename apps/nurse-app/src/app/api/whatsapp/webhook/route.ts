@@ -73,6 +73,10 @@ export async function POST(request: NextRequest) {
                 if (messageBody) {
                     console.log(`[WhatsApp Webhook] Message from ${from}: ${messageBody}`);
 
+                    // CRITICAL: Update last message timestamp for 24h window tracking
+                    await WhatsAppSessionService.updateLastUserMessage(from);
+                    console.log(`[WhatsApp Webhook] ✅ Updated lastMessageAt for ${from}`);
+
                     // 0. Lookup Patient Identity
                     const patient = await getPatientByPhone(from);
                     const patientName = patient?.name;
@@ -88,6 +92,22 @@ export async function POST(request: NextRequest) {
                             if (clinic) {
                                 // Persist session
                                 await WhatsAppSessionService.updateSession(from, clinic.id);
+
+                                // Log voucher engagement for marketing tracking
+                                try {
+                                    const engagementRef = doc(collection(db, 'marketing_engagement'));
+                                    await setDoc(engagementRef, {
+                                        source: 'voucher',
+                                        clinicCode: code,
+                                        clinicId: clinic.id,
+                                        phone: from,
+                                        patientName: patientName || 'Unknown',
+                                        timestamp: serverTimestamp()
+                                    });
+                                    console.log(`[WhatsApp Webhook] 📊 Logged voucher engagement: ${code} for ${from}`);
+                                } catch (engagementError) {
+                                    console.error('[WhatsApp Webhook] Error logging voucher engagement:', engagementError);
+                                }
 
                                 await sendWhatsAppText({
                                     to: from,

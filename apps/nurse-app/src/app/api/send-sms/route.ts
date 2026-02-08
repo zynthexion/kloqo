@@ -22,19 +22,10 @@ export async function POST(request: NextRequest) {
       const vars = body.contentVariables || {};
 
       // Mapping logic for Malayalam templates with buttons
-      if (templateName === 'appointment_confirmed_ml') {
+      if (templateName === 'appointment_reminder_v2') {
         // Body: 1-6, Button: 7
         const bodyParams = ["1", "2", "3", "4", "5", "6"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
         const buttonParams = [{ type: 'text' as const, text: String(vars["7"] || '') }];
-
-        components = [
-          { type: 'body', parameters: bodyParams },
-          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
-        ];
-      } else if (templateName === 'appointment_confirmed_no_token_ml') {
-        // Body: 1-5, Button: 6
-        const bodyParams = ["1", "2", "3", "4", "5"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
-        const buttonParams = [{ type: 'text' as const, text: String(vars["6"] || '') }];
 
         components = [
           { type: 'body', parameters: bodyParams },
@@ -94,7 +85,7 @@ export async function POST(request: NextRequest) {
 
   if (channel === 'whatsapp') {
     // If it's a Meta template, DO NOT fall back to Twilio as it will fail (Cross-provider template mismatch)
-    const metaTemplates = ['appointment_confirmed_ml', 'appointment_confirmed_no_token_ml', 'appointment_requested_ml'];
+    const metaTemplates = ['appointment_reminder_v2', 'appointment_requested_ml', 'appointment_status_confirmed_ml', 'doctor_in_pending_ml'];
     if (metaTemplates.includes(body.contentSid)) {
       return NextResponse.json({
         success: false,

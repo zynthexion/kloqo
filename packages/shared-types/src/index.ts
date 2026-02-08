@@ -124,6 +124,9 @@ export type Appointment = {
     priorityAt?: any;
     confirmedAt?: any;
     updatedAt?: any;
+    whatsappConfirmationSent?: boolean;
+    whatsappReminder5PMSent?: boolean;
+    whatsappReminder7AMSent?: boolean;
 };
 
 export type Patient = {

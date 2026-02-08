@@ -20,12 +20,20 @@ export function DailyReminderHandler() {
         // Optional: Restrict to 'admin' or specfic roles if needed
         // if (userRole !== 'admin') return; 
 
-        const today = format(new Date(), 'yyyy-MM-dd');
-        const lastRunDate = localStorage.getItem('last_daily_reminder_run');
+        const now = new Date();
+        const today = format(now, 'yyyy-MM-dd');
+        const hour = now.getHours();
+
+        // Determine current window
+        let currentWindow = 'default';
+        if (hour >= 7 && hour < 11) currentWindow = 'morning';
+        else if (hour >= 17 && hour < 20) currentWindow = 'evening';
+
+        const storageKey = `last_daily_reminder_run_${currentWindow}`;
+        const lastRunDate = localStorage.getItem(storageKey);
 
         if (lastRunDate === today) {
-            // Already run today
-            console.log('Daily reminders already run today.');
+            console.log(`Daily reminders for ${currentWindow} already run today.`);
             setHasChecked(true);
             return;
         }
@@ -42,11 +50,11 @@ export function DailyReminderHandler() {
                 return;
             }
 
-            console.log('Running Daily Reminder Check...');
+            console.log(`Running Daily Reminder Check (${currentWindow})...`);
             await checkAndSendDailyReminders({ firestore: db, clinicId });
 
             // Mark as done
-            localStorage.setItem('last_daily_reminder_run', today);
+            localStorage.setItem(storageKey, today);
             setHasChecked(true);
         };
 

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import type { Appointment, Doctor } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { collection, addDoc, query, where, orderBy, limit, doc, updateDoc, onSnapshot, getDoc, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -43,6 +44,7 @@ import { notifySessionPatientsOfConsultationStart, compareAppointments, logPunct
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, loading } = useAuth();
   const [allDoctors, setAllDoctors] = useState<Doctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<string>('');
   const [isProcessingBreak, setIsProcessingBreak] = useState(false);
@@ -56,16 +58,20 @@ export default function HomePage() {
 
 
   useEffect(() => {
-    const id = localStorage.getItem('clinicId');
-    if (!id) {
-      router.push('/login');
-      return;
+    // Priority 1: Auth User's clinicId
+    // Priority 2: localStorage (fallback/cached)
+    const id = user?.clinicId || localStorage.getItem('clinicId');
+
+    if (id) {
+      setClinicId(id);
+      if (!localStorage.getItem('clinicId')) {
+        localStorage.setItem('clinicId', id);
+      }
     }
-    setClinicId(id);
 
     const timer = setInterval(() => setCurrentTime(new Date()), 60000); // Update every minute
     return () => clearInterval(timer);
-  }, [toast, router]);
+  }, [user, toast]);
 
   useEffect(() => {
     if (!clinicId) return;

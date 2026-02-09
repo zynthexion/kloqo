@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const unsubscribe = onAuthStateChange((user) => {
         const elapsed = Date.now() - startTimestamp;
         if (user) {
-          console.log(`[Auth-Debug] User detected after ${elapsed}ms: ${user.email} (Clinic: ${user.clinicId})`);
+          console.log(`[Auth-Debug] User detected after ${elapsed}ms: ${user.email || user.uid} (Clinic: ${user.clinicId})`);
           // Sync localStorage if it's missing but user is logged in
           if (!localStorage.getItem('clinicId') && user.clinicId) {
             console.log(`[Auth-Debug] Syncing missing localStorage from Firebase user data.`);

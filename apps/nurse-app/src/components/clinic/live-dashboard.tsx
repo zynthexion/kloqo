@@ -10,7 +10,7 @@ import { db } from '@/lib/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, WifiOff, Repeat, Coffee } from 'lucide-react';
+import { Search, WifiOff, Repeat, Coffee, Bell } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
 import { parseTime } from '@/lib/utils';
-import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber, sendWhatsAppArrivalConfirmed } from '@kloqo/shared-core';
+import { computeQueues, type QueueState, compareAppointments, compareAppointmentsClassic, calculateEstimatedTimes, getCurrentActiveSession, getClassicTokenCounterId, prepareNextClassicTokenNumber, commitNextClassicTokenNumber, sendWhatsAppArrivalConfirmed, sendDoctorRunningLateNotification } from '@kloqo/shared-core';
 import { CheckCircle2, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -48,6 +48,8 @@ export default function LiveDashboard() {
   const [appointmentToAddToQueue, setAppointmentToAddToQueue] = useState<Appointment | null>(null);
   const [pendingStatusChange, setPendingStatusChange] = useState<'In' | 'Out' | null>(null);
   const [isPhoneMode, setIsPhoneMode] = useState(false);
+  const [isNotifyDelayOpen, setIsNotifyDelayOpen] = useState(false);
+  const [isSendingNotifications, setIsSendingNotifications] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000); // Update every minute
@@ -266,6 +268,58 @@ export default function LiveDashboard() {
       toast({ variant: "destructive", title: "Error", description: "Failed to set priority." });
     }
     setAppointmentToPrioritize(null);
+  };
+
+  const handleNotifyDelay = async () => {
+    if (!currentDoctor || !clinicId) return;
+
+    setIsSendingNotifications(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    // We only notify patients who are Confirmed or Pending (Waiting)
+    const patientsToNotify = appointments.filter(a => a.status === 'Confirmed' || a.status === 'Pending');
+
+    if (patientsToNotify.length === 0) {
+      toast({ title: "No patients to notify", description: "There are no waiting patients to alert." });
+      setIsNotifyDelayOpen(false);
+      setIsSendingNotifications(false);
+      return;
+    }
+
+    toast({ title: "Sending Notifications", description: `Sending delay alerts to ${patientsToNotify.length} patients...` });
+
+    try {
+      await Promise.allSettled(patientsToNotify.map(async (appt) => {
+        try {
+          await sendDoctorRunningLateNotification({
+            firestore: db,
+            patientId: appt.patientId,
+            appointmentId: appt.id,
+            doctorName: currentDoctor.name,
+            clinicName: clinicDetails?.name || 'the clinic',
+            delayMinutes: currentDoctor.doctorDelayMinutes || 0,
+            communicationPhone: appt.communicationPhone,
+            patientName: appt.patientName
+          });
+          successCount++;
+        } catch (e) {
+          console.error(`Failed to notify patient ${appt.id}:`, e);
+          failCount++;
+        }
+      }));
+
+      toast({
+        title: "Notifications Complete",
+        description: `Successfully notified ${successCount} patients.${failCount > 0 ? ` Failed: ${failCount}` : ''}`
+      });
+    } catch (error) {
+      console.error("Error in batch notification:", error);
+      toast({ variant: "destructive", title: "Notification Error", description: "Something went wrong while sending alerts." });
+    } finally {
+      setIsSendingNotifications(false);
+      setIsNotifyDelayOpen(false);
+    }
   };
 
   // Centralized Buffer Refill Logic
@@ -785,16 +839,52 @@ export default function LiveDashboard() {
                   className="pl-10 h-10 w-full focus-visible:ring-red-500"
                 />
               </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => router.push(`/schedule-break?doctor=${selectedDoctor}`)}
-                className="h-10 w-10 shrink-0 border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
-                title="Schedule Break"
-              >
-                <Coffee className="h-5 w-5" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setIsNotifyDelayOpen(true)}
+                  className="h-10 w-10 shrink-0 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                  title="Notify Delay"
+                >
+                  <Bell className="h-5 w-5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => router.push(`/schedule-break?doctor=${selectedDoctor}`)}
+                  className="h-10 w-10 shrink-0 border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
+                  title="Schedule Break"
+                >
+                  <Coffee className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
+
+            <AlertDialog open={isNotifyDelayOpen} onOpenChange={setIsNotifyDelayOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Alert Patients of Delay?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will send a WhatsApp and Push Notification to all <strong>{appointments.filter(a => a.status === 'Confirmed' || a.status === 'Pending').length}</strong> waiting patients informing them that Dr. {currentDoctor?.name} is running <strong>{currentDoctor?.doctorDelayMinutes || 0} minutes</strong> late.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isSendingNotifications}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleNotifyDelay();
+                    }}
+                    disabled={isSendingNotifications}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    {isSendingNotifications ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Send Alerts
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="w-full grid grid-cols-2">

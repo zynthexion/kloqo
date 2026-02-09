@@ -40,5 +40,9 @@ service cloud.firestore {
       // Allow all authenticated users to read and write token counters
       allow read, write: if true;
     }
+
+    match /doctor_punctuality_logs/{logId} {
+        allow read, write: if true;
+    }
   }
 }

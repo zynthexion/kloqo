@@ -32,7 +32,7 @@ export default function LoginPage() {
   // (or if slow auth finally resolves), send them back home.
   useEffect(() => {
     if (!loading && user) {
-      console.log(`[Auth-Debug] LoginPage: Active session detected for ${user.email}. Recovering session and redirecting...`);
+      console.log(`[Auth-Debug] LoginPage: Active session detected for ${user.email || user.uid}. Recovering session and redirecting...`);
       router.replace('/');
     }
   }, [user, loading, router]);

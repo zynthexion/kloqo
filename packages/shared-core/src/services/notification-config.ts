@@ -133,19 +133,19 @@ export const NOTIFICATION_METADATA: Record<NotificationType, { name: string; des
     },
     [NOTIFICATION_TYPES.ARRIVAL_CONFIRMED]: {
         name: 'Arrival Confirmed',
-        description: 'Sent when patient arrives at clinic (walk-in or queue confirmation)',
+        description: 'Sent when patient arrives at clinic. (WA Templates: walkin_arrival_confirmed_malayalam / appointment_status_confirmed_mlm)',
         category: 'status',
         channels: ['whatsapp', 'pwa'],
     },
     [NOTIFICATION_TYPES.TOKEN_CALLED]: {
         name: 'Token Called',
-        description: 'Sent when patient\'s token is called for consultation',
+        description: 'Sent when patient\'s token is called for consultation. (WA Template: token_called_quick_reply_ml)',
         category: 'queue',
         channels: ['whatsapp', 'pwa'],
     },
     [NOTIFICATION_TYPES.APPOINTMENT_CANCELLED]: {
         name: 'Appointment Cancelled',
-        description: 'Sent when an appointment is cancelled',
+        description: 'Sent when an appointment is cancelled. (WA Template: appointment_cancelled_ml)',
         category: 'status',
         channels: ['whatsapp', 'pwa'],
     },

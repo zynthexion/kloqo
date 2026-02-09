@@ -60,5 +60,9 @@ service cloud.firestore {
       // Allow clinic admins to read and write token counters
       allow read, write: if isClinicAdmin();
     }
+
+    match /doctor_punctuality_logs/{logId} {
+      allow read, write: if isClinicAdmin();
+    }
   }
 }

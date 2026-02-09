@@ -364,15 +364,21 @@ export async function fetchPunctualityLogsByDoctorId(doctorId: string): Promise<
     const logsRef = collection(db, 'doctor_punctuality_logs');
     const q = query(
       logsRef,
-      where('doctorId', '==', doctorId),
-      orderBy('timestamp', 'desc')
+      where('doctorId', '==', doctorId)
     );
     const snapshot = await getDocs(q);
 
-    return snapshot.docs.map((doc) => ({
+    const logs = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     })) as PunctualityLog[];
+
+    // Sort by timestamp descending in memory to avoid composite index requirement
+    return logs.sort((a, b) => {
+      const timeA = a.timestamp?.seconds || 0;
+      const timeB = b.timestamp?.seconds || 0;
+      return timeB - timeA;
+    });
   } catch (error) {
     console.error('Error fetching doctor punctuality logs:', error);
     return [];

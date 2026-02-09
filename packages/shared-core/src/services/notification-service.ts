@@ -1377,26 +1377,30 @@ export async function sendDoctorConsultationStartedNotification(params: {
             try {
                 console.log(`[Notification] 📱 Triggering Smart WhatsApp for Consultation Started: ${doctorName} (Using ${!!tokenNumber && tokenNumber !== 'N/A' ? 'Token' : 'Pending'} Template)`);
 
+                // Generate Magic Link for auto-login
+                const magicToken = await MagicLinkService.generateToken(firestore, communicationPhone, `live-token/${appointmentId}`);
+
                 const hasToken = !!tokenNumber && tokenNumber !== 'N/A' && tokenNumber !== '';
                 const templateName = hasToken ? 'doctor_consultation_started_ml' : 'doctor_in_pending_ml';
+                const ref = hasToken ? 'consultation_started' : 'doctor_in_pending';
+                const linkSuffix = `${appointmentId}?ref=${ref}&token=${magicToken}`;
 
                 const textFallback = hasToken
-                    ? `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. ${clinicName}-ൽ നിങ്ങളുടെ ടോക്കൺ: ${tokenNumber}. ${timeLabel}: ${displayTime}.`
-                    : `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} ഇപ്പോൾ ക്ലിനിക്കിൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. നിങ്ങളുടെ ഊഴം എപ്പോൾ വരുമെന്ന് അറിയാനും തത്സമയ അപ്ഡേറ്റുകൾ ലഭിക്കാനും ലോഗിൻ ചെയ്യുക.`;
+                    ? `നമസ്കാരം ${patientName || 'Patient'},\n\nഡോക്ടർ ${doctorName} കൺസൾട്ടേഷൻ ആരംഭിച്ചു. 🟢\n\nനിങ്ങളുടെ ടോക്കൺ നമ്പർ: ${tokenNumber}\n\nനിങ്ങളുടെ മുൻപിൽ എത്ര പേര് ഉണ്ട് എന്ന് അറിയാനും , എത്ര നേരം കാത്തിരിക്കണം എന്നും അറിയാനായി താഴെ ക്ലിക്ക് ചെയ്ത് സ്റ്റാറ്റസ് പരിശോധിക്കുക:\n\nhttps://app.kloqo.com/live-token/${linkSuffix}`
+                    : `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} ഇപ്പോൾ ക്ലിനിക്കിൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. നിങ്ങളുടെ ഊഴം എപ്പോൾ വരുമെന്ന് അറിയാനും തത്സമയ അപ്ഡേറ്റുകൾ ലഭിക്കാനും താഴെ കാണുന്ന ലിങ്കിൽ ലോഗിൻ ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${linkSuffix}`;
 
                 const templateVariables = hasToken
                     ? {
                         "1": patientName || 'Patient',
                         "2": doctorName,
-                        "3": clinicName,
-                        "4": tokenNumber,
-                        "5": displayTime
+                        "3": tokenNumber,
+                        "4": linkSuffix
                     }
                     : {
                         "1": patientName || 'Patient',
                         "2": doctorName,
                         "3": clinicName,
-                        "4": appointmentId // link suffix
+                        "4": linkSuffix
                     };
 
                 await sendSmartWhatsAppNotification({

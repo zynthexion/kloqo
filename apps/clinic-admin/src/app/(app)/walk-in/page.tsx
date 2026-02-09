@@ -22,7 +22,7 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import type { Appointment, Doctor, Patient } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { format, isWithinInterval, parse, subMinutes, addMinutes, differenceInMinutes, parseISO, isAfter } from 'date-fns';
+import { format, isWithinInterval, parse, subMinutes, addMinutes, isBefore, differenceInMinutes, parseISO, isAfter } from 'date-fns';
 import { parseTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -723,7 +723,10 @@ function WalkInRegistrationContent() {
               communicationPhone: appointmentToSave.communicationPhone,
               patientName: appointmentToSave.patientName,
               tokenNumber: result.tokenNumber,
-              appointmentId: result.appointmentId
+              appointmentId: result.appointmentId,
+              tokenDistribution: clinicDetails?.tokenDistribution,
+              classicTokenNumber: result.tokenNumber, // Walk-ins have direct tokens
+              isWalkIn: true // TRIGGER: Paid template
             });
           }
         } catch (err) {

@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp, type Firestore } from 'firebase/firestore';
 import { format } from 'date-fns';
+import { parseClinicTime } from '../utils/date-utils';
 
 export type PunctualityEventType = 'IN' | 'OUT' | 'BREAK_START' | 'BREAK_END' | 'EXTENSION';
 

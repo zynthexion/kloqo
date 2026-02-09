@@ -131,9 +131,10 @@ export class WhatsAppSessionService {
             console.log(`[WhatsAppSessionService] Updated booking state for ${normalized} to ${state}`);
         } catch (error) {
             console.error('[WhatsAppSessionService] Error updating booking state:', error);
-            throw error;
         }
-        /**
+    }
+
+    /**
      * Updates the last message timestamp for 24h window tracking.
      */
     static async updateLastUserMessage(phoneNumber: string): Promise<void> {

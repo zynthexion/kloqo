@@ -14,12 +14,14 @@ import {
   SlidersHorizontal,
   User,
   CreditCard,
+  Bell,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const menuItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Overview' },
   { href: '/dashboard/growth', icon: TrendingUp, label: 'Growth Analytics' },
+  { href: '/dashboard/notifications', icon: Bell, label: 'Notifications' },
   { href: '/dashboard/clinics', icon: Building2, label: 'Clinics' },
   { href: '/dashboard/doctors', icon: User, label: 'Doctors' }, // NEW MENU ITEM
   { href: '/dashboard/patients', icon: Users, label: 'Patients' },

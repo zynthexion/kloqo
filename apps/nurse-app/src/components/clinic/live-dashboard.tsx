@@ -479,8 +479,11 @@ export default function LiveDashboard() {
               firestore: db,
               communicationPhone: appointmentToAddToQueue.communicationPhone,
               patientName: appointmentToAddToQueue.patientName,
-              tokenNumber: finalClassicTokenNumber || appointmentToAddToQueue.tokenNumber,
-              appointmentId: appointmentToAddToQueue.id
+              tokenNumber: appointmentToAddToQueue.tokenNumber,
+              appointmentId: appointmentToAddToQueue.id,
+              tokenDistribution: clinicDetails?.tokenDistribution,
+              classicTokenNumber: finalClassicTokenNumber || appointmentToAddToQueue.classicTokenNumber,
+              isWalkIn: false // Strategy: FREE message since window should be open
             });
           } catch (e) { console.error("Notify Confirm Error", e); }
         }
@@ -562,8 +565,11 @@ export default function LiveDashboard() {
               firestore: db,
               communicationPhone: appointment.communicationPhone || '',
               patientName: appointment.patientName,
-              tokenNumber: String(appointment.classicTokenNumber || appointment.tokenNumber),
-              appointmentId: appointment.id
+              tokenNumber: appointment.tokenNumber,
+              appointmentId: appointment.id,
+              tokenDistribution: clinicDetails?.tokenDistribution,
+              classicTokenNumber: finalClassicTokenNumber || appointment.classicTokenNumber,
+              isWalkIn: false // Strategy: FREE message
             });
           } catch (e) { console.error("Notify Rejoin Error", e); }
         }

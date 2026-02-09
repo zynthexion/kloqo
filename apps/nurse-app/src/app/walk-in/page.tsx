@@ -601,16 +601,18 @@ function WalkInRegistrationContent() {
         const consultationDuration = doctor.averageConsultingTime || 15;
         const apptEnd = addMinutes(estimatedTime, consultationDuration);
 
-        // If sessionEnd exists (it should), check strict overflow
-        // If sessionEnd is missing, fallback to general availabilityEnd
+        const isClassicMode = clinicDetails?.tokenDistribution !== 'advanced';
         let isStrictlyOutside = false;
 
-        if (sessionEnd) {
-          isStrictlyOutside = isAfter(apptEnd, sessionEnd);
-        } else {
-          const availabilityEnd = getAvailabilityEndForDate(doctor, estimatedTime);
-          if (availabilityEnd) {
-            isStrictlyOutside = isAfter(estimatedTime, availabilityEnd);
+        // Skip strict session end enforcement for Classic mode
+        if (!isClassicMode) {
+          if (sessionEnd) {
+            isStrictlyOutside = isAfter(apptEnd, sessionEnd);
+          } else {
+            const availabilityEnd = getAvailabilityEndForDate(doctor, estimatedTime);
+            if (availabilityEnd) {
+              isStrictlyOutside = isAfter(estimatedTime, availabilityEnd);
+            }
           }
         }
 
@@ -1079,7 +1081,10 @@ function WalkInRegistrationContent() {
               communicationPhone: appointmentToSave.communicationPhone,
               patientName: appointmentToSave.patientName,
               tokenNumber: result.tokenNumber,
-              appointmentId: result.appointmentId
+              appointmentId: result.appointmentId,
+              tokenDistribution: clinicDetails?.tokenDistribution,
+              classicTokenNumber: result.tokenNumber, // Walk-ins have direct tokens
+              isWalkIn: true // TRIGGER: Paid template to open window
             });
           }
         } catch (err) {
@@ -1336,12 +1341,13 @@ function WalkInRegistrationContent() {
                 const sessionIdx = appointmentToSave?.sessionIndex ?? null;
                 const adjustedTime = estimatedConsultationTime;
                 const sessionEnd = sessionIdx !== null ? getSessionEnd(doctor, appointmentDate, sessionIdx) : null;
+                const availabilityEndLabel = sessionEnd ? getClinicTimeString(sessionEnd) : 'N/A';
                 const consultationTime = doctor?.averageConsultingTime || 15;
                 const apptEnd = adjustedTime ? addMinutes(adjustedTime, consultationTime) : null;
-                const availabilityEndLabel = sessionEnd ? getClinicTimeString(sessionEnd) : '';
+                const isClassicMode = clinicDetails?.tokenDistribution !== 'advanced';
                 const isForceBooked = appointmentToSave?.isForceBooked ?? false;
-                // Only check for outside availability if NOT force booked
-                const isOutside = !isForceBooked && apptEnd && sessionEnd ? isAfter(apptEnd, sessionEnd) : false;
+                // Only check for outside availability if NOT force booked AND NOT in Classic mode
+                const isOutside = !isForceBooked && !isClassicMode && apptEnd && sessionEnd ? isAfter(apptEnd, sessionEnd) : false;
 
                 console.log('[NURSE:MODAL] Modal rendering:', {
                   estimatedConsultationTime: estimatedConsultationTime ? getClinicTimeString(estimatedConsultationTime) : 'N/A',

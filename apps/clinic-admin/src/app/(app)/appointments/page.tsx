@@ -73,7 +73,7 @@ import {
   previewWalkInPlacement,
 } from '@kloqo/shared-core';
 
-import { sendAppointmentCancelledNotification, sendTokenCalledNotification, sendAppointmentBookedByStaffNotification, sendBreakUpdateNotification } from '@kloqo/shared-core';
+import { sendAppointmentCancelledNotification, sendTokenCalledNotification, sendAppointmentBookedByStaffNotification, sendBreakUpdateNotification, sendWhatsAppArrivalConfirmed } from '@kloqo/shared-core';
 import { computeQueues, type QueueState } from '@kloqo/shared-core';
 import {
   getSessionBreaks,
@@ -1497,6 +1497,11 @@ export default function AppointmentsPage() {
 
               // Create appointment atomically in the same transaction
               transaction.set(appointmentRef, finalAppointmentData);
+
+              // Update the local appointmentData so notifications outside the transaction have the classic token
+              if (finalAppointmentData.classicTokenNumber) {
+                (appointmentData as any).classicTokenNumber = finalAppointmentData.classicTokenNumber;
+              }
             });
 
 
@@ -1541,13 +1546,14 @@ export default function AppointmentsPage() {
           // Send notification for Walk-in appointments
           if (!isEditing) {
             try {
-
-              const clinicName = `The clinic`; // Or fetch clinic name if available
-              console.log('[APPOINTMENTS PAGE] Triggering sendAppointmentBookedByStaffNotification for Walk-in', {
+              const clinicName = `${clinicDetails?.name || 'The clinic'}`;
+              console.log('[APPOINTMENTS PAGE] Triggering notifications for Walk-in', {
                 patientId: patientForAppointmentId,
                 appointmentId: appointmentRef.id,
                 tokenNumber: appointmentData.tokenNumber
               });
+
+              // 1. Staff booking notification
               await sendAppointmentBookedByStaffNotification({
                 firestore: db,
                 patientId: patientForAppointmentId,
@@ -1559,10 +1565,36 @@ export default function AppointmentsPage() {
                 arriveByTime: appointmentData.arriveByTime,
                 tokenNumber: appointmentData.tokenNumber,
                 bookedBy: 'admin',
+                tokenDistribution: clinicDetails?.tokenDistribution,
+                classicTokenNumber: appointmentData.classicTokenNumber as any,
               });
-              console.log('[APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification (Walk-in) SUCCESS');
+
+              // 2. Arrival Confirmed for Walk-in
+              if (communicationPhone) {
+                // Determine display token for classic distribution
+                let classicTokenToUse = appointmentData.classicTokenNumber;
+                if (clinicDetails?.tokenDistribution === 'classic') {
+                  // We already updated appointmentData inside the transaction for classic
+                  // but we need to ensure we have the generated one
+                  // For now, using the one from the saved appointment is safest if we refetch, 
+                  // but since this is immediate, we can just use the local one if we move it or capture it.
+                }
+
+                await sendWhatsAppArrivalConfirmed({
+                  firestore: db,
+                  communicationPhone: communicationPhone,
+                  patientName: appointmentData.patientName,
+                  tokenNumber: appointmentData.tokenNumber,
+                  appointmentId: appointmentRef.id,
+                  tokenDistribution: clinicDetails?.tokenDistribution,
+                  classicTokenNumber: appointmentData.classicTokenNumber || appointmentData.tokenNumber,
+                  isWalkIn: true // TRIGGER: Paid template for Walk-in
+                });
+              }
+
+              console.log('[APPOINTMENTS PAGE] Notifications (Walk-in) SUCCESS');
             } catch (notifError) {
-              console.error('[APPOINTMENTS PAGE] sendAppointmentBookedByStaffNotification (Walk-in) FAILED:', notifError);
+              console.error('[APPOINTMENTS PAGE] Notifications (Walk-in) FAILED:', notifError);
             }
           }
 
@@ -2484,6 +2516,26 @@ export default function AppointmentsPage() {
           transaction.update(appointmentRef, updateData);
         });
 
+        // Send arrival confirmation notification
+        if (appointment.communicationPhone) {
+          try {
+            const fetchedAppt = await getFirestoreDoc(doc(db, 'appointments', appointment.id));
+            const apptData = fetchedAppt.data();
+
+            await sendWhatsAppArrivalConfirmed({
+              firestore: db,
+              communicationPhone: appointment.communicationPhone,
+              patientName: appointment.patientName,
+              tokenNumber: appointment.tokenNumber,
+              appointmentId: appointment.id,
+              tokenDistribution: clinicDetails?.tokenDistribution,
+              classicTokenNumber: apptData?.classicTokenNumber || appointment.classicTokenNumber
+            });
+          } catch (notifErr) {
+            console.error('[APPOINTMENTS] Failed to send arrival notification:', notifErr);
+          }
+        }
+
         toast({
           title: "Patient Added to Queue",
           description: `${appointment.patientName} has been confirmed and added to the queue.`
@@ -2507,6 +2559,7 @@ export default function AppointmentsPage() {
 
       try {
         let newTimeString: string;
+        let finalClassicTokenNumber: string | undefined;
 
         // Different logic for No-show vs Skipped
         if (appointment.status === 'No-show') {
@@ -2558,7 +2611,8 @@ export default function AppointmentsPage() {
             const classicCounterId = getClassicTokenCounterId(clinicId, appointment.doctor, appointment.date, appointment.sessionIndex || 0);
             const classicCounterRef = doc(db, 'token-counters', classicCounterId);
             const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
-            updateData.classicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            finalClassicTokenNumber = counterState.nextNumber.toString().padStart(3, '0');
+            updateData.classicTokenNumber = finalClassicTokenNumber;
             commitNextClassicTokenNumber(transaction, classicCounterRef, counterState);
           }
 
@@ -2578,6 +2632,26 @@ export default function AppointmentsPage() {
 
           transaction.update(appointmentRef, updateData);
         });
+
+        // Send WhatsApp notification after successful rejoin
+        if (appointment.communicationPhone) {
+          try {
+            await sendWhatsAppArrivalConfirmed({
+              firestore: db,
+              communicationPhone: appointment.communicationPhone || '',
+              patientName: appointment.patientName,
+              tokenNumber: appointment.tokenNumber,
+              appointmentId: appointment.id,
+              tokenDistribution: clinicDetails?.tokenDistribution,
+              classicTokenNumber: finalClassicTokenNumber || appointment.classicTokenNumber,
+              isWalkIn: false // Strategy: FREE message
+            });
+            console.log('[APPOINTMENTS] WhatsApp notification sent for rejoin queue');
+          } catch (notifErr) {
+            console.error('[APPOINTMENTS] Failed to send rejoin notification:', notifErr);
+            // Don't fail the rejoin if notification fails
+          }
+        }
 
         toast({
           title: "Patient Re-joined Queue",

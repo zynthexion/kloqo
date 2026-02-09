@@ -315,6 +315,11 @@ function getMalayalamContent(type: any, data: any, originalBody: string): { titl
         title: 'കൺസൾട്ടേഷൻ ആരംഭിച്ചു',
         body: `ഡോ. ${data.doctorName}, ${data.clinicName}-ൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചു. നിങ്ങളുടെ സമയം: ${data.appointmentTime}.`
       };
+    case 'consultation_completed':
+      return {
+        title: 'പരിശോധന പൂർത്തിയായി',
+        body: `${data.clinicName} സന്ദർശിച്ചതിന് നന്ദി. ഡോ. ${data.doctorName}-യുമായുള്ള നിങ്ങളുടെ പരിശോധന പൂർത്തിയായി.`
+      };
     case 'appointment_reminder':
       let reminderShowToken = true;
       let reminderDisplayToken = data.tokenNumber;

@@ -11,6 +11,7 @@ import { compareAppointments } from './appointment-service';
 import type { Appointment } from '@kloqo/shared-types';
 import { MagicLinkService } from './magic-link-service';
 import { WhatsAppSessionService } from './whatsapp-session-service';
+import { isNotificationEnabled, NOTIFICATION_TYPES } from './notification-config';
 
 declare const window: any;
 
@@ -214,54 +215,63 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     appointmentId: string;
     showToken?: boolean;
     magicToken?: string; // NEW: Supporting magic links
+    firestore: Firestore; // Added for toggle check
 }): Promise<boolean> {
-    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true, magicToken } = params;
+    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true, magicToken, firestore } = params;
 
-    // Meta Template Name
-    const templateName = 'appointment_reminder_v2';
+    try {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_BOOKED_BY_STAFF)) {
+            console.log(`[WhatsApp] 🚫 Appointment booked/reminder notification is DISABLED. Skipping.`);
+            return true;
+        }
 
-    // Patient app URL with attribution
-    let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
+        // Meta Template Name
+        const templateName = 'appointment_reminder_v2';
 
-    let contentVariables: any = {};
+        let contentVariables: any = {};
 
-    if (showToken) {
-        const liveStatusRef = `whatsapp_confirmation`; // USER REQUESTED: Template 1 use whatsapp_confirmation
-        const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
-        const liveStatusLink = magicToken ? `${baseUrl}&magicToken=${magicToken}` : baseUrl;
+        if (showToken) {
+            const liveStatusRef = `whatsapp_confirmation`; // USER REQUESTED: Template 1 use whatsapp_confirmation
+            const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
+            const liveStatusLink = magicToken ? `${baseUrl}\u0026magicToken=${magicToken}` : baseUrl;
 
-        contentVariables = {
-            "1": patientName,
-            "2": doctorName,
-            "3": clinicName,
-            "4": date,
-            "5": tokenNumber || '--',
-            "6": arriveByTime,
-            "7": liveStatusLink // Button dynamic URL suffix
-        };
-        console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`);
-    } else {
-        const liveStatusRef = `whatsapp_confirmation_no_token`;
-        const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
-        const liveStatusLink = magicToken ? `${baseUrl}&magicToken=${magicToken}` : baseUrl;
+            contentVariables = {
+                "1": patientName,
+                "2": doctorName,
+                "3": clinicName,
+                "4": date,
+                "5": tokenNumber || '--',
+                "6": arriveByTime,
+                // "7": liveStatusLink // REMOVED: Unused in Quick Reply template
+            };
+            console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`);
+        } else {
+            const liveStatusRef = `whatsapp_confirmation_no_token`;
+            const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
+            const liveStatusLink = magicToken ? `${baseUrl}\u0026magicToken=${magicToken}` : baseUrl;
 
-        contentVariables = {
-            "1": patientName,
-            "2": doctorName,
-            "3": clinicName,
-            "4": date,
-            "5": '--', // No token
-            "6": arriveByTime,
-            "7": liveStatusLink
-        };
-        console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`);
+            contentVariables = {
+                "1": patientName,
+                "2": doctorName,
+                "3": clinicName,
+                "4": date,
+                "5": '--', // No token
+                "6": arriveByTime,
+                // "7": liveStatusLink // REMOVED: Unused in Quick Reply template
+            };
+            console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`);
+        }
+
+        return sendWhatsAppMessage({
+            to: communicationPhone,
+            contentSid: templateName, // Using templateName as contentSid for the API route to handle
+            contentVariables
+        });
+    } catch (error) {
+        console.error('[WhatsApp] ❌ Error in confirmation notification:', error);
+        return false;
     }
-
-    return sendWhatsAppMessage({
-        to: communicationPhone,
-        contentSid: templateName, // Using templateName as contentSid for the API route to handle
-        contentVariables
-    });
 }
 
 /**
@@ -273,31 +283,59 @@ export async function sendWhatsAppArrivalConfirmed(params: {
     patientName: string;
     tokenNumber: string;
     appointmentId: string;
+    tokenDistribution?: 'classic' | 'advanced';
+    classicTokenNumber?: string | number; // UPDATED: Accept both string/number
+    isWalkIn?: boolean; // NEW: Differentiates walk-in vs regular
 }): Promise<boolean> {
-    const { firestore, communicationPhone, patientName, tokenNumber, appointmentId } = params;
+    const { firestore, communicationPhone, patientName, tokenNumber, appointmentId, tokenDistribution, classicTokenNumber, isWalkIn = false } = params;
 
     try {
-        // 1. Generate a magic token
-        const token = await MagicLinkService.generateToken(params.firestore || (null as any), communicationPhone, `live-token/${appointmentId}`);
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.ARRIVAL_CONFIRMED)) {
+            console.log(`[WhatsApp] 🚫 Arrival confirmed notification is DISABLED. Skipping.`);
+            return true; // Return true as if handled
+        }
 
-        // 2. Prepare Template
-        const templateName = 'appointment_status_confirmed_ml';
-        const liveStatusRef = `status_confirmed`;
-        const linkSuffix = `${appointmentId}?ref=${liveStatusRef}&magicToken=${token}`;
+        // Determine which token to display
+        let displayToken: string = tokenNumber;
+        if (tokenDistribution === 'classic') {
+            displayToken = String(classicTokenNumber || tokenNumber);
+        }
 
-        const contentVariables = {
-            "1": patientName,
-            "2": tokenNumber,
-            "3": linkSuffix // Button dynamic URL suffix
-        };
+        if (isWalkIn) {
+            // WALK-IN: Window is CLOSED. Send PAID template with Quick Reply to open window.
+            console.log(`[WhatsApp] 🚶 Walk-in Arrival: ${patientName}. Opening window with PAID template.`);
 
-        console.log(`[WhatsApp] 📄 Using Meta Template (appointment_status_confirmed_ml) - Token: ${tokenNumber}`);
+            const templateName = 'walkin_arrival_confirmed_ml';
+            return await sendWhatsAppMessage({
+                to: communicationPhone,
+                contentSid: templateName,
+                contentVariables: {
+                    "1": patientName,
+                    "2": displayToken
+                }
+            });
+        }
 
-        return sendWhatsAppMessage({
+        // REGULAR: Window should be OPEN from reminder. Use Smart WhatsApp (FREE if open).
+        console.log(`[WhatsApp] 📅 Regular Arrival: ${patientName}. Using Smart optimization.`);
+
+        const token = await MagicLinkService.generateToken(firestore || (null as any), communicationPhone, `live-token/${appointmentId}`);
+        const linkSuffix = `${appointmentId}?ref=status_confirmed\u0026magicToken=${token}`;
+        const malayalamTextFallback = `നമസ്കാരം ${patientName}, നിങ്ങളുടെ ടോക്കൺ ${displayToken} കൺഫേം ചെയ്തിട്ടുണ്ട്. ലൈവ് സ്റ്റാറ്റസ് അറിയാനായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${linkSuffix}`;
+
+        return await sendSmartWhatsAppNotification({
             to: communicationPhone,
-            contentSid: templateName,
-            contentVariables
+            templateName: 'appointment_status_confirmed_ml',
+            templateVariables: {
+                "1": patientName,
+                "2": displayToken,
+                "3": linkSuffix
+            },
+            textFallback: malayalamTextFallback,
+            skipIfClosed: true // Strategy: Only send if it's FREE (window open).
         });
+
     } catch (error) {
         console.error('[WhatsApp] ❌ Error in sendWhatsAppArrivalConfirmed:', error);
         return false;
@@ -312,10 +350,17 @@ export async function sendWhatsAppAIFallback(params: {
     patientName?: string;
     magicToken: string;
     clinicId?: string;
+    firestore: Firestore; // Added for toggle check
 }): Promise<boolean> {
-    const { communicationPhone, patientName, magicToken, clinicId } = params;
+    const { communicationPhone, patientName, magicToken, clinicId, firestore } = params;
 
     try {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.AI_FALLBACK)) {
+            console.log(`[WhatsApp] 🚫 AI Fallback notification is DISABLED. Skipping.`);
+            return true; // Return true as if handled
+        }
+
         const linkSuffix = `?ref=ai_fallback&magicToken=${magicToken}`;
         // Patient app URL with attribution
         let patientAppBaseUrl = process.env.NEXT_PUBLIC_PATIENT_APP_URL || 'https://app.kloqo.com';
@@ -352,8 +397,15 @@ export async function sendWhatsAppBookingLink(params: {
     clinicId: string; // Firestore ID for the URL
     magicToken?: string;
     redirectPath?: string;
+    firestore: Firestore; // Added for toggle check
 }): Promise<boolean> {
-    const { communicationPhone, patientName, clinicName, clinicCode, clinicId, magicToken, redirectPath } = params;
+    const { communicationPhone, patientName, clinicName, clinicCode, clinicId, magicToken, redirectPath, firestore } = params;
+
+    // TOGGLE CHECK
+    if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.BOOKING_LINK)) {
+        console.log(`[WhatsApp] 🚫 Booking link notification is DISABLED. Skipping.`);
+        return true; // Return true as if handled
+    }
 
     const templateName = 'appointment_requested_ml';
     const ref = 'whatsapp_booking_link';
@@ -530,74 +582,86 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         pushShowToken = !!tokenNumber;
     }
 
-    const pwaResult = await sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Appointment Booked',
-        body: `${clinicName} has booked an appointment with Dr. ${doctorName} on ${date} at ${displayTime}.${pushShowToken ? ` Token: ${pushTokenDisplay}` : ''}`,
-        data: {
-            type: 'appointment_confirmed',
-            appointmentId,
-            doctorName,
-            date,
-            time: displayTime,
-            tokenNumber: pushTokenDisplay,
-            bookedBy,
-            url: '/appointments', // Click will open appointments page
-        },
-    });
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_BOOKED_BY_STAFF, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title: 'Appointment Booked',
+            body: `${clinicName} has booked an appointment with Dr. ${doctorName} on ${date} at ${displayTime}.${pushShowToken ? ` Token: ${pushTokenDisplay}` : ''}`,
+            data: {
+                type: 'appointment_confirmed',
+                appointmentId,
+                doctorName,
+                date,
+                time: displayTime,
+                tokenNumber: pushTokenDisplay,
+                bookedBy,
+                url: '/appointments', // Click will open appointments page
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 Appointment booked notification is DISABLED. Skipping PWA.`);
+    }
 
-    // WhatsApp Split-Batch Logic:
-    // 1. If appointment is for TODAY AND it is currently after 7 PM -> Send Immediately.
-    // 2. Otherwise -> Skip (Will be caught by 5 PM / 7 AM batch reminders).
-    const isAdvancedBooking = tokenNumber && tokenNumber.startsWith('A');
-    if (isAdvancedBooking && communicationPhone) {
-        const now = getClinicNow();
-        const currentHour = now.getHours();
-        const todayStr = getClinicDateString(now);
-        const tomorrow = addDays(now, 1);
-        const tomorrowStr = getClinicDateString(tomorrow);
+    // TOGGLE CHECK for WhatsApp
+    if (communicationPhone && !await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_BOOKED_BY_STAFF)) {
+        console.log(`[WhatsApp] 🚫 Appointment booked by staff notification is DISABLED. Skipping WhatsApp.`);
+        // Note: PWA notification still proceeds below
+    } else if (communicationPhone) {
+        // WhatsApp Split-Batch Logic:
+        // 1. If appointment is for TODAY AND it is currently after 7 PM -> Send Immediately.
+        // 2. Otherwise -> Skip (Will be caught by 5 PM / 7 AM batch reminders).
+        const isAdvancedBooking = tokenNumber && tokenNumber.startsWith('A');
+        if (isAdvancedBooking) {
+            const now = getClinicNow();
+            const currentHour = now.getHours();
+            const todayStr = getClinicDateString(now);
+            const tomorrow = addDays(now, 1);
+            const tomorrowStr = getClinicDateString(tomorrow);
 
-        const isAppointmentToday = date === todayStr;
-        const isAppointmentTomorrow = date === tomorrowStr;
+            const isAppointmentToday = date === todayStr;
+            const isAppointmentTomorrow = date === tomorrowStr;
 
-        // Condition for immediate sending:
-        // 1. If for TODAY and booked after 7 AM (Missed the morning batch)
-        // 2. If for TOMORROW and booked after 5 PM (Missed the evening batch)
-        const shouldSendImmediately =
-            (isAppointmentToday && currentHour >= 7) ||
-            (isAppointmentTomorrow && currentHour >= 17);
+            // Condition for immediate sending:
+            // 1. If for TODAY and booked after 7 AM (Missed the morning batch)
+            // 2. If for TOMORROW and booked after 5 PM (Missed the evening batch)
+            const shouldSendImmediately =
+                (isAppointmentToday && currentHour >= 7) ||
+                (isAppointmentTomorrow && currentHour >= 17);
 
-        if (shouldSendImmediately) {
-            let whatsappShowToken = true;
-            if (tokenDistribution === 'classic') {
-                whatsappShowToken = !!classicTokenNumber;
+            if (shouldSendImmediately) {
+                let whatsappShowToken = true;
+                if (tokenDistribution === 'classic') {
+                    whatsappShowToken = !!classicTokenNumber;
+                }
+
+                try {
+                    console.log(`[Notification] 📱 Missed batch window detected (${date}, curr: ${currentHour}h). Sending WhatsApp immediately.`);
+                    await sendWhatsAppAppointmentConfirmed({
+                        communicationPhone: communicationPhone,
+                        patientName: patientName || 'Patient',
+                        doctorName,
+                        clinicName,
+                        date,
+                        time: arriveByTime || time,
+                        arriveByTime: displayTime,
+                        tokenNumber: (tokenDistribution === 'classic' && classicTokenNumber) ? classicTokenNumber : tokenNumber,
+                        appointmentId,
+                        showToken: whatsappShowToken,
+                        firestore
+                    });
+
+                    // Mark as sent in Firestore
+                    await updateDoc(doc(firestore, 'appointments', appointmentId), {
+                        whatsappConfirmationSent: true
+                    });
+                } catch (error) {
+                    console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);
+                }
+            } else {
+                console.log(`[Notification] ⏳ Appointment (${date}) outside immediate window. Scheduled for batch.`);
             }
-
-            try {
-                console.log(`[Notification] 📱 Missed batch window detected (${date}, curr: ${currentHour}h). Sending WhatsApp immediately.`);
-                await sendWhatsAppAppointmentConfirmed({
-                    communicationPhone: communicationPhone,
-                    patientName: patientName || 'Patient',
-                    doctorName,
-                    clinicName,
-                    date,
-                    time: arriveByTime || time,
-                    arriveByTime: displayTime,
-                    tokenNumber,
-                    appointmentId,
-                    showToken: whatsappShowToken
-                });
-
-                // Mark as sent in Firestore
-                await updateDoc(doc(firestore, 'appointments', appointmentId), {
-                    whatsappConfirmationSent: true
-                });
-            } catch (error) {
-                console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);
-            }
-        } else {
-            console.log(`[Notification] ⏳ Appointment (${date}) outside immediate window. Scheduled for batch.`);
         }
     }
 
@@ -615,27 +679,84 @@ export async function sendTokenCalledNotification(params: {
     tokenNumber: string;
     doctorName: string;
     cancelledByBreak?: boolean;
+    tokenDistribution?: 'classic' | 'advanced';
+    classicTokenNumber?: string;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, cancelledByBreak } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, cancelledByBreak, tokenDistribution, classicTokenNumber, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
-        console.info(`[Notification] ℹ️ Skipping token called notification for appointment ${appointmentId} because it was cancelled by a break.`);
+        console.info(`[Notification] ℹ️ Skipping token called notification for appointment ${appointmentId} because it was affected by a break.`);
         return true;
     }
 
-    return sendNotificationToPatient({
+    // Determine which token to display for Classic vs Advanced
+    let displayToken = tokenNumber;
+    let showToken = true;
+
+    if (tokenDistribution === 'classic') {
+        // For Classic mode: Only show classicTokenNumber if it exists
+        // Hide internal 'A' tokens (Advanced tokens) until patient is confirmed
+        if (classicTokenNumber) {
+            displayToken = classicTokenNumber;
+            showToken = true;
+        } else if (tokenNumber && (tokenNumber.startsWith('W') || /^\d+$/.test(tokenNumber))) {
+            // Walk-in or numeric tokens are OK to show
+            displayToken = tokenNumber;
+            showToken = true;
+        } else {
+            // Internal 'A' token in Classic mode -> Hide it
+            showToken = false;
+        }
+    } else {
+        // Advanced mode: Always show the token
+        showToken = !!tokenNumber;
+        displayToken = tokenNumber;
+    }
+
+    // 1. PWA/Push Notification
+    const pwaResult = await sendNotificationToPatient({
         firestore,
         patientId,
-        title: 'Your Turn!',
-        body: `Token ${tokenNumber} for Dr. ${doctorName} is now being served at ${clinicName}. Please proceed to the clinic.`,
+        title: 'Your Turn',
+        body: `Your token has been called at ${clinicName}.${showToken ? ` Token: ${displayToken}` : ''}`,
         data: {
             type: 'token_called',
             appointmentId,
             clinicName,
-            tokenNumber,
+            tokenNumber: displayToken, // Might be empty string
             doctorName,
         },
     });
+
+    // 2. WhatsApp Notification
+    if (communicationPhone) {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.TOKEN_CALLED)) {
+            console.log(`[WhatsApp] 🚫 Token called notification is DISABLED. Skipping.`);
+        } else {
+            console.log(`[Notification] 📱 Triggering Smart WhatsApp for Token Called: ${tokenNumber}`);
+
+            const magicToken = await MagicLinkService.generateToken(firestore, communicationPhone, `live-token/${appointmentId}`);
+            const linkSuffix = `${appointmentId}?ref=token_called\u0026magicToken=${magicToken}`;
+            const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} നിങ്ങളുടെ ടോക്കൺ (${tokenNumber}) വിളിച്ചിരിക്കുന്നു. ദയവായി കൺസൾട്ടേഷൻ റൂമിലേക്ക് വരിക. ലൈവ് സ്റ്റാറ്റസ്: https://app.kloqo.com/live-token/${linkSuffix}`;
+
+            await sendSmartWhatsAppNotification({
+                to: communicationPhone,
+                templateName: 'token_called_quick_reply_ml',
+                templateVariables: {
+                    "1": patientName || 'Patient',
+                    "2": tokenNumber,
+                    "3": linkSuffix
+                },
+                textFallback,
+                alwaysSend: true
+            });
+        }
+    }
+
+    return pwaResult;
 }
 
 /**
@@ -652,8 +773,10 @@ export async function sendAppointmentCancelledNotification(params: {
     cancelledBy: 'patient' | 'clinic';
     arriveByTime?: string;
     cancelledByBreak?: boolean;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, cancelledBy, arriveByTime, cancelledByBreak } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, cancelledBy, arriveByTime, cancelledByBreak, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping cancellation notification for appointment ${appointmentId} because it was cancelled by a break.`);
@@ -671,23 +794,63 @@ export async function sendAppointmentCancelledNotification(params: {
         console.error('Error calculating displayTime for cancellation notification:', error);
     }
 
-    return sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Appointment Cancelled',
-        body: cancelledBy === 'patient'
-            ? `Your appointment with Dr. ${doctorName} on ${date} at ${displayTime} has been cancelled.`
-            : `${clinicName} has cancelled your appointment with Dr. ${doctorName} on ${date} at ${displayTime}.`,
-        data: {
-            type: 'appointment_cancelled',
-            appointmentId,
-            doctorName,
-            clinicName,
-            date,
-            time: displayTime,
-            cancelledBy,
-        },
-    });
+    // 1. PWA/Push Notification
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_CANCELLED, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title: 'Appointment Cancelled',
+            body: cancelledBy === 'patient'
+                ? `Your appointment with Dr. ${doctorName} on ${date} at ${displayTime} has been cancelled.`
+                : `${clinicName} has cancelled your appointment with Dr. ${doctorName} on ${date} at ${displayTime}.`,
+            data: {
+                type: 'appointment_cancelled',
+                appointmentId,
+                doctorName,
+                clinicName,
+                date,
+                time: displayTime,
+                cancelledBy,
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 Appointment cancelled notification is DISABLED. Skipping PWA.`);
+    }
+
+    // 2. WhatsApp Notification
+    if (communicationPhone) {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_CANCELLED)) {
+            console.log(`[WhatsApp] 🚫 Appointment cancelled notification is DISABLED. Skipping.`);
+        } else {
+            try {
+                console.log(`[Notification] 📱 Triggering Smart WhatsApp for Appointment Cancelled: ${appointmentId}`);
+
+                const textFallback = cancelledBy === 'patient'
+                    ? `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} മായി ${date} ${displayTime} ന് ഉണ്ടായിരുന്ന നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കിയിട്ടുണ്ട്.`
+                    : `നമസ്കാരം ${patientName || 'Patient'}, ${clinicName}-ൽ ഡോ. ${doctorName} മായി ${date} ${displayTime} ന് ഉണ്ടായിരുന്ന നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കിയിട്ടുണ്ട്.`;
+
+                await sendSmartWhatsAppNotification({
+                    to: communicationPhone,
+                    templateName: 'appointment_cancelled_ml',
+                    templateVariables: {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": date,
+                        "4": displayTime,
+                        "5": clinicName
+                    },
+                    textFallback,
+                    alwaysSend: true // Critical info, send paid template if window closed
+                });
+            } catch (error) {
+                console.error('[Notification] ❌ Failed to send Smart WhatsApp (Appointment Cancelled):', error);
+            }
+        }
+    }
+
+    return pwaResult;
 }
 
 /**
@@ -701,27 +864,66 @@ export async function sendDoctorRunningLateNotification(params: {
     clinicName: string;
     delayMinutes: number;
     cancelledByBreak?: boolean;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, delayMinutes, cancelledByBreak } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, delayMinutes, cancelledByBreak, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping doctor late notification for appointment ${appointmentId} because it was affected by a break.`);
         return true;
     }
 
-    return sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Doctor Running Late',
-        body: `Dr. ${doctorName} at ${clinicName} is running approximately ${delayMinutes} minutes late.`,
-        data: {
-            type: 'doctor_late',
-            appointmentId,
-            doctorName,
-            clinicName,
-            delayMinutes,
-        },
-    });
+    // 1. PWA/Push Notification
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.DOCTOR_RUNNING_LATE, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title: 'Doctor Running Late',
+            body: `Dr. ${doctorName} at ${clinicName} is running approximately ${delayMinutes} minutes late.`,
+            data: {
+                type: 'doctor_late',
+                appointmentId,
+                doctorName,
+                clinicName,
+                delayMinutes,
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 Doctor running late notification is DISABLED. Skipping PWA.`);
+    }
+
+    // 2. WhatsApp Notification
+    if (communicationPhone) {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.DOCTOR_RUNNING_LATE)) {
+            console.log(`[WhatsApp] 🚫 Doctor running late notification is DISABLED. Skipping.`);
+        } else {
+            try {
+                console.log(`[Notification] 📱 Triggering Smart WhatsApp for Doctor Running Late: ${doctorName}`);
+
+                const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ${clinicName}-ൽ ഡോ. ${doctorName} ഏകദേശം ${delayMinutes} മിനിറ്റ് വൈകിയാണ് കൺസൾട്ടേഷൻ ആരംഭിക്കുന്നത്.`;
+
+                await sendSmartWhatsAppNotification({
+                    to: communicationPhone,
+                    templateName: 'doctor_running_late_ml',
+                    templateVariables: {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": clinicName,
+                        "4": delayMinutes
+                    },
+                    textFallback,
+                    alwaysSend: true // Critical info, send paid template if window closed
+                });
+            } catch (error) {
+                console.error('[Notification] ❌ Failed to send Smart WhatsApp (Doctor Running Late):', error);
+            }
+        }
+    }
+
+    return pwaResult;
 }
 
 /**
@@ -741,8 +943,10 @@ export async function sendBreakUpdateNotification(params: {
     oldArriveByTime?: string;
     newArriveByTime?: string;
     cancelledByBreak?: boolean;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, oldTime, newTime, oldDate, newDate, reason, oldArriveByTime, newArriveByTime, cancelledByBreak } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, oldTime, newTime, oldDate, newDate, reason, oldArriveByTime, newArriveByTime, cancelledByBreak, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping break update notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -790,23 +994,57 @@ export async function sendBreakUpdateNotification(params: {
     const oldDateTimeString = `${oldDate ? `${oldDate} at ` : ''}${displayOldTime}`;
     const newDateTimeString = `${newDate ? `${newDate} at ` : ''}${displayNewTime}`;
 
-    return sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Appointment Time Changed',
-        body: `${clinicName} has rescheduled your appointment with Dr. ${doctorName} from ${oldDateTimeString} to ${newDateTimeString}.${reason ? ` Reason: ${reason}` : ''}`,
-        data: {
-            type: 'appointment_rescheduled',
-            appointmentId,
-            doctorName,
-            clinicName,
-            oldTime: displayOldTime,
-            newTime: displayNewTime,
-            oldDate,
-            newDate,
-            reason,
-        },
-    });
+    // 1. PWA/Push Notification
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.BREAK_UPDATE, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title: 'Appointment Time Changed',
+            body: `${clinicName} has rescheduled your appointment with Dr. ${doctorName} from ${oldDateTimeString} to ${newDateTimeString}.${reason ? ` Reason: ${reason}` : ''}`,
+            data: {
+                type: 'appointment_rescheduled',
+                appointmentId,
+                doctorName,
+                clinicName,
+                oldTime: displayOldTime,
+                newTime: displayNewTime,
+                oldDate,
+                newDate,
+                reason,
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 Break update notification is DISABLED. Skipping PWA.`);
+    }
+
+    // 2. WhatsApp Notification
+    if (communicationPhone) {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.BREAK_UPDATE)) {
+            console.log(`[WhatsApp] 🚫 Break update notification is DISABLED. Skipping.`);
+        } else {
+            try {
+                const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ${clinicName}-ൽ ഡോ. ${doctorName} ഇപ്പോൾ ഒരു ചെറിയ ബ്രേക്കിലാണ്. നിങ്ങളുടെ ടോക്കൺ സമയം അല്പം മാറിയിട്ടുണ്ട്. അസൗകര്യത്തിൽ ഖേദിക്കുന്നു.`;
+
+                await sendSmartWhatsAppNotification({
+                    to: communicationPhone,
+                    templateName: 'doctor_break_update_ml',
+                    templateVariables: {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": clinicName
+                    },
+                    textFallback,
+                    alwaysSend: true
+                });
+            } catch (error) {
+                console.error('[WhatsApp] ❌ Error in break notification:', error);
+            }
+        }
+    }
+
+    return pwaResult;
 }
 
 /**
@@ -822,8 +1060,10 @@ export async function sendAppointmentSkippedNotification(params: {
     time: string;
     tokenNumber: string;
     cancelledByBreak?: boolean;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, cancelledByBreak } = params;
+    const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, cancelledByBreak, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping skipped notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -842,22 +1082,60 @@ export async function sendAppointmentSkippedNotification(params: {
         console.error('Error calculating displayTime for skipped notification:', error);
     }
 
-    return sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Appointment Skipped',
-        body: `Your appointment with Dr. ${doctorName} on ${date} at ${displayTime} (Token: ${tokenNumber}) has been marked as Skipped because you didn't confirm your arrival 5 minutes before the appointment time.`,
-        data: {
-            type: 'appointment_skipped',
-            appointmentId,
-            doctorName,
-            clinicName,
-            date,
-            time,
-            tokenNumber,
-            url: '/live-token', // Click will open live token page
-        },
-    });
+    // 1. PWA/Push Notification
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_SKIPPED, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title: 'Appointment Skipped',
+            body: `Your appointment with Dr. ${doctorName} on ${date} at ${displayTime} (Token: ${tokenNumber}) has been marked as Skipped because you didn't confirm your arrival 5 minutes before the appointment time.`,
+            data: {
+                type: 'appointment_skipped',
+                appointmentId,
+                doctorName,
+                clinicName,
+                date,
+                time,
+                tokenNumber,
+                url: '/live-token', // Click will open live token page
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 Appointment skipped notification is DISABLED. Skipping PWA.`);
+    }
+
+    // 2. WhatsApp Notification
+    if (communicationPhone) {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.APPOINTMENT_SKIPPED)) {
+            console.log(`[WhatsApp] 🚫 Appointment skipped notification is DISABLED. Skipping.`);
+        } else {
+            try {
+                console.log(`[Notification] 📱 Triggering Smart WhatsApp for Appointment Skipped: ${appointmentId}`);
+
+                const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} മായി ${date} ${displayTime} ന് ഉണ്ടായിരുന്ന നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് (ടോക്കൺ: ${tokenNumber}) ഒഴിവാക്കിയിട്ടുണ്ട്. അപ്പോയിന്റ്മെന്റ് സമയത്തിന് 5 മിനിറ്റ് മുൻപ് നിങ്ങൾ എത്തിച്ചേരാത്തതിനാലാണിത്.`;
+
+                await sendSmartWhatsAppNotification({
+                    to: communicationPhone,
+                    templateName: 'appointment_skipped_ml',
+                    templateVariables: {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": date,
+                        "4": displayTime,
+                        "5": tokenNumber
+                    },
+                    textFallback,
+                    alwaysSend: true // Critical info, send paid template if window closed
+                });
+            } catch (error) {
+                console.error('[Notification] ❌ Failed to send Smart WhatsApp (Appointment Skipped):', error);
+            }
+        }
+    }
+
+    return pwaResult;
 }
 
 /**
@@ -877,8 +1155,10 @@ export async function sendPeopleAheadNotification(params: {
     breakDuration?: number;
     tokenDistribution?: 'classic' | 'advanced';
     averageConsultingTime?: number;
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 } | any): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak, breakDuration, tokenDistribution, averageConsultingTime } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak, breakDuration, tokenDistribution, averageConsultingTime, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping people ahead notification for appointment ${appointmentId} because it was cancelled by a break.`);
@@ -928,23 +1208,84 @@ export async function sendPeopleAheadNotification(params: {
         }
     }
 
-    return sendNotificationToPatient({
-        firestore,
-        patientId,
-        title,
-        body,
-        data: {
-            type: 'queue_update',
-            appointmentId,
-            clinicName,
-            tokenNumber,
-            doctorName,
-            peopleAhead,
-            appointmentTime: displayTime,
-            appointmentDate,
-            url: '/live-token',
-        },
-    });
+    // 1. PWA/Push Notification
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.PEOPLE_AHEAD, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title,
+            body,
+            data: {
+                type: 'queue_update',
+                appointmentId,
+                clinicName,
+                tokenNumber,
+                doctorName,
+                peopleAhead,
+                appointmentTime: displayTime,
+                appointmentDate,
+                url: '/live-token',
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 People ahead notification is DISABLED. Skipping PWA.`);
+    }
+
+    // 2. WhatsApp Notification
+    if (communicationPhone) {
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.PEOPLE_AHEAD)) {
+            console.log(`[WhatsApp] 🚫 People ahead notification is DISABLED. Skipping.`);
+        } else {
+            try {
+                console.log(`[Notification] 📱 Triggering Smart WhatsApp for People Ahead: ${peopleAhead}`);
+
+                let whatsappTextFallback = '';
+                let whatsappTemplateName = '';
+                let whatsappTemplateVariables: any = {};
+
+                if (peopleAhead === 0) {
+                    whatsappTemplateName = 'you_are_next_ml';
+                    whatsappTemplateVariables = {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": clinicName,
+                        "4": tokenNumber || ''
+                    };
+                    whatsappTextFallback = `നമസ്കാരം ${patientName || 'Patient'}, നിങ്ങൾ അടുത്തതായി ഡോ. ${doctorName} നെ കാണും. ${clinicName}-ൽ നിങ്ങളുടെ ടോക്കൺ: ${tokenNumber || ''}`;
+                    if (breakDuration && breakDuration > 0) {
+                        whatsappTextFallback = `നമസ്കാരം ${patientName || 'Patient'}, ഡോക്ടർ ${breakDuration} മിനിറ്റ് ബ്രേക്കിലാണ്. ബ്രേക്കിന് ശേഷം നിങ്ങൾ അടുത്തതായി ഡോ. ${doctorName} നെ കാണും. ${clinicName}-ൽ നിങ്ങളുടെ ടോക്കൺ: ${tokenNumber || ''}`;
+                    }
+                } else {
+                    whatsappTemplateName = 'queue_update_ml';
+                    whatsappTemplateVariables = {
+                        "1": patientName || 'Patient',
+                        "2": peopleAheadText,
+                        "3": doctorName,
+                        "4": clinicName,
+                        "5": tokenNumber || ''
+                    };
+                    whatsappTextFallback = `നമസ്കാരം ${patientName || 'Patient'}, നിങ്ങൾക്ക് മുന്നിൽ ${peopleAheadText} ഉണ്ട്. നിങ്ങൾ അടുത്തതായി ഡോ. ${doctorName} നെ കാണും. ${clinicName}-ൽ നിങ്ങളുടെ ടോക്കൺ: ${tokenNumber || ''}`;
+                    if (breakDuration && breakDuration > 0) {
+                        whatsappTextFallback = `നമസ്കാരം ${patientName || 'Patient'}, നിങ്ങൾക്ക് മുന്നിൽ ${peopleAheadText} ഉണ്ട്. ഡോക്ടർ ${breakDuration} മിനിറ്റ് ബ്രേക്കിലാണ്. നിങ്ങൾ അടുത്തതായി ഡോ. ${doctorName} നെ കാണും. ${clinicName}-ൽ നിങ്ങളുടെ ടോക്കൺ: ${tokenNumber || ''}`;
+                    }
+                }
+
+                await sendSmartWhatsAppNotification({
+                    to: communicationPhone,
+                    templateName: whatsappTemplateName,
+                    templateVariables: whatsappTemplateVariables,
+                    textFallback: whatsappTextFallback,
+                    alwaysSend: true // Critical info, send paid template if window closed
+                });
+            } catch (error) {
+                console.error('[Notification] ❌ Failed to send Smart WhatsApp (People Ahead):', error);
+            }
+        }
+    }
+
+    return pwaResult;
 }
 
 /**
@@ -964,11 +1305,13 @@ export async function sendDoctorConsultationStartedNotification(params: {
     tokenDistribution?: 'classic' | 'advanced';
     averageConsultingTime?: number;
     peopleAhead?: number; // Optional: used for classic estimated time calculation
+    communicationPhone?: string; // New: optional phone for WhatsApp
+    patientName?: string; // New: for WhatsApp template
 } | any): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak, tokenDistribution, averageConsultingTime, peopleAhead } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak, tokenDistribution, averageConsultingTime, peopleAhead, communicationPhone, patientName } = params;
 
     if (cancelledByBreak) {
-        console.info(`[Notification] ℹ️ Skipping consultation started notification for appointment ${appointmentId} because it was cancelled by a break.`);
+        console.info(`[Notification] ℹ️ Skipping consultation started notification for appointment ${appointmentId} because it was affected by a break.`);
         return true;
     }
 
@@ -1002,82 +1345,70 @@ export async function sendDoctorConsultationStartedNotification(params: {
 
     const timeLabel = isClassic ? 'Expected turn time' : 'Your appointment time';
 
-    return sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Doctor Consultation Started',
-        body: `Dr. ${doctorName} has started consultation at ${clinicName}.${displayTime ? ` ${timeLabel}: ${displayTime}.` : ''}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`,
-        data: {
-            type: 'token_distribution_started',
-            appointmentId,
-            clinicName,
-            tokenNumber,
-            doctorName,
-            appointmentTime: displayTime,
-            appointmentDate,
-            url: '/live-token',
-        },
-    });
-}
-/**
- * Send notification when doctor starts consultation (status becomes 'In')
- */
-export async function sendDoctorInNotification(params: {
-    firestore: Firestore;
-    patientId: string;
-    appointmentId: string;
-    doctorName: string;
-    clinicName: string;
-    cancelledByBreak?: boolean;
-    communicationPhone?: string; // New: optional phone for WhatsApp
-    patientName?: string; // New: for WhatsApp template
-}): Promise<boolean> {
-    const { firestore, patientId, appointmentId, doctorName, clinicName, cancelledByBreak, communicationPhone, patientName } = params;
-
-    if (cancelledByBreak) {
-        console.info(`[Notification] ℹ️ Skipping doctor in notification for appointment ${appointmentId} because it was affected by a break.`);
-        return true;
+    // 1. PWA/Push Notification
+    let pwaResult = true;
+    if (await isNotificationEnabled(firestore, NOTIFICATION_TYPES.DOCTOR_CONSULTATION_STARTED, 'pwa')) {
+        pwaResult = await sendNotificationToPatient({
+            firestore,
+            patientId,
+            title: 'Doctor Consultation Started',
+            body: `Dr. ${doctorName} has started consultation at ${clinicName}.${displayTime ? ` ${timeLabel}: ${displayTime}.` : ''}${tokenNumber ? ` Token: ${tokenNumber}` : ''}`,
+            data: {
+                type: 'token_distribution_started',
+                appointmentId,
+                clinicName,
+                tokenNumber,
+                doctorName,
+                appointmentTime: displayTime,
+                appointmentDate,
+                url: '/live-token',
+            },
+        });
+    } else {
+        console.log(`[PWA] 🚫 Consultation started notification is DISABLED. Skipping PWA.`);
     }
 
-    // 1. Send PWA/Push Notification
-    const pwaResult = await sendNotificationToPatient({
-        firestore,
-        patientId,
-        title: 'Doctor is In!',
-        body: `Dr. ${doctorName} has arrived at ${clinicName} and started consultations. Your turn will be soon!`,
-        data: {
-            type: 'doctor_in',
-            appointmentId,
-            doctorName,
-            clinicName,
-            url: '/live-token', // Click will open live token page
-        },
-    });
-
-    // 2. Handle Smart WhatsApp for "Doctor In"
+    // 2. WhatsApp Notification
     if (communicationPhone) {
-        try {
-            console.log(`[Notification] 📱 Triggering Smart WhatsApp for Doctor In: ${doctorName}`);
+        // TOGGLE CHECK
+        if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.DOCTOR_CONSULTATION_STARTED)) {
+            console.log(`[WhatsApp] 🚫 Consultation started notification is DISABLED. Skipping.`);
+        } else {
+            try {
+                console.log(`[Notification] 📱 Triggering Smart WhatsApp for Consultation Started: ${doctorName} (Using ${!!tokenNumber && tokenNumber !== 'N/A' ? 'Token' : 'Pending'} Template)`);
 
-            // Logic: 
-            // - If 24h window OPEN: Send FREE Malayalam text message.
-            // - If 24h window CLOSED: Send PAID 'doctor_in_pending_ml' template (alwaysSend=true).
-            const malayalamTextFallback = `നമസ്കാരം, ഡോ. ${doctorName} കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. നിങ്ങളുടെ ടോക്കൺ വിവരങ്ങൾ അറിയാനായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${appointmentId}`;
+                const hasToken = !!tokenNumber && tokenNumber !== 'N/A' && tokenNumber !== '';
+                const templateName = hasToken ? 'doctor_consultation_started_ml' : 'doctor_in_pending_ml';
 
-            await sendSmartWhatsAppNotification({
-                to: communicationPhone,
-                templateName: 'doctor_in_pending_ml', // PAID template name
-                templateVariables: {
-                    "1": patientName || 'Patient',
-                    "2": doctorName,
-                    "3": clinicName,
-                    "4": appointmentId // Dynamic URL suffix for button
-                },
-                textFallback: malayalamTextFallback,
-                alwaysSend: true // Since this is critical "Doctor arrived" info, send paid template if window closed
-            });
-        } catch (error) {
-            console.error('[Notification] ❌ Failed to send Smart WhatsApp (Doctor In):', error);
+                const textFallback = hasToken
+                    ? `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. ${clinicName}-ൽ നിങ്ങളുടെ ടോക്കൺ: ${tokenNumber}. ${timeLabel}: ${displayTime}.`
+                    : `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} ഇപ്പോൾ ക്ലിനിക്കിൽ കൺസൾട്ടേഷൻ ആരംഭിച്ചിട്ടുണ്ട്. നിങ്ങളുടെ ഊഴം എപ്പോൾ വരുമെന്ന് അറിയാനും തത്സമയ അപ്ഡേറ്റുകൾ ലഭിക്കാനും ലോഗിൻ ചെയ്യുക.`;
+
+                const templateVariables = hasToken
+                    ? {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": clinicName,
+                        "4": tokenNumber,
+                        "5": displayTime
+                    }
+                    : {
+                        "1": patientName || 'Patient',
+                        "2": doctorName,
+                        "3": clinicName,
+                        "4": appointmentId // link suffix
+                    };
+
+                await sendSmartWhatsAppNotification({
+                    to: communicationPhone,
+                    templateName,
+                    templateVariables,
+                    textFallback,
+                    alwaysSend: true // Critical info, send paid template if window closed
+                });
+            } catch (error) {
+                console.error('[Notification] ❌ Failed to send Smart WhatsApp (Consultation Started):', error);
+            }
         }
     }
 
@@ -1095,6 +1426,11 @@ export async function sendPatientCheckoutNotification(params: {
     clinicName: string;
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName } = params;
+
+    if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.CONSULTATION_COMPLETED, 'pwa')) {
+        console.log(`[PWA] 🚫 Consultation completed notification is DISABLED. Skipping PWA.`);
+        return true;
+    }
 
     return sendNotificationToPatient({
         firestore,
@@ -1134,6 +1470,11 @@ export async function sendDailyReminderNotification(params: {
         displayTime = getClinicTimeString(shownTime);
     } catch (error) {
         console.error('Error calculating displayTime for daily reminder notification:', error);
+    }
+
+    if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.DAILY_REMINDER, 'pwa')) {
+        console.log(`[PWA] 🚫 Daily reminder notification is DISABLED. Skipping PWA.`);
+        return true;
     }
 
     return sendNotificationToPatient({
@@ -1373,6 +1714,11 @@ export async function sendFreeFollowUpExpiryNotification(params: {
 }): Promise<boolean> {
     const { firestore, patientId, doctorName, clinicName, remainingDays } = params;
 
+    if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.FREE_FOLLOWUP_EXPIRY, 'pwa')) {
+        console.log(`[PWA] 🚫 Follow-up expiry notification is DISABLED. Skipping PWA.`);
+        return true;
+    }
+
     return sendNotificationToPatient({
         firestore,
         patientId,
@@ -1568,9 +1914,10 @@ export async function processWhatsAppBatchReminders(params: {
                     date: appointment.date,
                     time: appointment.arriveByTime || appointment.time,
                     arriveByTime: displayTime,
-                    tokenNumber: appointment.tokenNumber,
+                    tokenNumber: tokenToDisplay,
                     appointmentId: appointment.id,
-                    showToken: tokenDistribution === 'advanced' || !!appointment.classicTokenNumber
+                    showToken: tokenDistribution === 'advanced' || !!appointment.classicTokenNumber,
+                    firestore
                 });
 
                 // Update tracking fields

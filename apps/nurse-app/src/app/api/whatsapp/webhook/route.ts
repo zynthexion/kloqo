@@ -415,6 +415,11 @@ async function handleBookingWizard(from: string, message: string, session: any, 
 
                 await setDoc(apptRef, newAppointment);
 
+                // 3.5 Fetch Clinic data for notification rules
+                const clinicDoc = await getDoc(doc(db, 'clinics', session.clinicId));
+                const clinicData = clinicDoc.data();
+                const tokenDistribution = clinicData?.tokenDistribution || 'advanced';
+
                 // 4. Generate Magic Link for the App (Silent Login)
                 let magicToken = '';
                 try {
@@ -429,6 +434,10 @@ async function handleBookingWizard(from: string, message: string, session: any, 
 
                 // 5. Send Confirmation & Notification
                 try {
+                    // For Classic mode, we don't show the 'A' token until they arrive
+                    const showToken = tokenDistribution === 'advanced';
+                    const displayToken = showToken ? result.tokenNumber : '--';
+
                     await sendWhatsAppAppointmentConfirmed({
                         communicationPhone: from,
                         patientName: session.bookingData.patientName,
@@ -437,10 +446,10 @@ async function handleBookingWizard(from: string, message: string, session: any, 
                         date: session.bookingData.date,
                         time: result.time,
                         arriveByTime: result.arriveByTime,
-                        tokenNumber: result.tokenNumber,
+                        tokenNumber: displayToken,
                         appointmentId: apptRef.id,
                         magicToken: magicToken, // NEW: Pass the magic token for the button
-                        showToken: true
+                        showToken: showToken
                     } as any);
                 } catch (e) {
                     console.error('[BookingWizard] WhatsApp Confirm error:', e);
@@ -464,7 +473,9 @@ async function handleBookingWizard(from: string, message: string, session: any, 
                         tokenNumber: result.tokenNumber,
                         bookedBy: 'nurse',
                         communicationPhone: from,
-                        patientName: session.bookingData.patientName
+                        patientName: session.bookingData.patientName,
+                        tokenDistribution: tokenDistribution,
+                        // classicTokenNumber is not available for advance booking in Classic mode
                     });
                 } catch (e) {
                     console.error('[BookingWizard] Notification error:', e);

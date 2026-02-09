@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@kloqo/shared-core": "*",
     "@kloqo/shared-types": "*",
     "@kloqo/shared-firebase": "*",
     "@radix-ui/react-alert-dialog": "^1.1.6",

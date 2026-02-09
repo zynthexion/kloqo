@@ -306,7 +306,9 @@ export async function sendWhatsAppArrivalConfirmed(params: {
             // WALK-IN: Window is CLOSED. Send PAID template with Quick Reply to open window.
             console.log(`[WhatsApp] 🚶 Walk-in Arrival: ${patientName}. Opening window with PAID template.`);
 
-            const templateName = 'walkin_arrival_confirmed_ml';
+            const templateName = 'walkin_arrival_confirmed_malayalam';
+            const textFallback = `നമസ്കാരം ${patientName},\n\nനിങ്ങളുടെ ടോക്കൺ ${displayToken} കൗണ്ടറിൽ രജിസ്റ്റർ ചെയ്തിട്ടുണ്ട്. ✅\n\nനിങ്ങളുടെ മുന്നിൽ എത്ര പേരുണ്ടെന്നും, ഡോക്ടറെ കാണാൻ എത്ര സമയം എടുക്കും എന്നും അറിയണോ? 🕒\n\nകൃത്യമായ സമയം ലഭിക്കാൻ താഴെ ക്ലിക്ക് ചെയ്യുക.`;
+
             return await sendWhatsAppMessage({
                 to: communicationPhone,
                 contentSid: templateName,
@@ -326,7 +328,7 @@ export async function sendWhatsAppArrivalConfirmed(params: {
 
         return await sendSmartWhatsAppNotification({
             to: communicationPhone,
-            templateName: 'appointment_status_confirmed_ml',
+            templateName: 'appointment_status_confirmed_mlm',
             templateVariables: {
                 "1": patientName,
                 "2": displayToken,

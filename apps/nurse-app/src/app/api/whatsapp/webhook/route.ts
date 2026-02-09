@@ -14,6 +14,7 @@ import {
     GlobalSearchService,
     MagicLinkService,
     sendWhatsAppAIFallback,
+    sendSmartWhatsAppNotification,
 } from '@kloqo/shared-core';
 import { getFirebaseAdmin } from '../../../../../../../packages/shared-core/src/utils/firebase-admin';
 import { MagicLinkAdminService } from '../../../../../../../packages/shared-core/src/services/magic-link-admin-service';
@@ -125,6 +126,88 @@ export async function POST(request: NextRequest) {
                         return new NextResponse('EVENT_RECEIVED', { status: 200 });
                     }
 
+                    // 1b. Check for Button Clicks / Interactive Messages
+                    // User clicks "സമയം അറിയണം" (Know Time)
+                    const buttonText = message.button?.text || message.interactive?.button_reply?.title || messageBody;
+                    if (buttonText === 'സമയം അറിയണം') {
+                        console.log(`[WhatsApp Webhook] 🕒 Handle 'Know Time' button click for ${from}`);
+                        const session = await WhatsAppSessionService.getSession(from);
+                        const patient = await getPatientByPhone(from);
+
+                        if (session?.clinicId && patient) {
+                            try {
+                                const clinicDoc = await getDoc(doc(db, 'clinics', session.clinicId));
+                                const clinicData = clinicDoc.data();
+
+                                // Find active appointment for today
+                                const now = getClinicNow();
+                                const today = getClinicDateString(now);
+                                const appointmentsRef = collection(db, 'appointments');
+                                const aQuery = query(
+                                    appointmentsRef,
+                                    where('patientId', '==', patient.id),
+                                    where('clinicId', '==', session.clinicId),
+                                    where('date', '==', today)
+                                );
+                                const aSnap = await getDocs(aQuery);
+
+                                if (!aSnap.empty) {
+                                    const appointment = aSnap.docs[0].data();
+                                    const doctorName = appointment.doctor;
+
+                                    // Get Queue Status
+                                    const dQuery = query(collection(db, 'doctors'), where('clinicId', '==', session.clinicId), where('name', '==', doctorName));
+                                    const dSnap = await getDocs(dQuery);
+                                    let peopleAhead = 0;
+                                    let estTime = appointment.time;
+
+                                    if (!dSnap.empty) {
+                                        const doctorDoc = dSnap.docs[0];
+                                        const dData = doctorDoc.data();
+
+                                        // Fetch all appointments for today to compute queue (Server Side)
+                                        const adminApp = getFirebaseAdmin();
+                                        const adminDb = adminApp.firestore();
+
+                                        const allAptsQuery = query(appointmentsRef, where('clinicId', '==', session.clinicId), where('doctor', '==', doctorName), where('date', '==', today));
+                                        const allAptsSnap = await getDocs(allAptsQuery);
+                                        const allApts = allAptsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+                                        const queueState = await computeQueues(allApts, doctorName, doctorDoc.id, session.clinicId, today, 0, dData.consultationStatus);
+
+                                        // Find patient position
+                                        const pos = queueState.arrivedQueue.findIndex((a: any) => a.id === aSnap.docs[0].id);
+                                        peopleAhead = pos >= 0 ? pos : 0;
+                                    }
+
+                                    const magicToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, `/live-token/${aSnap.docs[0].id}`);
+                                    const linkSuffix = `${aSnap.docs[0].id}?ref=wa_button&token=${magicToken}`;
+
+                                    const malayalamTextFallback = `നന്ദി. നിലവിൽ നിങ്ങളുടെ മുൻപിൽ ${peopleAhead} പേർ ഉണ്ട്. പ്രതീക്ഷിക്കുന്ന സമയം: ${estTime}.\n\nതത്സമയ വിവരങ്ങൾക്കായി താഴെ കാണുന്ന ലിങ്ക് ഉപയോഗിക്കുക:\n\nhttps://app.kloqo.com/live-token/${linkSuffix}`;
+
+                                    await sendSmartWhatsAppNotification({
+                                        to: from,
+                                        templateName: 'appointment_status_confirmed_mlm',
+                                        templateVariables: {
+                                            "1": patient.name || 'Patient',
+                                            "2": appointment.classicTokenNumber || appointment.tokenNumber,
+                                            "3": linkSuffix
+                                        },
+                                        textFallback: malayalamTextFallback,
+                                        alwaysSend: true // Session is open, but we use this for the premium button
+                                    });
+                                } else {
+                                    await sendWhatsAppText({ to: from, text: "ക്ഷമിക്കണം, ഇന്ന് നിങ്ങൾക്ക് അപ്പോയിന്റ്മെന്റുകൾ ഒന്നും ഉള്ളതായി കാണുന്നില്ല." });
+                                }
+                            } catch (error) {
+                                console.error('[WhatsApp Webhook] Status check error:', error);
+                            }
+                        } else {
+                            await sendWhatsAppText({ to: from, text: "ക്ഷമിക്കണം, നിങ്ങളുടെ വിവരങ്ങൾ കണ്ടെത്താൻ കഴിഞ്ഞില്ല. ദയവായി ക്ലിനിക്കുമായി ബന്ധപ്പെടുക." });
+                        }
+                        return new NextResponse('EVENT_RECEIVED', { status: 200 });
+                    }
+
                     // Retrieve existing session
                     const session = await WhatsAppSessionService.getSession(from);
 
@@ -150,7 +233,8 @@ export async function POST(request: NextRequest) {
                                     clinicCode: clinicCode,
                                     clinicId: session.clinicId,
                                     magicToken,
-                                    redirectPath: `/book-appointment?clinicId=${session.clinicId}`
+                                    redirectPath: `/book-appointment?clinicId=${session.clinicId}`,
+                                    firestore: db
                                 });
 
                                 console.log(`[WhatsApp Webhook] 📤 SendBookingLink Result: ${success}`);
@@ -246,7 +330,8 @@ export async function POST(request: NextRequest) {
                                         communicationPhone: from,
                                         patientName: patientName,
                                         magicToken: magicToken,
-                                        clinicId: session.clinicId
+                                        clinicId: session.clinicId,
+                                        firestore: db
                                     });
                                 } else {
                                     await sendWhatsAppText({
@@ -284,7 +369,8 @@ export async function POST(request: NextRequest) {
                             await sendWhatsAppAIFallback({
                                 communicationPhone: from,
                                 patientName: patientName,
-                                magicToken: magicToken
+                                magicToken: magicToken,
+                                firestore: db
                             });
                         } else {
                             // Append the prompt for clinic code if it's not already helpful

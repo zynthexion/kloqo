@@ -49,7 +49,13 @@ export async function POST(request: NextRequest) {
           { type: 'body', parameters: bodyParams },
           { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
         ];
-      } else if (templateName === 'appointment_status_confirmed_ml') {
+      } else if (templateName === 'walkin_arrival_confirmed_malayalam') {
+        // Body: 1-2, No URL Button
+        const bodyParams = ["1", "2"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
+        components = [
+          { type: 'body', parameters: bodyParams }
+        ];
+      } else if (templateName === 'appointment_status_confirmed_ml' || templateName === 'appointment_status_confirmed_mlm') {
         // Body: 1-2, Button: 3
         const bodyParams = ["1", "2"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
         const buttonParams = [{ type: 'text' as const, text: String(vars["3"] || '') }];

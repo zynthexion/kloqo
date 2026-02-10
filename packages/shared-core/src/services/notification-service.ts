@@ -371,13 +371,12 @@ export async function sendWhatsAppAIFallback(params: {
         const redirectPath = clinicId ? `/home?clinicId=${clinicId}` : '/home';
         const fullUrl = `${patientAppBaseUrl}${redirectPath}${linkSuffix}`;
 
-        console.log(`[WhatsApp] 🤖 Sending AI Fallback (text) to: ${communicationPhone}`);
-
         const messageText = `ക്ഷമിക്കണം, എനിക്ക് പണിത്തിരക്കാണ്. ദയവായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്ത് തുടരുക:\n\n${fullUrl}`;
 
-        return sendWhatsAppText({
+        return sendSmartWhatsAppNotification({
             to: communicationPhone,
-            text: messageText
+            textFallback: messageText,
+            skipIfClosed: true // Only send if window is open (FREE text)
         });
     } catch (error) {
         console.error('[WhatsApp] ❌ Error in sendWhatsAppAIFallback:', error);

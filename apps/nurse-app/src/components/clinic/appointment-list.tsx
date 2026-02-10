@@ -86,6 +86,7 @@ function AppointmentList({
   const router = useRouter();
   const [pendingCompletionId, setPendingCompletionId] = useState<string | null>(null);
   const [swipeCooldownUntil, setSwipeCooldownUntil] = useState<number | null>(null);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
 
   // Check if Confirm Arrival button should be shown (show for pending, skipped, no-show)
   const shouldShowConfirmArrival = (appointment: Appointment): boolean => {
@@ -325,6 +326,13 @@ function AppointmentList({
     return actionableAppt ? actionableAppt.id : null;
   }, [appointments]);
 
+  // Auto-select the first actionable appointment if none selected or if list changes
+  useEffect(() => {
+    if (firstActionableAppointmentId && (!selectedAppointmentId || !appointments.some(a => a.id === selectedAppointmentId))) {
+      setSelectedAppointmentId(firstActionableAppointmentId);
+    }
+  }, [firstActionableAppointmentId, appointments, selectedAppointmentId]);
+
   // Swipe Handlers
   const isSwipeOnCooldown = swipeCooldownUntil !== null && swipeEnabled;
 
@@ -485,6 +493,11 @@ function AppointmentList({
                       style={getSwipeStyle(appt.id)}
                       onMouseDown={(e) => handleCardTouchStart(e, appt)}
                       onTouchStart={(e) => handleCardTouchStart(e, appt)}
+                      onClick={() => {
+                        if (isActionable(appt)) {
+                          setSelectedAppointmentId(appt.id);
+                        }
+                      }}
                       onMouseMove={handleCardTouchMove}
                       onTouchMove={handleCardTouchMove}
                       onMouseUp={handleCardTouchEnd}
@@ -567,69 +580,71 @@ function AppointmentList({
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {appt.id === firstActionableAppointmentId && appt.status === 'Confirmed' && onUpdateStatus && !showTopRightActions && (
+                                    {appt.status === 'Confirmed' && onUpdateStatus && !showTopRightActions && (
                                       <div className="flex-1 flex items-center justify-between relative">
-                                        {/* Skip Button */}
-                                        <div className="relative">
+                                        {/* Skip Button - Only for top card */}
+                                        {appt.id === firstActionableAppointmentId && (
+                                          <div className="relative">
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  variant="outline"
+                                                  size="icon"
+                                                  className={cn(
+                                                    "h-7 w-7 transition-all duration-200 relative overflow-hidden select-none touch-none",
+                                                    pressState.id === appt.id ? "bg-yellow-100 border-yellow-300 scale-110" : "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
+                                                  )}
+                                                  disabled={isClinicOut}
+                                                  onMouseDown={(e) => handlePressStart(e, appt.id)}
+                                                  onTouchStart={(e) => handlePressStart(e, appt.id)}
+                                                  onMouseUp={(e) => handlePressEnd(e)}
+                                                  onMouseLeave={(e) => handlePressEnd(e)}
+                                                  onTouchEnd={(e) => handlePressEnd(e)}
+                                                  onContextMenu={(e) => e.preventDefault()}
+                                                >
+                                                  {/* Progress Fill Background */}
+                                                  <SkipForward className="h-4 w-4 relative z-10 pointer-events-none" />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                <p>{pressState.id === appt.id ? "Hold to skip..." : "Hold 3s to Skip"}</p>
+                                              </TooltipContent>
+                                            </Tooltip>
+                                            {pressState.id === appt.id && (
+                                              <div className="absolute -right-3 top-0 h-full w-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                <div
+                                                  className="w-full bg-yellow-500 transition-all duration-[50ms] ease-linear absolute bottom-0"
+                                                  style={{ height: `${pressState.progress}%` }}
+                                                />
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* Complete Button - Moves with selection */}
+                                        {appt.id === selectedAppointmentId && (
                                           <Tooltip>
                                             <TooltipTrigger asChild>
                                               <Button
-                                                variant="outline"
+                                                variant="default" // Primary action
                                                 size="icon"
-                                                className={cn(
-                                                  "h-7 w-7 transition-all duration-200 relative overflow-hidden select-none touch-none",
-                                                  pressState.id === appt.id ? "bg-yellow-100 border-yellow-300 scale-110" : "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
-                                                )}
                                                 disabled={isClinicOut}
-                                                onMouseDown={(e) => handlePressStart(e, appt.id)}
-                                                onTouchStart={(e) => handlePressStart(e, appt.id)}
-                                                onMouseUp={(e) => handlePressEnd(e)}
-                                                onMouseLeave={(e) => handlePressEnd(e)}
-                                                onTouchEnd={(e) => handlePressEnd(e)}
-                                                onContextMenu={(e) => e.preventDefault()}
+                                                className="h-10 w-10 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-md ml-auto transition-transform hover:scale-105"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setPendingCompletionId(appt.id);
+                                                }}
+                                                onMouseDown={(e) => e.stopPropagation()}
+                                                onTouchStart={(e) => e.stopPropagation()}
                                               >
-                                                {/* Progress Fill Background */}
-                                                <SkipForward className="h-4 w-4 relative z-10 pointer-events-none" />
+                                                <Check className="h-6 w-6" />
                                               </Button>
                                             </TooltipTrigger>
                                             <TooltipContent>
-                                              <p>{pressState.id === appt.id ? "Hold to skip..." : "Hold 3s to Skip"}</p>
+                                              <p>Complete Appointment</p>
                                             </TooltipContent>
                                           </Tooltip>
-                                          {pressState.id === appt.id && (
-                                            <div className="absolute -right-3 top-0 h-full w-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                              <div
-                                                className="w-full bg-yellow-500 transition-all duration-[50ms] ease-linear absolute bottom-0"
-                                                style={{ height: `${pressState.progress}%` }}
-                                              />
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        {/* Complete Button - Reordered to Right */}
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Button
-                                              variant="default" // Primary action
-                                              size="icon"
-                                              disabled={isClinicOut}
-                                              className="h-10 w-10 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-md ml-2 transition-transform hover:scale-105"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setPendingCompletionId(appt.id);
-                                              }}
-                                              onMouseDown={(e) => e.stopPropagation()}
-                                              onTouchStart={(e) => e.stopPropagation()}
-                                            >
-                                              <Check className="h-6 w-6" />
-                                            </Button>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <p>Complete Appointment</p>
-                                          </TooltipContent>
-                                        </Tooltip>
-
-                                        {/* Confirmation Dialog - Triggered after long press */}
+                                        )}
                                       </div>
                                     )}
                                   </div>

@@ -428,7 +428,7 @@ export default function ClinicDashboard() {
 
             // --- CLASSIC TOKEN GENERATION ---
             const dateStr = appointment.date || format(new Date(), 'd MMMM yyyy');
-            const classicCounterId = getClassicTokenCounterId(clinicId!, appointment.doctor, dateStr);
+            const classicCounterId = getClassicTokenCounterId(clinicId!, appointment.doctor, dateStr, appointment.sessionIndex || 0);
             const classicCounterRef = doc(db, 'token-counters', classicCounterId);
             const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
 
@@ -517,7 +517,7 @@ export default function ClinicDashboard() {
 
             // --- CLASSIC TOKEN GENERATION ---
             const dateStr = appointment.date || format(new Date(), 'd MMMM yyyy');
-            const classicCounterId = getClassicTokenCounterId(clinicId!, appointment.doctor, dateStr);
+            const classicCounterId = getClassicTokenCounterId(clinicId!, appointment.doctor, dateStr, appointment.sessionIndex || 0);
             const classicCounterRef = doc(db, 'token-counters', classicCounterId);
             const counterState = await prepareNextClassicTokenNumber(transaction, classicCounterRef);
 

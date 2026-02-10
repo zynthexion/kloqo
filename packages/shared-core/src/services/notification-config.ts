@@ -67,7 +67,7 @@ export async function isNotificationEnabled(
 
         if (!configSnap.exists()) {
             // If config doesn't exist, default to enabled
-            console.warn(`[NotificationConfig] No config found for ${notificationType}, defaulting to enabled for ${channel}`);
+            console.info(`[NotificationConfig] ℹ️ Using default 'enabled' state for ${notificationType} (${channel}). (Config document not yet initialized in Firestore)`);
             notificationCache.set(cacheKey, { enabled: true, timestamp: now });
             return true;
         }

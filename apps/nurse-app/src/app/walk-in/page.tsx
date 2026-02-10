@@ -1071,7 +1071,7 @@ function WalkInRegistrationContent() {
             arriveByTime: getClinicTimeString(new Date(result.estimatedTime)),
             patientName: appointmentToSave.patientName,
             tokenDistribution: clinicDetails?.tokenDistribution,
-            classicTokenNumber: result.tokenNumber,
+            classicTokenNumber: result.classicTokenNumber,
           });
 
           // 2. NEW: Special Malayalam "Arrival Confirmed" message with Magic Link

@@ -171,6 +171,12 @@ export async function sendWhatsAppMessage(params: {
 
         const apiUrl = `${baseUrl}/api/send-sms`;
         console.log(`[WhatsApp] 🎯 DEBUG: Calling WhatsApp API: ${apiUrl} for: ${to} (BaseURL: ${baseUrl})`);
+        if (contentSid || contentVariables) {
+            console.log(`[META-DEBUG] 🧩 Template: ${contentSid}`);
+            console.log(`[META-DEBUG] 📝 Variables:`, JSON.stringify(contentVariables, null, 2));
+        } else if (message) {
+            console.log(`[META-DEBUG] 💬 Text: ${message}`);
+        }
 
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -245,7 +251,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 "6": arriveByTime,
                 // "7": liveStatusLink // REMOVED: Unused in Quick Reply template
             };
-            console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`);
+            // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`); // Redundant with META-DEBUG
         } else {
             const liveStatusRef = `whatsapp_confirmation_no_token`;
             const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
@@ -260,7 +266,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 "6": arriveByTime,
                 // "7": liveStatusLink // REMOVED: Unused in Quick Reply template
             };
-            console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`);
+            // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`); // Redundant with META-DEBUG
         }
 
         return sendWhatsAppMessage({
@@ -288,6 +294,7 @@ export async function sendWhatsAppArrivalConfirmed(params: {
     isWalkIn?: boolean; // NEW: Differentiates walk-in vs regular
 }): Promise<boolean> {
     const { firestore, communicationPhone, patientName, tokenNumber, appointmentId, tokenDistribution, classicTokenNumber, isWalkIn = false } = params;
+    console.log(`[Notification] 🔔 sendWhatsAppArrivalConfirmed called for ${patientName}`);
 
     try {
         // TOGGLE CHECK
@@ -298,8 +305,11 @@ export async function sendWhatsAppArrivalConfirmed(params: {
 
         // Determine which token to display
         let displayToken: string = tokenNumber;
-        if (tokenDistribution === 'classic') {
-            displayToken = String(classicTokenNumber || tokenNumber);
+        if (tokenDistribution !== 'advanced') {
+            // Safety: Never show 'A' tokens in classic mode
+            displayToken = (classicTokenNumber && !String(classicTokenNumber).startsWith('A'))
+                ? String(classicTokenNumber)
+                : '--';
         }
 
         if (isWalkIn) {
@@ -355,6 +365,7 @@ export async function sendWhatsAppAIFallback(params: {
     firestore: Firestore; // Added for toggle check
 }): Promise<boolean> {
     const { communicationPhone, patientName, magicToken, clinicId, firestore } = params;
+    console.log(`[Notification] 🔔 sendWhatsAppAIFallback called for ${communicationPhone}`);
 
     try {
         // TOGGLE CHECK
@@ -401,6 +412,7 @@ export async function sendWhatsAppBookingLink(params: {
     firestore: Firestore; // Added for toggle check
 }): Promise<boolean> {
     const { communicationPhone, patientName, clinicName, clinicCode, clinicId, magicToken, redirectPath, firestore } = params;
+    console.log(`[Notification] 🔔 sendWhatsAppBookingLink called for ${communicationPhone}`);
 
     // TOGGLE CHECK
     if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.BOOKING_LINK)) {
@@ -441,6 +453,7 @@ export async function sendWhatsAppText(params: {
     text: string;
 }): Promise<boolean> {
     const { to, text } = params;
+    console.log(`[Notification] 🔔 sendWhatsAppText called for ${to}`);
     return sendWhatsAppMessage({
         to,
         contentSid: 'text_message', // Special flag for text
@@ -461,6 +474,7 @@ export async function sendSmartWhatsAppNotification(params: {
     skipIfClosed?: boolean; // If true, skip message if window closed (e.g., Review)
 }): Promise<boolean> {
     const { to, templateName, templateVariables, textFallback, alwaysSend = false, skipIfClosed = false } = params;
+    console.log(`[Notification] 🔔 sendSmartWhatsAppNotification called for ${to}`);
 
     try {
         // Check if 24h window is open
@@ -469,6 +483,7 @@ export async function sendSmartWhatsAppNotification(params: {
         if (isWindowOpen) {
             // Window is open -> Send FREE text message
             console.log(`[WhatsApp Smart] 💚 Window OPEN for ${to}. Sending FREE text.`);
+            console.log(`[META-DEBUG] 💬 Smart Free Text: ${textFallback}`);
             return sendWhatsAppText({ to, text: textFallback });
         } else {
             // Window is closed
@@ -479,7 +494,9 @@ export async function sendSmartWhatsAppNotification(params: {
 
             if (alwaysSend && templateName) {
                 // Send template even if window closed (e.g., Doctor In - critical info)
-                console.log(`[WhatsApp Smart] 📤 Window CLOSED for ${to}. Sending PAID template (alwaysSend=true). Cost: ~12p`);
+                console.log(`[WhatsApp Smart] 📤 Window CLOSED for ${to}. Sending PAID template (${templateName}). Cost: ~12p`);
+                console.log(`[META-DEBUG] 🧩 Smart Notification Template: ${templateName}`);
+                console.log(`[META-DEBUG] 📝 Smart Notification Variables:`, JSON.stringify(templateVariables, null, 2));
                 return sendWhatsAppMessage({
                     to,
                     contentSid: templateName,
@@ -534,6 +551,7 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         tokenDistribution,
         classicTokenNumber,
     } = params;
+    console.log(`[Notification] 🔔 sendAppointmentBookedByStaffNotification called for ${appointmentId}. Distribution: ${tokenDistribution}, ClassicToken: ${classicTokenNumber}, Token: ${tokenNumber}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping booked notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -566,7 +584,9 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     let pushShowToken = true;
     let pushTokenDisplay = tokenNumber;
 
-    if (tokenDistribution === 'classic') {
+    const isClassic = tokenDistribution !== 'advanced';
+
+    if (isClassic) {
         if (classicTokenNumber) {
             pushTokenDisplay = classicTokenNumber;
             pushShowToken = true;
@@ -633,8 +653,8 @@ export async function sendAppointmentBookedByStaffNotification(params: {
 
             if (shouldSendImmediately) {
                 let whatsappShowToken = true;
-                if (tokenDistribution === 'classic') {
-                    whatsappShowToken = !!classicTokenNumber;
+                if (tokenDistribution !== 'advanced') {
+                    whatsappShowToken = !!classicTokenNumber && !String(classicTokenNumber).startsWith('A');
                 }
 
                 try {
@@ -647,7 +667,9 @@ export async function sendAppointmentBookedByStaffNotification(params: {
                         date,
                         time: arriveByTime || time,
                         arriveByTime: displayTime,
-                        tokenNumber: (tokenDistribution === 'classic' && classicTokenNumber) ? classicTokenNumber : tokenNumber,
+                        tokenNumber: (tokenDistribution !== 'advanced')
+                            ? (classicTokenNumber && !String(classicTokenNumber).startsWith('A') ? classicTokenNumber : '--')
+                            : tokenNumber,
                         appointmentId,
                         showToken: whatsappShowToken,
                         firestore
@@ -661,8 +683,10 @@ export async function sendAppointmentBookedByStaffNotification(params: {
                     console.error('[Notification] ❌ Failed to send WhatsApp notification:', error);
                 }
             } else {
-                console.log(`[Notification] ⏳ Appointment (${date}) outside immediate window. Scheduled for batch.`);
+                console.log(`[Notification] ⏳ Appointment (${date}) outside immediate window (${currentHour}h). Scheduled for batch (5 PM / 7 AM).`);
             }
+        } else {
+            console.log(`[Notification] 👤 Non-advanced booking (Walk-in/Classic) - skipping staff booking WhatsApp (Wait for Arrival message).`);
         }
     }
 
@@ -686,6 +710,7 @@ export async function sendTokenCalledNotification(params: {
     patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, cancelledByBreak, tokenDistribution, classicTokenNumber, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendTokenCalledNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping token called notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -696,7 +721,7 @@ export async function sendTokenCalledNotification(params: {
     let displayToken = tokenNumber;
     let showToken = true;
 
-    if (tokenDistribution === 'classic') {
+    if (tokenDistribution !== 'advanced') {
         // For Classic mode: Only show classicTokenNumber if it exists
         // Hide internal 'A' tokens (Advanced tokens) until patient is confirmed
         if (classicTokenNumber) {
@@ -778,6 +803,7 @@ export async function sendAppointmentCancelledNotification(params: {
     patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, cancelledBy, arriveByTime, cancelledByBreak, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendAppointmentCancelledNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping cancellation notification for appointment ${appointmentId} because it was cancelled by a break.`);
@@ -869,6 +895,7 @@ export async function sendDoctorRunningLateNotification(params: {
     patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName, delayMinutes, cancelledByBreak, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendDoctorRunningLateNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping doctor late notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -948,6 +975,7 @@ export async function sendBreakUpdateNotification(params: {
     patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName, oldTime, newTime, oldDate, newDate, reason, oldArriveByTime, newArriveByTime, cancelledByBreak, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendBreakUpdateNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping break update notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -1065,6 +1093,7 @@ export async function sendAppointmentSkippedNotification(params: {
     patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, tokenNumber, cancelledByBreak, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendAppointmentSkippedNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping skipped notification for appointment ${appointmentId} because it was affected by a break.`);
@@ -1160,17 +1189,17 @@ export async function sendPeopleAheadNotification(params: {
     patientName?: string; // New: for WhatsApp template
 } | any): Promise<boolean> {
     const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, peopleAhead, appointmentTime, appointmentDate, cancelledByBreak, breakDuration, tokenDistribution, averageConsultingTime, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendPeopleAheadNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping people ahead notification for appointment ${appointmentId} because it was cancelled by a break.`);
         return true;
     }
 
-    // Calculate display time
     // For Advanced: (arriveByTime - 15 minutes)
     // For Classic: (CurrentTime + (peopleAhead * averageConsultingTime))
     let displayTime = appointmentTime;
-    const isClassic = tokenDistribution === 'classic';
+    const isClassic = tokenDistribution !== 'advanced';
 
     try {
         if (isClassic) {
@@ -1310,17 +1339,17 @@ export async function sendDoctorConsultationStartedNotification(params: {
     patientName?: string; // New: for WhatsApp template
 } | any): Promise<boolean> {
     const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak, tokenDistribution, averageConsultingTime, peopleAhead, communicationPhone, patientName } = params;
+    console.log(`[Notification] 🔔 sendDoctorConsultationStartedNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
         console.info(`[Notification] ℹ️ Skipping consultation started notification for appointment ${appointmentId} because it was affected by a break.`);
         return true;
     }
 
-    // Calculate display time
     // For Advanced: (arriveByTime - 15 minutes if available, otherwise appointmentTime - 15)
     // For Classic: (CurrentTime + (peopleAhead * averageConsultingTime))
     let displayTime = appointmentTime;
-    const isClassic = tokenDistribution === 'classic';
+    const isClassic = tokenDistribution !== 'advanced';
 
     try {
         if (isClassic && typeof peopleAhead === 'number') {
@@ -1431,6 +1460,7 @@ export async function sendPatientCheckoutNotification(params: {
     clinicName: string;
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName } = params;
+    console.log(`[Notification] 🔔 sendPatientCheckoutNotification called for ${appointmentId}`);
 
     if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.CONSULTATION_COMPLETED, 'pwa')) {
         console.log(`[PWA] 🚫 Consultation completed notification is DISABLED. Skipping PWA.`);
@@ -1465,6 +1495,7 @@ export async function sendDailyReminderNotification(params: {
     arriveByTime?: string;
 }): Promise<boolean> {
     const { firestore, patientId, appointmentId, doctorName, clinicName, date, time, arriveByTime } = params;
+    console.log(`[Notification] 🔔 sendDailyReminderNotification called for ${appointmentId}`);
 
     // Always display user time based on arriveByTime - 15 minutes (or time - 15 if arriveByTime missing)
     let displayTime = time;
@@ -1521,6 +1552,7 @@ export async function notifySessionPatientsOfConsultationStart({
     tokenDistribution,
     averageConsultingTime,
 }: NotifySessionPatientsParams): Promise<void> {
+    console.log(`[Notification] 🔔 notifySessionPatientsOfConsultationStart called for clinic ${clinicId}, doctor ${doctorName}, date ${date}, session ${sessionIndex}`);
     if (sessionIndex === undefined) {
         console.warn('Cannot notify consultation start without session index');
         return;
@@ -1538,13 +1570,14 @@ export async function notifySessionPatientsOfConsultationStart({
 
     const appointmentsSnapshot = await getDocs(appointmentsQuery);
     if (appointmentsSnapshot.empty) {
+        console.log(`[Notification] No appointments found for consultation start notification for clinic ${clinicId}, doctor ${doctorName}, date ${date}, session ${sessionIndex}`);
         return;
     }
 
     const { compareAppointments, compareAppointmentsClassic } = await import('./appointment-service');
     const sortedAppointments = appointmentsSnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Appointment))
-        .sort(tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+        .sort(tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
 
     await Promise.all(
         sortedAppointments.map(async (appointment, index) => {
@@ -1556,7 +1589,7 @@ export async function notifySessionPatientsOfConsultationStart({
                     patientId: appointment.patientId,
                     appointmentId: appointment.id,
                     clinicName,
-                    tokenNumber: (tokenDistribution === 'classic' && appointment.classicTokenNumber) ? appointment.classicTokenNumber : (tokenDistribution === 'classic' ? '' : (appointment.tokenNumber || 'N/A')),
+                    tokenNumber: (tokenDistribution !== 'advanced' && appointment.classicTokenNumber) ? appointment.classicTokenNumber : (tokenDistribution !== 'advanced' ? '' : (appointment.tokenNumber || 'N/A')),
                     doctorName: appointment.doctor,
                     appointmentTime: appointment.time,
                     appointmentDate: appointment.date,
@@ -1583,6 +1616,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
     clinicName: string;
 }): Promise<void> {
     const { firestore, completedAppointmentId, completedAppointment, clinicName } = params;
+    console.log(`[Notification] 🔔 notifyNextPatientsWhenCompleted called for completed appointment ${completedAppointmentId}`);
 
     try {
         // Get all appointments for the same doctor and date
@@ -1621,11 +1655,11 @@ export async function notifyNextPatientsWhenCompleted(params: {
         const { compareAppointments, compareAppointmentsClassic } = await import('./appointment-service');
 
         // Sort using appropriate logic
-        const sortedAppointments = allAppointments.sort(tokenDistribution === 'classic' ? compareAppointmentsClassic : compareAppointments);
+        const sortedAppointments = allAppointments.sort(tokenDistribution !== 'advanced' ? compareAppointmentsClassic : compareAppointments);
 
         // Get appointments that come after the completed one
         const nextAppointments = sortedAppointments.filter(apt => {
-            const comparison = tokenDistribution === 'classic'
+            const comparison = tokenDistribution !== 'advanced'
                 ? compareAppointmentsClassic(apt, completedAppointment)
                 : compareAppointments(apt, completedAppointment);
             return comparison > 0;
@@ -1688,7 +1722,7 @@ export async function notifyNextPatientsWhenCompleted(params: {
                     patientId: appointment.patientId,
                     appointmentId: appointment.id,
                     clinicName,
-                    tokenNumber: (tokenDistribution === 'classic' && appointment.classicTokenNumber) ? appointment.classicTokenNumber : (tokenDistribution === 'classic' ? '' : appointment.tokenNumber),
+                    tokenNumber: (tokenDistribution !== 'advanced' && appointment.classicTokenNumber) ? appointment.classicTokenNumber : (tokenDistribution !== 'advanced' ? '' : appointment.tokenNumber),
                     doctorName: appointment.doctor,
                     peopleAhead,
                     appointmentTime: appointment.time,
@@ -1718,6 +1752,7 @@ export async function sendFreeFollowUpExpiryNotification(params: {
     remainingDays: number;
 }): Promise<boolean> {
     const { firestore, patientId, doctorName, clinicName, remainingDays } = params;
+    console.log(`[Notification] 🔔 sendFreeFollowUpExpiryNotification called for patient ${patientId}`);
 
     if (!await isNotificationEnabled(firestore, NOTIFICATION_TYPES.FREE_FOLLOWUP_EXPIRY, 'pwa')) {
         console.log(`[PWA] 🚫 Follow-up expiry notification is DISABLED. Skipping PWA.`);
@@ -1905,9 +1940,9 @@ export async function processWhatsAppBatchReminders(params: {
                 console.error('Error parsing time for batch reminder:', e);
             }
 
-            const tokenToDisplay = (tokenDistribution === 'classic' && appointment.classicTokenNumber)
+            const tokenToDisplay = (tokenDistribution !== 'advanced' && appointment.classicTokenNumber)
                 ? String(appointment.classicTokenNumber)
-                : (tokenDistribution === 'classic' ? '--' : (appointment.tokenNumber || '--'));
+                : (tokenDistribution !== 'advanced' ? '--' : (appointment.tokenNumber || '--'));
 
             try {
                 console.log(`[WhatsApp Batch] Sending ${batchType} reminder to ${appointment.patientName} (${appointment.id})`);

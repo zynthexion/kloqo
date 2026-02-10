@@ -68,7 +68,7 @@ function AppointmentDetailsFormContent() {
     const [doctor, setDoctor] = useState<Doctor | null>(null);
     const [patient, setPatient] = useState<Patient | null>(null);
     const [clinicId, setClinicId] = useState<string | null>(null);
-    const [tokenDistribution, setTokenDistribution] = useState<'classic' | 'advanced'>('advanced');
+    const [tokenDistribution, setTokenDistribution] = useState<'classic' | 'advanced' | undefined>(undefined);
 
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -575,6 +575,8 @@ function AppointmentDetailsFormContent() {
             try {
                 const clinicName = 'The clinic'; // You can fetch actual clinic name if needed
 
+                console.log(`🔍 [NURSE BOOKING DEBUG] About to send notification with tokenDistribution: ${tokenDistribution}`);
+
                 await sendAppointmentBookedByStaffNotification({
                     firestore: db,
                     patientId,
@@ -668,8 +670,8 @@ function AppointmentDetailsFormContent() {
                 const clinicSnap = await getDoc(clinicRef);
                 if (clinicSnap.exists()) {
                     const clinicData = clinicSnap.data();
-                    // Default to advanced if missing, or use what's there
-                    setTokenDistribution(clinicData.tokenDistribution || 'advanced');
+                    // Pass undefined if missing - let notification service handle the default
+                    setTokenDistribution(clinicData.tokenDistribution);
                 }
             } catch (error: any) {
                 if (error.name !== 'FirestorePermissionError') {

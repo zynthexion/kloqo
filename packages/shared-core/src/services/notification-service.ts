@@ -10,6 +10,7 @@ import { getClinicTimeString, getClinicISOString, getClinicNow, getClinicDateStr
 import { compareAppointments } from './appointment-service';
 import type { Appointment } from '@kloqo/shared-types';
 import { MagicLinkService } from './magic-link-service';
+import { generateAndTrackMarketingLink } from './marketing-link-service';
 import { WhatsAppSessionService } from './whatsapp-session-service';
 import { isNotificationEnabled, NOTIFICATION_TYPES } from './notification-config';
 

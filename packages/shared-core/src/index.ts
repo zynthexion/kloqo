@@ -19,6 +19,7 @@ export * from './services/code-service';
 export * from './services/whatsapp-session-service';
 export * from './services/global-search-service';
 export * from './services/magic-link-service';
+export * from './services/marketing-link-service';
 export * from './services/notification-config';
 // export * from './services/magic-link-admin-service'; // Server-only: Import directly
 // Note: AIService is not exported here to avoid forcing @google/generative-ai dependency on all apps

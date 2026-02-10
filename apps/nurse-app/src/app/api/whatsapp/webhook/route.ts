@@ -504,7 +504,7 @@ async function handleBookingWizard(from: string, message: string, session: any, 
                 // 3.5 Fetch Clinic data for notification rules
                 const clinicDoc = await getDoc(doc(db, 'clinics', session.clinicId));
                 const clinicData = clinicDoc.data();
-                const tokenDistribution = clinicData?.tokenDistribution || 'advanced';
+                const tokenDistribution = clinicData?.tokenDistribution;
 
                 // 4. Generate Magic Link for the App (Silent Login)
                 let magicToken = '';

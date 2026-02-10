@@ -64,12 +64,12 @@ export function useAppointmentReminders() {
               const minutesUntilAppointment = (appointmentDateTime.getTime() - now.getTime()) / (1000 * 60);
               if (minutesUntilAppointment >= 110 && minutesUntilAppointment <= 130) {
                 // Fetch clinic data to get tokenDistribution
-                let tokenDistribution: 'classic' | 'advanced' = 'advanced';
+                let tokenDistribution: 'classic' | 'advanced' | undefined;
                 try {
                   if (appointment.clinicId) {
                     const clinicDoc = await getDoc(doc(firestore, 'clinics', appointment.clinicId));
                     if (clinicDoc.exists()) {
-                      tokenDistribution = clinicDoc.data()?.tokenDistribution || 'advanced';
+                      tokenDistribution = clinicDoc.data()?.tokenDistribution;
                     }
                   }
                 } catch (error) {

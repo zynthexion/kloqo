@@ -60,6 +60,45 @@ export async function generateAndTrackMarketingLink(
 }
 
 /**
+ * Generate just the tracking parameters for use in existing template logic
+ * This is useful when the template already has the base URL hardcoded.
+ */
+export async function generateMarketingSuffix(
+    firestore: Firestore,
+    params: MarketingLinkParams
+): Promise<string> {
+    // 1. Log the send (same as above)
+    try {
+        await addDoc(collection(firestore, 'campaign_sends'), {
+            ref: params.ref,
+            campaign: params.campaign,
+            medium: params.medium,
+            clinicId: params.clinicId,
+            appointmentId: params.appointmentId || null,
+            phone: params.phone,
+            sentAt: serverTimestamp(),
+        });
+    } catch (error) {
+        console.error('[Marketing] Failed to track campaign send:', error);
+    }
+
+    // 2. Return the suffix: ref=...&source=...&medium=...&campaign=...&clinic=...&token=...[appt=...]
+    const searchParams = new URLSearchParams();
+    searchParams.set('token', params.magicToken);
+    searchParams.set('ref', params.ref);
+    searchParams.set('source', 'whatsapp');
+    searchParams.set('medium', params.medium);
+    searchParams.set('campaign', params.campaign);
+    searchParams.set('clinic', params.clinicId);
+
+    if (params.appointmentId) {
+        searchParams.set('appt', params.appointmentId);
+    }
+
+    return searchParams.toString();
+}
+
+/**
  * Extract campaign parameters from URL search params
  */
 export function extractCampaignParams(searchParams: URLSearchParams) {

@@ -44,5 +44,18 @@ service cloud.firestore {
     match /doctor_punctuality_logs/{logId} {
         allow read, write: if true;
     }
+
+    // Marketing Analytics System
+    match /marketing_analytics/{document=**} {
+      allow read, write: if true;
+    }
+    
+    match /campaign_sends/{sendId} {
+      allow read, write: if true;
+    }
+    
+    match /campaign_summaries/{campaignId} {
+      allow read, write: if true;
+    }
   }
 }

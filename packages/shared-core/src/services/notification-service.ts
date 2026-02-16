@@ -10,7 +10,7 @@ import { getClinicTimeString, getClinicISOString, getClinicNow, getClinicDateStr
 import { compareAppointments } from './appointment-service';
 import type { Appointment } from '@kloqo/shared-types';
 import { MagicLinkService } from './magic-link-service';
-import { generateAndTrackMarketingLink } from './marketing-link-service';
+import { generateAndTrackMarketingLink, generateMarketingSuffix } from './marketing-link-service';
 import { WhatsAppSessionService } from './whatsapp-session-service';
 import { isNotificationEnabled, NOTIFICATION_TYPES } from './notification-config';
 
@@ -240,8 +240,17 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
 
         if (showToken) {
             const liveStatusRef = `whatsapp_confirmation`; // USER REQUESTED: Template 1 use whatsapp_confirmation
-            const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
-            const liveStatusLink = magicToken ? `${baseUrl}\u0026magicToken=${magicToken}` : baseUrl;
+
+            const linkParams = await generateMarketingSuffix(firestore, {
+                magicToken: magicToken || '',
+                ref: liveStatusRef,
+                campaign: 'appointment_booking',
+                medium: 'notification',
+                clinicId: (params as any).clinicId || '', // Assumed present in params or context
+                phone: communicationPhone,
+                appointmentId
+            });
+            const liveStatusLink = `${appointmentId}?${linkParams}`;
 
             contentVariables = {
                 "1": patientName,
@@ -334,8 +343,16 @@ export async function sendWhatsAppArrivalConfirmed(params: {
         console.log(`[WhatsApp] 📅 Regular Arrival: ${patientName}. Using Smart optimization.`);
 
         const token = await MagicLinkService.generateToken(firestore || (null as any), communicationPhone, `live-token/${appointmentId}`);
-        const linkSuffix = `${appointmentId}?ref=status_confirmed\u0026magicToken=${token}`;
-        const malayalamTextFallback = `നമസ്കാരം ${patientName}, നിങ്ങളുടെ ടോക്കൺ ${displayToken} കൺഫേം ചെയ്തിട്ടുണ്ട്. ലൈവ് സ്റ്റാറ്റസ് അറിയാനായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${linkSuffix}`;
+        const linkSuffix = await generateMarketingSuffix(firestore, {
+            magicToken: token,
+            ref: 'status_confirmed',
+            campaign: 'appointment_reminder',
+            medium: 'notification',
+            clinicId: (params as any).clinicId || '',
+            phone: communicationPhone,
+            appointmentId
+        });
+        const malayalamTextFallback = `നമസ്കാരം ${patientName}, നിങ്ങളുടെ ടോക്കൺ ${displayToken} കൺഫേം ചെയ്തിട്ടുണ്ട്. ലൈവ് സ്റ്റാറ്റസ് അറിയാനായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${appointmentId}?${linkSuffix}`;
 
         return await sendSmartWhatsAppNotification({
             to: communicationPhone,
@@ -343,7 +360,7 @@ export async function sendWhatsAppArrivalConfirmed(params: {
             templateVariables: {
                 "1": patientName,
                 "2": displayToken,
-                "3": linkSuffix
+                "3": `${appointmentId}?${linkSuffix}`
             },
             textFallback: malayalamTextFallback,
             skipIfClosed: true // Strategy: Only send if it's FREE (window open).
@@ -766,8 +783,16 @@ export async function sendTokenCalledNotification(params: {
             console.log(`[Notification] 📱 Triggering Smart WhatsApp for Token Called: ${tokenNumber}`);
 
             const magicToken = await MagicLinkService.generateToken(firestore, communicationPhone, `live-token/${appointmentId}`);
-            const linkSuffix = `${appointmentId}?ref=token_called\u0026magicToken=${magicToken}`;
-            const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} നിങ്ങളുടെ ടോക്കൺ (${tokenNumber}) വിളിച്ചിരിക്കുന്നു. ദയവായി കൺസൾട്ടേഷൻ റൂമിലേക്ക് വരിക. ലൈവ് സ്റ്റാറ്റസ്: https://app.kloqo.com/live-token/${linkSuffix}`;
+            const linkSuffix = await generateMarketingSuffix(firestore, {
+                magicToken,
+                ref: 'token_called',
+                campaign: 'token_updates',
+                medium: 'notification',
+                clinicId: (params as any).clinicId || '',
+                phone: communicationPhone,
+                appointmentId
+            });
+            const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} നിങ്ങളുടെ ടോക്കൺ (${tokenNumber}) വിളിച്ചിരിക്കുന്നു. ദയവായി കൺസൾട്ടേഷൻ റൂമിലേക്ക് വരിക. ലൈവ് സ്റ്റാറ്റസ്: https://app.kloqo.com/live-token/${appointmentId}?${linkSuffix}`;
 
             await sendSmartWhatsAppNotification({
                 to: communicationPhone,
@@ -775,7 +800,7 @@ export async function sendTokenCalledNotification(params: {
                 templateVariables: {
                     "1": patientName || 'Patient',
                     "2": tokenNumber,
-                    "3": linkSuffix
+                    "3": `${appointmentId}?${linkSuffix}`
                 },
                 textFallback,
                 alwaysSend: true
@@ -1414,7 +1439,17 @@ export async function sendDoctorConsultationStartedNotification(params: {
                 const hasToken = !!tokenNumber && tokenNumber !== 'N/A' && tokenNumber !== '';
                 const templateName = hasToken ? 'doctor_consultation_started_ml' : 'doctor_in_pending_ml';
                 const ref = hasToken ? 'consultation_started' : 'doctor_in_pending';
-                const linkSuffix = `${appointmentId}?ref=${ref}&token=${magicToken}`;
+
+                const linkParams = await generateMarketingSuffix(firestore, {
+                    magicToken,
+                    ref,
+                    campaign: 'consultation_updates',
+                    medium: 'notification',
+                    clinicId: (params as any).clinicId || '',
+                    phone: communicationPhone,
+                    appointmentId
+                });
+                const linkSuffix = `${appointmentId}?${linkParams}`;
 
                 const textFallback = hasToken
                     ? `നമസ്കാരം ${patientName || 'Patient'},\n\nഡോക്ടർ ${doctorName} കൺസൾട്ടേഷൻ ആരംഭിച്ചു. 🟢\n\nനിങ്ങളുടെ ടോക്കൺ നമ്പർ: ${tokenNumber}\n\nനിങ്ങളുടെ മുൻപിൽ എത്ര പേര് ഉണ്ട് എന്ന് അറിയാനും , എത്ര നേരം കാത്തിരിക്കണം എന്നും അറിയാനായി താഴെ ക്ലിക്ക് ചെയ്ത് സ്റ്റാറ്റസ് പരിശോധിക്കുക:\n\nhttps://app.kloqo.com/live-token/${linkSuffix}`

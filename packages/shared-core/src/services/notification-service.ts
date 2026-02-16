@@ -261,8 +261,17 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`); // Redundant with META-DEBUG
         } else {
             const liveStatusRef = `whatsapp_confirmation_no_token`;
-            const baseUrl = `${appointmentId}?ref=${liveStatusRef}`;
-            const liveStatusLink = magicToken ? `${baseUrl}\u0026magicToken=${magicToken}` : baseUrl;
+
+            const linkParams = await generateMarketingSuffix(firestore, {
+                magicToken: magicToken || '',
+                ref: liveStatusRef,
+                campaign: 'appointment_booking_no_token',
+                medium: 'notification',
+                clinicId: (params as any).clinicId || '',
+                phone: communicationPhone,
+                appointmentId
+            });
+            const liveStatusLink = `${appointmentId}?${linkParams}`;
 
             contentVariables = {
                 "1": patientName,

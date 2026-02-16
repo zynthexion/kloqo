@@ -1639,6 +1639,8 @@ export async function notifySessionPatientsOfConsultationStart({
                     tokenDistribution,
                     averageConsultingTime,
                     peopleAhead: index,
+                    communicationPhone: appointment.communicationPhone,
+                    patientName: appointment.patientName,
                 });
             } catch (error) {
                 console.error(`Failed to notify patient ${appointment.patientId} for appointment ${appointment.id}`, error);

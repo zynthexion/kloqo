@@ -10,11 +10,13 @@
     "dependencies": {
         "date-fns": "^3.6.0",
         "firebase": "^11.9.1",
+        "uuid": "^10.0.0",
         "@kloqo/shared-firebase": "*",
         "@kloqo/shared-types": "*"
     },
     "devDependencies": {
         "@types/node": "^20",
+        "@types/uuid": "^10.0.0",
         "typescript": "^5"
     }
 }

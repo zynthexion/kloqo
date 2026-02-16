@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
-import { getFirebaseAdmin } from '../../../../../../../packages/shared-core/src/utils/firebase-admin';
+import { getFirebaseAdmin } from '@kloqo/shared-core/src/utils/firebase-admin';
 
 /**
  * Analytics Session Endpoint

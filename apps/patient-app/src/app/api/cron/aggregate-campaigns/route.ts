@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFirebaseAdmin } from '../../../../../../../packages/shared-core/src/utils/firebase-admin';
+import { getFirebaseAdmin } from '@kloqo/shared-core/src/utils/firebase-admin';
 
 /**
  * Campaign Aggregation Cron Job
@@ -37,11 +37,6 @@ export async function GET(req: NextRequest) {
         const allRefs = new Set<string>();
         sendsSnap.forEach(doc => allRefs.add(doc.data().ref));
 
-        // 2. Get all SESSIONS (clicks) from last 24 hours
-        const sessionsSnap = await firestore
-            .collection('marketing_analytics')
-            .where('sessionStart', '>=', oneDayAgo.toISOString())
-            .get();
 
         // Group sessions by ref
         const sessionsByRef = new Map<string, any[]>();

@@ -12,7 +12,16 @@ export async function GET(req: NextRequest) {
     try {
         // Verify cron secret
         const authHeader = req.headers.get('authorization');
+
+        // DEBUG: Log first/last chars of header to verify format without exposing secret
+        if (authHeader) {
+            console.log(`[Cron Auth] Header received: ${authHeader.substring(0, 15)}...${authHeader.slice(-3)}`);
+        } else {
+            console.log('[Cron Auth] No authorization header found');
+        }
+
         if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+            console.error('[Cron Auth] Authentication mismatch');
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 

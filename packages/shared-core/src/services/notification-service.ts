@@ -259,7 +259,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 "4": date,
                 "5": tokenNumber || '--',
                 "6": arriveByTime,
-                // "7": liveStatusLink // REMOVED: Unused in Quick Reply template
+                "7": liveStatusLink
             };
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`); // Redundant with META-DEBUG
         } else {
@@ -274,7 +274,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 "4": date,
                 "5": '--', // No token
                 "6": arriveByTime,
-                // "7": liveStatusLink // REMOVED: Unused in Quick Reply template
+                "7": liveStatusLink
             };
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`); // Redundant with META-DEBUG
         }

@@ -64,6 +64,24 @@ export async function POST(request: NextRequest) {
           { type: 'body', parameters: bodyParams },
           { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
         ];
+      } else if (templateName === 'doctor_consultation_started_ml' || templateName === 'doctor_in_pending_ml') {
+        // Body: 1-3, Button: 4
+        const bodyParams = ["1", "2", "3"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
+        const buttonParams = [{ type: 'text' as const, text: String(vars["4"] || '') }];
+
+        components = [
+          { type: 'body', parameters: bodyParams },
+          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+        ];
+      } else if (templateName === 'token_called_quick_reply_ml') {
+        // Body: 1-2, Button: 3
+        const bodyParams = ["1", "2"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
+        const buttonParams = [{ type: 'text' as const, text: String(vars["3"] || '') }];
+
+        components = [
+          { type: 'body', parameters: bodyParams },
+          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+        ];
       } else if (templateName === 'text_message') {
         // Free-text message
         const textContent = vars.text || '';

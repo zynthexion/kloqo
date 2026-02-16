@@ -127,8 +127,24 @@ export async function POST(request: NextRequest) {
                     }
 
                     // 1b. Check for Button Clicks / Interactive Messages
-                    // User clicks "സമയം അറിയണം" (Know Time)
-                    const buttonText = message.button?.text || message.interactive?.button_reply?.title || messageBody;
+                    const buttonText = message.button?.text || message.interactive?.button_reply?.title;
+                    if (buttonText) {
+                        try {
+                            const interactionRef = doc(collection(db, 'marketing_interactions'));
+                            await setDoc(interactionRef, {
+                                phone: from,
+                                buttonText: buttonText,
+                                timestamp: serverTimestamp(),
+                                patientName: patientName || 'Unknown',
+                                // Try to correlate with a session if possible
+                                clinicId: session?.clinicId || null,
+                            });
+                            console.log(`[WhatsApp Webhook] 📊 Logged button interaction: ${buttonText} from ${from}`);
+                        } catch (interactionError) {
+                            console.error('[WhatsApp Webhook] Error logging interaction:', interactionError);
+                        }
+                    }
+
                     if (buttonText === 'സമയം അറിയണം') {
                         console.log(`[WhatsApp Webhook] 🕒 Handle 'Know Time' button click for ${from}`);
                         const session = await WhatsAppSessionService.getSession(from);

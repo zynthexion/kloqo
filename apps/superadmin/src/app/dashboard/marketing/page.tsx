@@ -45,10 +45,12 @@ export default function MarketingDashboard() {
     const [searchPhone, setSearchPhone] = useState('');
     const [loading, setLoading] = useState(true);
     const [searchResults, setSearchResults] = useState<SessionData[]>([]);
+    const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
     // Load campaign summaries
     useEffect(() => {
         loadCampaignSummaries();
+        loadRecentActivity();
     }, []);
 
     async function loadCampaignSummaries() {
@@ -59,6 +61,50 @@ export default function MarketingDashboard() {
             setCampaigns(data);
         } catch (error) {
             console.error('Error loading campaigns:', error);
+        }
+    }
+
+    async function loadRecentActivity() {
+        try {
+            // 1. Get last 50 sends
+            const sendsQ = query(
+                collection(db, 'campaign_sends'),
+                orderBy('sentAt', 'desc'),
+                limit(50)
+            );
+            const sendsSnap = await getDocs(sendsQ);
+            const sends = sendsSnap.docs.map(doc => ({ id: doc.id, type: 'send', ...doc.data() }));
+
+            // 2. Get last 50 clicks/sessions
+            const clicksQ = query(
+                collection(db, 'marketing_analytics'),
+                orderBy('sessionStart', 'desc'),
+                limit(50)
+            );
+            const clicksSnap = await getDocs(clicksQ);
+            const clicks = clicksSnap.docs.map(doc => ({ id: doc.id, type: 'click', ...doc.data() }));
+
+            // 3. Get last 50 button interactions
+            const interactionsQ = query(
+                collection(db, 'marketing_interactions'),
+                orderBy('timestamp', 'desc'),
+                limit(50)
+            );
+            const interactionsSnap = await getDocs(interactionsQ);
+            const interactions = interactionsSnap.docs.map(doc => ({ id: doc.id, type: 'button', ...doc.data() }));
+
+            // Join them into a unified activity feed
+            const combined = [...sends, ...clicks, ...interactions].sort((a: any, b: any) => {
+                const timeA = a.sentAt || a.sessionStart || a.timestamp;
+                const timeB = b.sentAt || b.sessionStart || b.timestamp;
+                const dateA = typeof timeA === 'string' ? new Date(timeA) : timeA?.toDate();
+                const dateB = typeof timeB === 'string' ? new Date(timeB) : timeB?.toDate();
+                return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+            });
+
+            setRecentActivity(combined);
+        } catch (error) {
+            console.error('Error loading activity:', error);
         } finally {
             setLoading(false);
         }
@@ -204,6 +250,78 @@ export default function MarketingDashboard() {
                                         <TableCell className="text-right">{Math.round(campaign.avgSessionDuration)}s</TableCell>
                                     </TableRow>
                                 ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Recent Activity Feed */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>Recent Messages & Activity</CardTitle>
+                    <CardDescription>Live feed of sent messages, link clicks, and button replies</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {loading ? (
+                        <div className="text-center py-8 text-muted-foreground">Loading activity...</div>
+                    ) : recentActivity.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                            No recent activity found.
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Time</TableHead>
+                                    <TableHead>Patient</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Activity</TableHead>
+                                    <TableHead>Campaign</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {recentActivity.map((act) => {
+                                    const time = act.sentAt || act.sessionStart || act.timestamp;
+                                    const date = typeof time === 'string' ? new Date(time) : time?.toDate();
+
+                                    return (
+                                        <TableRow key={act.id}>
+                                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                                {date ? date.toLocaleString('en-IN', {
+                                                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                                                }) : 'Unknown'}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="font-medium">{act.patientName || 'Unknown'}</div>
+                                                <div className="text-xs text-muted-foreground">{act.phone}</div>
+                                            </TableCell>
+                                            <TableCell>
+                                                {act.type === 'send' && (
+                                                    <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700">
+                                                        Sent
+                                                    </span>
+                                                )}
+                                                {act.type === 'click' && (
+                                                    <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700">
+                                                        Clicked Link
+                                                    </span>
+                                                )}
+                                                {act.type === 'button' && (
+                                                    <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-green-100 text-green-700">
+                                                        Replied
+                                                    </span>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="max-w-[200px] truncate">
+                                                {act.type === 'send' && "WhatsApp Message Out"}
+                                                {act.type === 'click' && `Visited ${act.pageCount} pages (${act.sessionDuration}s)`}
+                                                {act.type === 'button' && `Button: "${act.buttonText}"`}
+                                            </TableCell>
+                                            <TableCell className="text-xs">{act.campaign || act.ref || '--'}</TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     )}

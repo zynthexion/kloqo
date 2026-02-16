@@ -248,6 +248,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 medium: 'notification',
                 clinicId: (params as any).clinicId || '', // Assumed present in params or context
                 phone: communicationPhone,
+                patientName: patientName,
                 appointmentId
             });
             const liveStatusLink = `${appointmentId}?${linkParams}`;
@@ -269,6 +270,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 medium: 'notification',
                 clinicId: (params as any).clinicId || '',
                 phone: communicationPhone,
+                patientName: patientName,
                 appointmentId
             });
             const liveStatusLink = `${appointmentId}?${linkParams}`;

@@ -13,6 +13,7 @@ export interface MarketingLinkParams {
     medium: string;                 // Medium type (e.g., "notification", "batch_reminder", "utility_window")
     clinicId: string;
     phone: string;
+    patientName?: string;
     appointmentId?: string;
 }
 
@@ -49,6 +50,7 @@ export async function generateAndTrackMarketingLink(
             clinicId: params.clinicId,
             appointmentId: params.appointmentId || null,
             phone: params.phone,
+            patientName: params.patientName || 'Unknown',
             sentAt: serverTimestamp(),
         });
     } catch (error) {
@@ -76,6 +78,7 @@ export async function generateMarketingSuffix(
             clinicId: params.clinicId,
             appointmentId: params.appointmentId || null,
             phone: params.phone,
+            patientName: params.patientName || 'Unknown',
             sentAt: serverTimestamp(),
         });
     } catch (error) {

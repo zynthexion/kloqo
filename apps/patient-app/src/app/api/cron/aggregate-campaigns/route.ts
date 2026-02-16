@@ -28,27 +28,41 @@ export async function GET(req: NextRequest) {
 
         console.log(`[Cron] Processing ${sessionsSnap.size} sessions`);
 
+        // 1. Get all refs that have been SENT in last 24h
+        const sendsSnap = await firestore
+            .collection('campaign_sends')
+            .where('sentAt', '>=', oneDayAgo) // Note: using Date object for admin SDK
+            .get();
+
+        const allRefs = new Set<string>();
+        sendsSnap.forEach(doc => allRefs.add(doc.data().ref));
+
+        // 2. Get all SESSIONS (clicks) from last 24 hours
+        const sessionsSnap = await firestore
+            .collection('marketing_analytics')
+            .where('sessionStart', '>=', oneDayAgo.toISOString())
+            .get();
+
         // Group sessions by ref
-        const refGroups = new Map<string, any[]>();
+        const sessionsByRef = new Map<string, any[]>();
         sessionsSnap.forEach(doc => {
             const data = doc.data();
-            if (!refGroups.has(data.ref)) {
-                refGroups.set(data.ref, []);
+            if (!sessionsByRef.has(data.ref)) {
+                sessionsByRef.set(data.ref, []);
             }
-            refGroups.get(data.ref)!.push(data);
+            sessionsByRef.get(data.ref)!.push(data);
         });
 
         // Update summaries for each campaign
         const batch = firestore.batch();
         let updateCount = 0;
 
-        for (const [ref, sessions] of refGroups) {
-            // Get total sends for this ref
-            const sendsSnap = await firestore
-                .collection('campaign_sends')
-                .where('ref', '==', ref)
-                .get();
-            const totalSent = sendsSnap.size;
+        for (const ref of allRefs) {
+            const sessions = sessionsByRef.get(ref) || [];
+
+            // Get total sends for this ref (from our already fetched snap)
+            const sendsForThisRef = sendsSnap.docs.filter(d => d.data().ref === ref);
+            const totalSent = sendsForThisRef.length;
 
             // Filter out bots
             const nonBotSessions = sessions.filter(s => !s.isBot);
@@ -77,15 +91,16 @@ export async function GET(req: NextRequest) {
             const bouncedSessions = nonBotSessions.filter(s => s.sessionDuration < 10).length;
             const bounceRate = nonBotSessions.length > 0 ? (bouncedSessions / nonBotSessions.length) * 100 : 0;
 
-            // Get campaign details from first session
-            const firstSession = sessions[0];
+            // Get campaign details
+            // Try sessions first, then sends
+            const sourceDoc = sessions.length > 0 ? sessions[0] : sendsForThisRef[0].data();
 
             // Update summary document
             const summaryRef = firestore.collection('campaign_summaries').doc(ref);
             batch.set(summaryRef, {
                 ref,
-                campaign: firstSession.campaign || ref,
-                medium: firstSession.medium || 'unknown',
+                campaign: sourceDoc.campaign || ref,
+                medium: sourceDoc.medium || 'whatsapp',
 
                 totalLinksSent: totalSent,
                 totalClicks,

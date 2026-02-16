@@ -23,13 +23,11 @@ export async function POST(request: NextRequest) {
 
       // Mapping logic for Malayalam templates with buttons
       if (templateName === 'appointment_reminder_v2') {
-        // Body: 1-6, Button: 7
-        const bodyParams = ["1", "2", "3", "4", "5", "6"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
-        const buttonParams = [{ type: 'text' as const, text: String(vars["7"] || '') }];
+        // Body: 1-4, Button: None (Quick Reply)
+        const bodyParams = ["1", "2", "3", "4"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
 
         components = [
-          { type: 'body', parameters: bodyParams },
-          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+          { type: 'body', parameters: bodyParams }
         ];
       } else if (templateName === 'appointment_requested_ml') {
         // Body: 1-3, Button: 4

@@ -255,11 +255,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             contentVariables = {
                 "1": patientName,
                 "2": doctorName,
-                "3": clinicName,
-                "4": date,
-                "5": tokenNumber || '--',
-                "6": arriveByTime,
-                "7": liveStatusLink
+                "3": date,
+                "4": tokenNumber || '--'
             };
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`); // Redundant with META-DEBUG
         } else {
@@ -270,11 +267,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             contentVariables = {
                 "1": patientName,
                 "2": doctorName,
-                "3": clinicName,
-                "4": date,
-                "5": '--', // No token
-                "6": arriveByTime,
-                "7": liveStatusLink
+                "3": date,
+                "4": '--' // No token
             };
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`); // Redundant with META-DEBUG
         }

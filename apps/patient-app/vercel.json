@@ -1,11 +1,5 @@
 {
     "framework": "nextjs",
     "buildCommand": "npm run build",
-    "installCommand": "npm install",
-    "crons": [
-        {
-            "path": "/api/cron/aggregate-campaigns",
-            "schedule": "*/15 * * * *"
-        }
-    ]
+    "installCommand": "npm install"
 }

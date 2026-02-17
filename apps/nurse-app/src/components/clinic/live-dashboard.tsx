@@ -537,7 +537,8 @@ export default function LiveDashboard() {
               appointmentId: appointmentToAddToQueue.id,
               tokenDistribution: clinicDetails?.tokenDistribution,
               classicTokenNumber: finalClassicTokenNumber || appointmentToAddToQueue.classicTokenNumber,
-              isWalkIn: false // Strategy: FREE message since window should be open
+              isWalkIn: false, // Strategy: FREE message since window should be open
+              clinicId: clinicId // FIX: Pass clinicId for marketing tracking
             });
           } catch (e) { console.error("Notify Confirm Error", e); }
         }
@@ -623,7 +624,8 @@ export default function LiveDashboard() {
               appointmentId: appointment.id,
               tokenDistribution: clinicDetails?.tokenDistribution,
               classicTokenNumber: finalClassicTokenNumber || appointment.classicTokenNumber,
-              isWalkIn: false // Strategy: FREE message
+              isWalkIn: false, // Strategy: FREE message
+              clinicId: clinicId // FIX: Pass clinicId for marketing tracking
             });
           } catch (e) { console.error("Notify Rejoin Error", e); }
         }

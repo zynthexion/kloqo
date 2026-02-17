@@ -395,7 +395,8 @@ export async function sendWhatsAppArrivalConfirmed(params: {
                 "3": `${appointmentId}?${linkSuffix}`
             },
             textFallback: malayalamTextFallback,
-            skipIfClosed: true // Strategy: Only send if it's FREE (window open).
+            skipIfClosed: true, // Strategy: Only send if it's FREE (window open).
+            preferTemplate: true // NEW: Use template even if window is open (as requested)
         });
 
     } catch (error) {
@@ -522,19 +523,30 @@ export async function sendSmartWhatsAppNotification(params: {
     textFallback: string;
     alwaysSend?: boolean; // If true, send template even if window closed (e.g., Doctor In)
     skipIfClosed?: boolean; // If true, skip message if window closed (e.g., Review)
+    preferTemplate?: boolean; // If true, send template EVEN if window is open (for UI/Branding)
 }): Promise<boolean> {
-    const { to, templateName, templateVariables, textFallback, alwaysSend = false, skipIfClosed = false } = params;
-    console.log(`[Notification] 🔔 sendSmartWhatsAppNotification called for ${to}`);
+    const { to, templateName, templateVariables, textFallback, alwaysSend = false, skipIfClosed = false, preferTemplate = false } = params;
+    console.log(`[Notification] 🔔 sendSmartWhatsAppNotification called for ${to}${preferTemplate ? ' (Prefer Template)' : ''}`);
 
     try {
         // Check if 24h window is open
         const isWindowOpen = await WhatsAppSessionService.isWindowOpen(to);
 
-        if (isWindowOpen) {
-            // Window is open -> Send FREE text message
+        if (isWindowOpen && !preferTemplate) {
+            // Window is open AND we don't prefer template -> Send FREE text message
             console.log(`[WhatsApp Smart] 💚 Window OPEN for ${to}. Sending FREE text.`);
             console.log(`[META-DEBUG] 💬 Smart Free Text: ${textFallback}`);
             return sendWhatsAppText({ to, text: textFallback });
+        } else if (isWindowOpen && preferTemplate && templateName) {
+            // Window is open BUT we prefer template -> Send template (still FREE because window open)
+            console.log(`[WhatsApp Smart] 🎨 Window OPEN for ${to} but PREFER TEMPLATE (${templateName}). Sending template (FREE).`);
+            console.log(`[META-DEBUG] 🧩 Smart Notification Template: ${templateName}`);
+            console.log(`[META-DEBUG] 📝 Smart Notification Variables:`, JSON.stringify(templateVariables, null, 2));
+            return sendWhatsAppMessage({
+                to,
+                contentSid: templateName,
+                contentVariables: templateVariables
+            });
         } else {
             // Window is closed
             if (skipIfClosed) {

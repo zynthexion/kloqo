@@ -13,14 +13,21 @@ export async function GET(request: Request) {
     const authHeader = request.headers.get('authorization');
     const secret = process.env.CRON_SECRET;
 
+    // DEBUG: Log first/last chars of header to verify format without exposing secret
+    if (authHeader) {
+        console.log(`[WhatsApp Batch] Header received: ${authHeader.substring(0, 15)}...${authHeader.slice(-3)}`);
+    } else {
+        console.log('[WhatsApp Batch] No authorization header found');
+    }
+
     // Use a default for development if needed, but enforce in production
     if (!secret) {
-        console.warn('[CRON] Warning: CRON_SECRET is not set in environment variables.');
+        console.warn('[WhatsApp Batch] Warning: CRON_SECRET is not set in environment variables.');
         return NextResponse.json({ error: 'Cron secret not configured' }, { status: 500 });
     }
 
     if (authHeader !== `Bearer ${secret}`) {
-        console.error('[CRON] Unauthorized access attempt detected.');
+        console.error('[WhatsApp Batch] Authentication mismatch');
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, TrendingUp, MousePointerClick, Users, Clock } from 'lucide-react';
+import { Search, TrendingUp, MousePointerClick, Users, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CampaignSummary {
     id: string;
@@ -46,6 +46,16 @@ export default function MarketingDashboard() {
     const [loading, setLoading] = useState(true);
     const [searchResults, setSearchResults] = useState<SessionData[]>([]);
     const [recentActivity, setRecentActivity] = useState<any[]>([]);
+    const [windowStatus, setWindowStatus] = useState<{ open: boolean; lastMsg: any } | null>(null);
+
+    const normalizePhone = (p: string) => {
+        let clean = p.trim().replace(/\D/g, '');
+        if (clean.length === 10) clean = '91' + clean;
+        return '+' + clean;
+    };
+    const [windowStatuses, setWindowStatuses] = useState<Record<string, boolean>>({});
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 15;
 
     // Load campaign summaries
     useEffect(() => {
@@ -103,8 +113,39 @@ export default function MarketingDashboard() {
             });
 
             setRecentActivity(combined);
+
+            // Fetch window statuses for these phones
+            const uniquePhones = Array.from(new Set(combined.map((a: any) => a.phone).filter(Boolean)));
+            if (uniquePhones.length > 0) {
+                const statuses: Record<string, boolean> = {};
+                // Process in chunks of 30 for Firestore 'in' query
+                for (let i = 0; i < uniquePhones.length; i += 30) {
+                    const originalChunk = uniquePhones.slice(i, i + 30);
+                    // Search for both formats (+ and non-+) to ensure matching
+                    const chunk = [
+                        ...originalChunk.map(p => normalizePhone(p as string)),
+                        ...originalChunk.map(p => normalizePhone(p as string).replace(/^\+/, ''))
+                    ];
+
+                    const q = query(collection(db, 'whatsapp_sessions'), where('phoneNumber', 'in', chunk));
+                    const snap = await getDocs(q);
+
+                    snap.forEach(doc => {
+                        const data = doc.data();
+                        if (data.lastMessageAt) {
+                            const lastMsg = data.lastMessageAt.toDate();
+                            const hours = (new Date().getTime() - lastMsg.getTime()) / (1000 * 60 * 60);
+                            statuses[data.phoneNumber] = hours < 24;
+                            // Index by both formats for reliable UI lookup
+                            const alt = data.phoneNumber.startsWith('+') ? data.phoneNumber.replace(/^\+/, '') : '+' + data.phoneNumber;
+                            statuses[alt] = hours < 24;
+                        }
+                    });
+                }
+                setWindowStatuses(statuses);
+            }
         } catch (error) {
-            console.error('Error loading activity:', error);
+            console.error('[Dashboard] Error loading activity:', error);
         } finally {
             setLoading(false);
         }
@@ -115,17 +156,67 @@ export default function MarketingDashboard() {
 
         try {
             setLoading(true);
-            const q = query(
+            const normalized = normalizePhone(searchPhone);
+            const legacy = normalized.replace(/^\+/, '');
+
+            console.log('[Dashboard] Searching:', normalized, 'and legacy:', legacy);
+
+            // Try primary search (normalized)
+            let q = query(
                 collection(db, 'marketing_analytics'),
-                where('phone', '==', searchPhone.trim()),
+                where('phone', '==', normalized),
                 orderBy('sessionStart', 'desc'),
                 limit(20)
             );
-            const snapshot = await getDocs(q);
+            let snapshot = await getDocs(q);
+
+            // If nothing found, try legacy search
+            if (snapshot.empty) {
+                console.log('[Dashboard] No results for normalized phone, trying legacy:', legacy);
+                q = query(
+                    collection(db, 'marketing_analytics'),
+                    where('phone', '==', legacy),
+                    orderBy('sessionStart', 'desc'),
+                    limit(20)
+                );
+                snapshot = await getDocs(q);
+            }
+
+            console.log('[Dashboard] Search results found:', snapshot.size);
+
             const data = snapshot.docs.map(doc => doc.data() as SessionData);
             setSearchResults(data);
+
+            // 2. Also check WhatsApp Session Window
+            setWindowStatus(null);
+
+            // Try both formats for session check
+            let sessionRef = doc(db, 'whatsapp_sessions', normalized);
+            let sessionSnap = await getDoc(sessionRef);
+
+            if (!sessionSnap.exists()) {
+                console.log('[Dashboard] Session not found for normalized, trying legacy:', legacy);
+                sessionRef = doc(db, 'whatsapp_sessions', legacy);
+                sessionSnap = await getDoc(sessionRef);
+            }
+
+            if (sessionSnap.exists()) {
+                const sessionData = sessionSnap.data();
+                console.log('[Dashboard] sessionData found:', sessionData);
+                if (sessionData.lastMessageAt) {
+                    const lastMsg = sessionData.lastMessageAt.toDate();
+                    const now = new Date();
+                    const diffHours = (now.getTime() - lastMsg.getTime()) / (1000 * 60 * 60);
+                    setWindowStatus({
+                        open: diffHours < 24,
+                        lastMsg: sessionData.lastMessageAt
+                    });
+                }
+            } else {
+                console.log('[Dashboard] No session document found in either format.');
+            }
         } catch (error) {
-            console.error('Error searching sessions:', error);
+            console.error('[Dashboard] Error searching sessions:', error);
         } finally {
             setLoading(false);
         }
@@ -141,6 +232,10 @@ export default function MarketingDashboard() {
     const avgDuration = campaigns.length > 0
         ? (campaigns.reduce((sum, c) => sum + c.avgSessionDuration, 0) / campaigns.length).toFixed(0)
         : '0';
+
+    // Pagination
+    const totalPages = Math.ceil(recentActivity.length / itemsPerPage);
+    const paginatedActivity = recentActivity.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     return (
         <div className="p-6 space-y-6">
@@ -276,14 +371,17 @@ export default function MarketingDashboard() {
                                     <TableHead>Time</TableHead>
                                     <TableHead>Patient</TableHead>
                                     <TableHead>Type</TableHead>
+                                    <TableHead>Status</TableHead>
                                     <TableHead>Activity</TableHead>
                                     <TableHead>Campaign</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {recentActivity.map((act) => {
+                                {paginatedActivity.map((act) => {
                                     const time = act.sentAt || act.sessionStart || act.timestamp;
                                     const date = typeof time === 'string' ? new Date(time) : time?.toDate();
+                                    const normalized = act.phone ? normalizePhone(act.phone) : null;
+                                    const isWindowOpen = normalized ? windowStatuses[normalized] : false;
 
                                     return (
                                         <TableRow key={act.id}>
@@ -297,21 +395,28 @@ export default function MarketingDashboard() {
                                                 <div className="text-xs text-muted-foreground">{act.phone}</div>
                                             </TableCell>
                                             <TableCell>
-                                                {act.type === 'send' && (
-                                                    <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700">
-                                                        Sent
-                                                    </span>
-                                                )}
-                                                {act.type === 'click' && (
-                                                    <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700">
-                                                        Clicked Link
-                                                    </span>
-                                                )}
-                                                {act.type === 'button' && (
-                                                    <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-green-100 text-green-700">
-                                                        Replied
-                                                    </span>
-                                                )}
+                                                <div className="flex flex-col gap-1">
+                                                    {act.type === 'send' && (
+                                                        <span className="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium bg-gray-100 text-gray-700 w-fit">
+                                                            Sent
+                                                        </span>
+                                                    )}
+                                                    {act.type === 'click' && (
+                                                        <span className="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium bg-blue-100 text-blue-700 w-fit">
+                                                            Clicked Link
+                                                        </span>
+                                                    )}
+                                                    {act.type === 'button' && (
+                                                        <span className="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium bg-green-100 text-green-700 w-fit">
+                                                            Replied
+                                                        </span>
+                                                    )}
+                                                    {isWindowOpen && (
+                                                        <span className="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold bg-emerald-500 text-white w-fit animate-pulse">
+                                                            24h OPEN
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="max-w-[200px] truncate">
                                                 {act.type === 'send' && "WhatsApp Message Out"}
@@ -324,6 +429,35 @@ export default function MarketingDashboard() {
                                 })}
                             </TableBody>
                         </Table>
+                    )}
+
+                    {/* Pagination Controls */}
+                    {!loading && recentActivity.length > itemsPerPage && (
+                        <div className="flex items-center justify-between mt-4 border-t pt-4">
+                            <div className="text-sm text-muted-foreground">
+                                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, recentActivity.length)} of {recentActivity.length} events
+                            </div>
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                >
+                                    <ChevronLeft className="h-4 w-4 mr-1" />
+                                    Previous
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    Next
+                                    <ChevronRight className="h-4 w-4 ml-1" />
+                                </Button>
+                            </div>
+                        </div>
                     )}
                 </CardContent>
             </Card>
@@ -350,7 +484,20 @@ export default function MarketingDashboard() {
 
                     {searchResults.length > 0 && (
                         <div className="space-y-4">
-                            <h3 className="font-semibold">Found {searchResults.length} sessions</h3>
+                            <div className="flex items-center justify-between">
+                                <h3 className="font-semibold">Found {searchResults.length} sessions</h3>
+                                {windowStatus && (
+                                    <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${windowStatus.open ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        <Clock className="h-3 w-3" />
+                                        24h Window: {windowStatus.open ? 'OPEN' : 'CLOSED'}
+                                        <span className="text-[10px] opacity-70 ml-1">
+                                            (Last patient msg: {windowStatus.lastMsg.toDate().toLocaleString('en-IN', {
+                                                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                                            })})
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
                             {searchResults.map((session, idx) => (
                                 <Card key={idx}>
                                     <CardContent className="pt-6">
@@ -391,6 +538,14 @@ export default function MarketingDashboard() {
                                     </CardContent>
                                 </Card>
                             ))}
+                        </div>
+                    )}
+
+                    {!loading && searchResults.length === 0 && searchPhone && (
+                        <div className="text-center py-8 text-muted-foreground bg-gray-50 rounded-lg border border-dashed">
+                            No journey data found for "{normalizePhone(searchPhone)}".
+                            <br />
+                            <span className="text-xs opacity-60">(Try searching for a phone number that has clicked a marketing link)</span>
                         </div>
                     )}
                 </CardContent>

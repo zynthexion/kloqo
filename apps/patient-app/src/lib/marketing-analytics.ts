@@ -121,6 +121,18 @@ class MarketingAnalytics {
     }
 
     /**
+     * Identify the user (associate phone/patientId with the session)
+     */
+    identify(phone?: string, patientId?: string) {
+        if (!this.sessionData || this.isBot) return;
+
+        if (phone) this.sessionData.phone = phone;
+        if (patientId) this.sessionData.patientId = patientId;
+
+        console.log('[Analytics] User identified:', phone || patientId);
+    }
+
+    /**
      * Track an action (e.g., "booked_appointment", "viewed_token")
      */
     trackAction(action: string, value?: any) {

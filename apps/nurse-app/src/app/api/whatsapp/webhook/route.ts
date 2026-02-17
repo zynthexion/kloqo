@@ -71,12 +71,17 @@ export async function POST(request: NextRequest) {
                 const from = message.from;
                 const messageBody = message.text?.body;
 
-                if (messageBody) {
-                    console.log(`[WhatsApp Webhook] Message from ${from}: ${messageBody}`);
+                // 228: Retrieve session early for logging and context
+                const session = from ? await WhatsAppSessionService.getSession(from) : null;
 
-                    // CRITICAL: Update last message timestamp for 24h window tracking
+                if (from) {
+                    // CRITICAL: Update last message timestamp for 24h window tracking for ALL messages (text or button)
                     await WhatsAppSessionService.updateLastUserMessage(from);
                     console.log(`[WhatsApp Webhook] ✅ Updated lastMessageAt for ${from}`);
+                }
+
+                if (messageBody) {
+                    console.log(`[WhatsApp Webhook] Message from ${from}: ${messageBody}`);
 
                     // 0. Lookup Patient Identity
                     const patient = await getPatientByPhone(from);
@@ -128,18 +133,20 @@ export async function POST(request: NextRequest) {
 
                     // 1b. Check for Button Clicks / Interactive Messages
                     const buttonText = message.button?.text || message.interactive?.button_reply?.title;
-                    if (buttonText) {
+                    const buttonPayload = message.button?.payload || message.interactive?.button_reply?.id;
+
+                    if (buttonText || buttonPayload) {
                         try {
                             const interactionRef = doc(collection(db, 'marketing_interactions'));
                             await setDoc(interactionRef, {
                                 phone: from,
-                                buttonText: buttonText,
+                                buttonText: buttonText || buttonPayload,
                                 timestamp: serverTimestamp(),
                                 patientName: patientName || 'Unknown',
                                 // Try to correlate with a session if possible
                                 clinicId: session?.clinicId || null,
                             });
-                            console.log(`[WhatsApp Webhook] 📊 Logged button interaction: ${buttonText} from ${from}`);
+                            console.log(`[WhatsApp Webhook] 📊 Logged button interaction: ${buttonText || buttonPayload} from ${from}`);
                         } catch (interactionError) {
                             console.error('[WhatsApp Webhook] Error logging interaction:', interactionError);
                         }
@@ -223,9 +230,6 @@ export async function POST(request: NextRequest) {
                         }
                         return new NextResponse('EVENT_RECEIVED', { status: 200 });
                     }
-
-                    // Retrieve existing session
-                    const session = await WhatsAppSessionService.getSession(from);
 
                     // 2b. Direct Booking via App (Magic Link)
                     if (messageBody.toLowerCase().includes('book') || messageBody === '4') {

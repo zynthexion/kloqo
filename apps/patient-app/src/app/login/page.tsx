@@ -14,6 +14,7 @@ import { useLanguage } from '@/contexts/language-context';
 import Image from 'next/image';
 import { LottieAnimation } from '@/components/lottie-animation';
 import loadingDotsAnimation from '@/lib/animations/loading-dots.json';
+import { marketingAnalytics } from '@/lib/marketing-analytics';
 
 
 function LoginContent() {
@@ -149,12 +150,17 @@ function LoginContent() {
                 throw new Error(error.error || 'Magic login failed');
             }
 
-            const { customToken, redirectPath } = await response.json();
+            const { customToken, redirectPath, phone } = await response.json();
 
             // Sign in with Firebase Custom Token
             if (auth) {
                 await signInWithCustomToken(auth, customToken);
                 console.log('[MagicLogin] Successfully signed in with custom token');
+
+                // Identify user for marketing analytics
+                if (phone) {
+                    marketingAnalytics.identify(phone);
+                }
             }
 
             // Redirect to target path

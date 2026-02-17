@@ -120,7 +120,8 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({
             customToken,
-            redirectPath
+            redirectPath,
+            phone: `+91${phone}`
         });
 
     } catch (error: any) {

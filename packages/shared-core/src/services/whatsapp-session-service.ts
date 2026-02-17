@@ -137,14 +137,24 @@ export class WhatsAppSessionService {
     /**
      * Updates the last message timestamp for 24h window tracking.
      */
-    static async updateLastUserMessage(phoneNumber: string): Promise<void> {
+    static async updateLastUserMessage(phoneNumber: string, clinicId?: string): Promise<void> {
         try {
             const normalized = this.normalizePhoneNumber(phoneNumber);
             const sessionRef = doc(db, this.COLLECTION, normalized);
-            await setDoc(sessionRef, {
+
+            const update: any = {
+                phoneNumber: normalized,
+                lastInteraction: serverTimestamp(),
                 lastMessageAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
-            }, { merge: true });
+            };
+
+            if (clinicId) {
+                update.clinicId = clinicId;
+            }
+
+            await setDoc(sessionRef, update, { merge: true });
+            console.log(`[WhatsAppSessionService] ✅ Updated lastMessageAt and structure for ${normalized}`);
         } catch (error) {
             console.error('[WhatsAppSessionService] Error updating last message timestamp:', error);
         }

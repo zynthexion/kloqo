@@ -223,8 +223,9 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
     showToken?: boolean;
     magicToken?: string; // NEW: Supporting magic links
     firestore: Firestore; // Added for toggle check
+    clinicId?: string;
 }): Promise<boolean> {
-    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true, magicToken, firestore } = params;
+    const { communicationPhone, patientName, doctorName, clinicName, date, time, arriveByTime, tokenNumber, appointmentId, showToken = true, magicToken, firestore, clinicId } = params;
 
     try {
         // TOGGLE CHECK
@@ -246,7 +247,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 ref: liveStatusRef,
                 campaign: 'appointment_booking',
                 medium: 'notification',
-                clinicId: (params as any).clinicId || '', // Assumed present in params or context
+                clinicId: clinicId || '',
                 phone: communicationPhone,
                 patientName: patientName,
                 appointmentId
@@ -268,7 +269,7 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
                 ref: liveStatusRef,
                 campaign: 'appointment_booking_no_token',
                 medium: 'notification',
-                clinicId: (params as any).clinicId || '',
+                clinicId: clinicId || '',
                 phone: communicationPhone,
                 patientName: patientName,
                 appointmentId
@@ -304,11 +305,12 @@ export async function sendWhatsAppArrivalConfirmed(params: {
     patientName: string;
     tokenNumber: string;
     appointmentId: string;
+    clinicId: string;
     tokenDistribution?: 'classic' | 'advanced';
     classicTokenNumber?: string | number; // UPDATED: Accept both string/number
     isWalkIn?: boolean; // NEW: Differentiates walk-in vs regular
 }): Promise<boolean> {
-    const { firestore, communicationPhone, patientName, tokenNumber, appointmentId, tokenDistribution, classicTokenNumber, isWalkIn = false } = params;
+    const { firestore, communicationPhone, patientName, tokenNumber, appointmentId, clinicId, tokenDistribution, classicTokenNumber, isWalkIn = false } = params;
     console.log(`[Notification] 🔔 sendWhatsAppArrivalConfirmed called for ${patientName}`);
 
     try {
@@ -353,7 +355,7 @@ export async function sendWhatsAppArrivalConfirmed(params: {
             ref: 'status_confirmed',
             campaign: 'appointment_reminder',
             medium: 'notification',
-            clinicId: (params as any).clinicId || '',
+            clinicId: clinicId,
             phone: communicationPhone,
             appointmentId
         });
@@ -556,6 +558,7 @@ export async function sendAppointmentBookedByStaffNotification(params: {
     patientName?: string; // New: for WhatsApp template
     tokenDistribution?: 'classic' | 'advanced'; // New: needed for logic
     classicTokenNumber?: string; // New: needed for logic
+    clinicId: string;
 }): Promise<boolean> {
     const {
         firestore,
@@ -573,6 +576,7 @@ export async function sendAppointmentBookedByStaffNotification(params: {
         patientName,
         tokenDistribution,
         classicTokenNumber,
+        clinicId,
     } = params;
     console.log(`[Notification] 🔔 sendAppointmentBookedByStaffNotification called for ${appointmentId}. Distribution: ${tokenDistribution}, ClassicToken: ${classicTokenNumber}, Token: ${tokenNumber}`);
 
@@ -695,7 +699,8 @@ export async function sendAppointmentBookedByStaffNotification(params: {
                             : tokenNumber,
                         appointmentId,
                         showToken: whatsappShowToken,
-                        firestore
+                        firestore,
+                        clinicId
                     });
 
                     // Mark as sent in Firestore
@@ -726,13 +731,14 @@ export async function sendTokenCalledNotification(params: {
     clinicName: string;
     tokenNumber: string;
     doctorName: string;
+    clinicId: string;
     cancelledByBreak?: boolean;
     tokenDistribution?: 'classic' | 'advanced';
     classicTokenNumber?: string;
     communicationPhone?: string; // New: optional phone for WhatsApp
     patientName?: string; // New: for WhatsApp template
 }): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, cancelledByBreak, tokenDistribution, classicTokenNumber, communicationPhone, patientName } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, clinicId, cancelledByBreak, tokenDistribution, classicTokenNumber, communicationPhone, patientName } = params;
     console.log(`[Notification] 🔔 sendTokenCalledNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
@@ -793,7 +799,7 @@ export async function sendTokenCalledNotification(params: {
                 ref: 'token_called',
                 campaign: 'token_updates',
                 medium: 'notification',
-                clinicId: (params as any).clinicId || '',
+                clinicId: clinicId || '',
                 phone: communicationPhone,
                 appointmentId
             });
@@ -1368,8 +1374,9 @@ export async function sendDoctorConsultationStartedNotification(params: {
     peopleAhead?: number; // Optional: used for classic estimated time calculation
     communicationPhone?: string; // New: optional phone for WhatsApp
     patientName?: string; // New: for WhatsApp template
+    clinicId: string;
 } | any): Promise<boolean> {
-    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak, tokenDistribution, averageConsultingTime, peopleAhead, communicationPhone, patientName } = params;
+    const { firestore, patientId, appointmentId, clinicName, tokenNumber, doctorName, appointmentTime, appointmentDate, arriveByTime, cancelledByBreak, tokenDistribution, averageConsultingTime, peopleAhead, communicationPhone, patientName, clinicId } = params;
     console.log(`[Notification] 🔔 sendDoctorConsultationStartedNotification called for ${appointmentId}`);
 
     if (cancelledByBreak) {
@@ -1450,7 +1457,7 @@ export async function sendDoctorConsultationStartedNotification(params: {
                     ref,
                     campaign: 'consultation_updates',
                     medium: 'notification',
-                    clinicId: (params as any).clinicId || '',
+                    clinicId: clinicId,
                     phone: communicationPhone,
                     appointmentId
                 });
@@ -1641,6 +1648,7 @@ export async function notifySessionPatientsOfConsultationStart({
                     peopleAhead: index,
                     communicationPhone: appointment.communicationPhone,
                     patientName: appointment.patientName,
+                    clinicId
                 });
             } catch (error) {
                 console.error(`Failed to notify patient ${appointment.patientId} for appointment ${appointment.id}`, error);

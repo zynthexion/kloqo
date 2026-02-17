@@ -1567,6 +1567,7 @@ export default function AppointmentsPage() {
                 bookedBy: 'admin',
                 tokenDistribution: clinicDetails?.tokenDistribution,
                 classicTokenNumber: appointmentData.classicTokenNumber as any,
+                clinicId: clinicId
               });
 
               // 2. Arrival Confirmed for Walk-in
@@ -1588,7 +1589,8 @@ export default function AppointmentsPage() {
                   appointmentId: appointmentRef.id,
                   tokenDistribution: clinicDetails?.tokenDistribution,
                   classicTokenNumber: appointmentData.classicTokenNumber || appointmentData.tokenNumber,
-                  isWalkIn: true // TRIGGER: Paid template for Walk-in
+                  isWalkIn: true, // TRIGGER: Paid template for Walk-in
+                  clinicId: clinicId
                 });
               }
 
@@ -2057,6 +2059,7 @@ export default function AppointmentsPage() {
                 communicationPhone: communicationPhone,
                 patientName: patientForAppointmentName,
                 tokenDistribution: clinicDetails?.tokenDistribution,
+                clinicId: clinicId || '',
               });
             } catch (notifError) {
               console.error('Failed to send booking notification:', notifError);
@@ -2529,7 +2532,8 @@ export default function AppointmentsPage() {
               tokenNumber: appointment.tokenNumber,
               appointmentId: appointment.id,
               tokenDistribution: clinicDetails?.tokenDistribution,
-              classicTokenNumber: apptData?.classicTokenNumber || appointment.classicTokenNumber
+              classicTokenNumber: apptData?.classicTokenNumber || appointment.classicTokenNumber,
+              clinicId: clinicId || ''
             });
           } catch (notifErr) {
             console.error('[APPOINTMENTS] Failed to send arrival notification:', notifErr);
@@ -2644,7 +2648,8 @@ export default function AppointmentsPage() {
               appointmentId: appointment.id,
               tokenDistribution: clinicDetails?.tokenDistribution,
               classicTokenNumber: finalClassicTokenNumber || appointment.classicTokenNumber,
-              isWalkIn: false // Strategy: FREE message
+              isWalkIn: false, // Strategy: FREE message
+              clinicId: clinicId || ''
             });
             console.log('[APPOINTMENTS] WhatsApp notification sent for rejoin queue');
           } catch (notifErr) {

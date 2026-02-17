@@ -714,6 +714,7 @@ function WalkInRegistrationContent() {
             bookedBy: 'admin',
             tokenDistribution: clinicDetails?.tokenDistribution,
             classicTokenNumber: result.tokenNumber, // Walk-ins have direct tokens
+            clinicId: clinicId,
           });
 
           // 2. NEW: Special Malayalam "Arrival Confirmed" message with Magic Link
@@ -726,7 +727,8 @@ function WalkInRegistrationContent() {
               appointmentId: result.appointmentId,
               tokenDistribution: clinicDetails?.tokenDistribution,
               classicTokenNumber: result.tokenNumber, // Walk-ins have direct tokens
-              isWalkIn: true // TRIGGER: Paid template
+              isWalkIn: true, // TRIGGER: Paid template
+              clinicId: clinicId
             });
           }
         } catch (err) {

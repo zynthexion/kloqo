@@ -76,8 +76,9 @@ export async function POST(request: NextRequest) {
 
                 if (from) {
                     // CRITICAL: Update last message timestamp for 24h window tracking for ALL messages (text or button)
-                    await WhatsAppSessionService.updateLastUserMessage(from);
-                    console.log(`[WhatsApp Webhook] ✅ Updated lastMessageAt for ${from}`);
+                    // 228: Pass clinicId to ensure document structure is complete
+                    await WhatsAppSessionService.updateLastUserMessage(from, session?.clinicId);
+                    console.log(`[WhatsApp Webhook] ✅ Updated lastMessageAt and structure for ${from}`);
                 }
 
                 if (messageBody) {
@@ -555,7 +556,8 @@ async function handleBookingWizard(from: string, message: string, session: any, 
                         tokenNumber: displayToken,
                         appointmentId: apptRef.id,
                         magicToken: magicToken, // NEW: Pass the magic token for the button
-                        showToken: showToken
+                        showToken: showToken,
+                        clinicId: session.clinicId
                     } as any);
                 } catch (e) {
                     console.error('[BookingWizard] WhatsApp Confirm error:', e);
@@ -581,6 +583,7 @@ async function handleBookingWizard(from: string, message: string, session: any, 
                         communicationPhone: from,
                         patientName: session.bookingData.patientName,
                         tokenDistribution: tokenDistribution,
+                        clinicId: session.clinicId,
                         // classicTokenNumber is not available for advance booking in Classic mode
                     });
                 } catch (e) {

@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { Phone, UserPlus, Coffee, ChevronRight, User, Loader2, ChevronDown, Radio, Settings, CalendarX, BarChart3 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { format, isWithinInterval, addMinutes, subMinutes, isPast, parseISO, isSameDay, differenceInMinutes } from 'date-fns';
+import { format, isWithinInterval, addMinutes, subMinutes, isPast, parseISO, isSameDay, differenceInMinutes, isBefore, isAfter } from 'date-fns';
 import Image from 'next/image';
 
 import { Button } from '@/components/ui/button';

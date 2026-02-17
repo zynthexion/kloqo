@@ -39,7 +39,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import ClinicHeader from './header';
 import { errorEmitter } from '@kloqo/shared-core';
 import { FirestorePermissionError } from '@kloqo/shared-core';
-import { notifySessionPatientsOfConsultationStart, compareAppointments, logPunctualityEvent } from '@kloqo/shared-core';
+import { notifySessionPatientsOfConsultationStart, compareAppointments, logPunctualityEvent, findActiveSessionIndex, findTargetSessionForForceBooking, getClinicNow, type DailySlot } from '@kloqo/shared-core';
 
 
 export default function HomePage() {
@@ -54,6 +54,7 @@ export default function HomePage() {
   const [isWalkInAvailable, setIsWalkInAvailable] = useState(false);
   const [isNearClosing, setIsNearClosing] = useState(false);
   const [hasActiveAppointmentsToday, setHasActiveAppointmentsToday] = useState(false);
+  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [pendingStatusChange, setPendingStatusChange] = useState<'In' | 'Out' | null>(null);
 
 
@@ -124,11 +125,13 @@ export default function HomePage() {
       where('clinicId', '==', clinicId),
       where('doctor', '==', currentDoctorName),
       where('date', '==', todayStr),
-      where('status', 'in', ['Pending', 'Confirmed', 'Skipped'])
+      where('status', 'in', ['Pending', 'Confirmed', 'Skipped', 'Completed'])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHasActiveAppointmentsToday(!snapshot.empty);
+      const appts = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Appointment));
+      setTodayAppointments(appts);
+      setHasActiveAppointmentsToday(appts.some(a => ['Pending', 'Confirmed', 'Skipped'].includes(a.status)));
     });
 
     return () => unsubscribe();
@@ -143,29 +146,43 @@ export default function HomePage() {
   }
 
   const getCurrentSessionIndex = (): number | undefined => {
-    if (!currentDoctor) return undefined;
+    if (!currentDoctor || !currentDoctor.availabilitySlots) return undefined;
+
     const todayDay = format(new Date(), 'EEEE');
-    const todaysAvailability = currentDoctor.availabilitySlots?.find(s => s.day === todayDay);
-    if (!todaysAvailability?.timeSlots?.length) return undefined;
+    const availabilityForDay = currentDoctor.availabilitySlots.find(s => s.day === todayDay);
+    if (!availabilityForDay || !availabilityForDay.timeSlots?.length) return undefined;
 
-    const now = new Date();
-    for (let i = 0; i < todaysAvailability.timeSlots.length; i++) {
-      const session = todaysAvailability.timeSlots[i];
-      const sessionStart = parseTime(session.from, now);
-      const sessionEnd = parseTime(session.to, now);
+    const now = getClinicNow();
+    const slotDuration = currentDoctor.averageConsultingTime || 15;
+    const allSlots: DailySlot[] = [];
+    let slotIndex = 0;
 
-      // Leniency:
-      // Start window: 30 mins before
-      // End window: 120 mins (2 hours) after session formally ends (to handle significant delays)
-      const windowStart = subMinutes(sessionStart, 30);
-      const windowEnd = addMinutes(sessionEnd, 120);
+    availabilityForDay.timeSlots.forEach((session, sessionIndex) => {
+      let currentTime = parseTime(session.from, now);
+      let endTime = parseTime(session.to, now);
 
-      if (now >= windowStart && now <= windowEnd) {
-        return i;
+      while (isBefore(currentTime, endTime)) {
+        allSlots.push({ index: slotIndex, time: new Date(currentTime), sessionIndex });
+        currentTime = addMinutes(currentTime, slotDuration);
+        slotIndex += 1;
       }
-    }
+    });
 
-    return undefined;
+    const clinicDetails = (currentDoctor as any).clinicDetails || {}; // Fallback
+    const tokenDistribution = clinicDetails.tokenDistribution || 'classic';
+
+    const index = findActiveSessionIndex(
+      currentDoctor,
+      allSlots,
+      todayAppointments,
+      now,
+      tokenDistribution
+    );
+
+    if (index !== null) return index;
+
+    // Fallback: Check if we should use the force booking target (overtime)
+    return findTargetSessionForForceBooking(currentDoctor, now);
   };
 
   const handleStatusChange = (newStatus: 'In' | 'Out') => {

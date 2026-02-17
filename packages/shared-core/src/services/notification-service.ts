@@ -381,7 +381,8 @@ export async function sendWhatsAppArrivalConfirmed(params: {
             medium: 'notification',
             clinicId: clinicId,
             phone: communicationPhone,
-            appointmentId
+            appointmentId,
+            patientName: patientName // Ensure name is tracked
         });
         const malayalamTextFallback = `നമസ്കാരം ${patientName}, നിങ്ങളുടെ ടോക്കൺ ${displayToken} കൺഫേം ചെയ്തിട്ടുണ്ട്. ലൈവ് സ്റ്റാറ്റസ് അറിയാനായി താഴെ കാണുന്ന ലിങ്കിൽ ക്ലിക്ക് ചെയ്യുക:\n\nhttps://app.kloqo.com/live-token/${appointmentId}?${linkSuffix}`;
 
@@ -825,7 +826,8 @@ export async function sendTokenCalledNotification(params: {
                 medium: 'notification',
                 clinicId: clinicId || '',
                 phone: communicationPhone,
-                appointmentId
+                appointmentId,
+                patientName: patientName // Ensure name is tracked
             });
             const textFallback = `നമസ്കാരം ${patientName || 'Patient'}, ഡോ. ${doctorName} നിങ്ങളുടെ ടോക്കൺ (${tokenNumber}) വിളിച്ചിരിക്കുന്നു. ദയവായി കൺസൾട്ടേഷൻ റൂമിലേക്ക് വരിക. ലൈവ് സ്റ്റാറ്റസ്: https://app.kloqo.com/live-token/${appointmentId}?${linkSuffix}`;
 
@@ -1483,7 +1485,8 @@ export async function sendDoctorConsultationStartedNotification(params: {
                     medium: 'notification',
                     clinicId: clinicId,
                     phone: communicationPhone,
-                    appointmentId
+                    appointmentId,
+                    patientName: patientName // Ensure name is tracked
                 });
                 const linkSuffix = `${appointmentId}?${linkParams}`;
 

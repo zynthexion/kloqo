@@ -848,10 +848,11 @@ export async function sendTokenCalledNotification(params: {
                 templateName: 'token_called_quick_reply_ml',
                 templateVariables: {
                     "1": patientName || 'Patient',
-                    "2": tokenNumber,
-                    "3": `${appointmentId}?${linkSuffix}`
+                    "2": showToken ? (displayToken || '') : '',
+                    "3": linkSuffix
                 },
                 textFallback,
+                preferTemplate: true, // NEW: Use branded template even if window open
                 alwaysSend: true
             });
         }
@@ -1523,7 +1524,8 @@ export async function sendDoctorConsultationStartedNotification(params: {
                     templateName,
                     templateVariables,
                     textFallback,
-                    alwaysSend: true // Critical info, send paid template if window closed
+                    alwaysSend: true, // Critical info, send paid template if window closed
+                    preferTemplate: true // NEW: Use branded template even if window open
                 });
             } catch (error) {
                 console.error('[Notification] ❌ Failed to send Smart WhatsApp (Consultation Started):', error);

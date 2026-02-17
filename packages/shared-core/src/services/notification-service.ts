@@ -126,15 +126,13 @@ export async function sendNotificationToPatient(params: {
 
         const language = userData.language || 'en';
 
-        // Build API URL
-        let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+        // Build API URL - PWA notifications ALWAYS handled by the Patient App API
+        let baseUrl = 'https://app.kloqo.com';
 
+        // Local development support
         if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-            baseUrl = 'http://localhost:3000'; // Patient app likely on 3000 (default)
+            baseUrl = 'http://localhost:3001'; // Patient app usually on 3001 in dev
         }
-
-        // Fallback or default
-        baseUrl = baseUrl || 'https://app.kloqo.com';
 
         const apiUrl = `${baseUrl}/api/send-notification`;
         console.log(`[Notification] 🎯 DEBUG: Calling API: ${apiUrl} for patient: ${patientId}`);

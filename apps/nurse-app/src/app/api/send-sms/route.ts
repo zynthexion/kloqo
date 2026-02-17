@@ -96,7 +96,11 @@ export async function POST(request: NextRequest) {
         message: "WhatsApp message sent successfully via Meta API"
       });
     } catch (error: any) {
-      console.error('[WhatsApp API] Error:', error);
+      console.error('[WhatsApp API] ❌ ERROR:', error);
+      // Log the full error if it carries more detail (like Meta API error bodies)
+      if (error && typeof error === 'object' && 'response' in error) {
+        console.error('[WhatsApp API] ❌ FULL ERROR DETAIL:', JSON.stringify(error.response, null, 2));
+      }
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
   }

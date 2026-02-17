@@ -1499,10 +1499,8 @@ export async function sendDoctorConsultationStartedNotification(params: {
                         "4": linkSuffix
                     }
                     : {
-                        "1": patientName || 'Patient',
-                        "2": doctorName,
-                        "3": clinicName,
-                        "4": linkSuffix
+                        "1": doctorName,
+                        "2": linkSuffix
                     };
 
                 await sendSmartWhatsAppNotification({

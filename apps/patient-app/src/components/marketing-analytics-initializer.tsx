@@ -22,8 +22,12 @@ export function MarketingAnalyticsInitializer() {
 
         if (ref && campaign) {
             // Initialize with campaign params
-            // Phone and patientId will be populated from magic token on backend
             marketingAnalytics.init(searchParams);
+
+            // If user is already logged in, identify them immediately
+            if (user && user.phoneNumber) {
+                marketingAnalytics.identify(user.phoneNumber, user.patientId);
+            }
         }
     }, [searchParams, user]);
 

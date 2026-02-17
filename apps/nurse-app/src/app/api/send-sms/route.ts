@@ -62,10 +62,19 @@ export async function POST(request: NextRequest) {
           { type: 'body', parameters: bodyParams },
           { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
         ];
-      } else if (templateName === 'doctor_consultation_started_ml' || templateName === 'doctor_in_pending_ml') {
+      } else if (templateName === 'doctor_consultation_started_ml') {
         // Body: 1-3, Button: 4
         const bodyParams = ["1", "2", "3"].map(k => ({ type: 'text' as const, text: String(vars[k] || '') }));
         const buttonParams = [{ type: 'text' as const, text: String(vars["4"] || '') }];
+
+        components = [
+          { type: 'body', parameters: bodyParams },
+          { type: 'button', sub_type: 'url', index: '0', parameters: buttonParams }
+        ];
+      } else if (templateName === 'doctor_in_pending_ml') {
+        // Body: 1, Button: 2
+        const bodyParams = [{ type: 'text' as const, text: String(vars["1"] || '') }];
+        const buttonParams = [{ type: 'text' as const, text: String(vars["2"] || '') }];
 
         components = [
           { type: 'body', parameters: bodyParams },
@@ -97,11 +106,15 @@ export async function POST(request: NextRequest) {
       });
     } catch (error: any) {
       console.error('[WhatsApp API] ❌ ERROR:', error);
-      // Log the full error if it carries more detail (like Meta API error bodies)
+      let errorDetail = error.message;
+
+      // Capture Meta API error details for browser-side debugging
       if (error && typeof error === 'object' && 'response' in error) {
         console.error('[WhatsApp API] ❌ FULL ERROR DETAIL:', JSON.stringify(error.response, null, 2));
+        errorDetail = `${error.message} - ${JSON.stringify(error.response)}`;
       }
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+      return NextResponse.json({ success: false, error: errorDetail }, { status: 500 });
     }
   }
 

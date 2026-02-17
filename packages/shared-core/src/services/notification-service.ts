@@ -18,6 +18,32 @@ declare const window: any;
 
 const CONSULTATION_NOTIFICATION_STATUSES = ['Pending', 'Confirmed', 'Skipped', 'Completed', 'No-show'] as const;
 
+/**
+ * Helper to format date/time for WhatsApp in Malayalam
+ * Returns "ഇന്ന് [Time]" or "നാളെ [Time]" or "[Date] [Time]"
+ */
+function getMalayalamFriendlyDateTime(dateStr: string, timeStr: string): string {
+    try {
+        const now = getClinicNow();
+        const today = getClinicDateString(now);
+        const tomorrow = getClinicDateString(addDays(now, 1));
+
+        let prefix = '';
+        if (dateStr === today) {
+            prefix = 'ഇന്ന്'; // Today
+        } else if (dateStr === tomorrow) {
+            prefix = 'നാളെ'; // Tomorrow
+        } else {
+            prefix = dateStr;
+        }
+
+        return `${prefix} ${timeStr}`;
+    } catch (error) {
+        console.error('Error formatting Malayalam date/time:', error);
+        return `${dateStr} ${timeStr}`;
+    }
+}
+
 export async function sendNotificationToPatient(params: {
     firestore: Firestore;
     patientId: string;
@@ -257,8 +283,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             contentVariables = {
                 "1": patientName,
                 "2": doctorName,
-                "3": date,
-                "4": tokenNumber || '--'
+                "3": getMalayalamFriendlyDateTime(date, arriveByTime || time),
+                "4": (tokenNumber && tokenNumber !== 'N/A') ? tokenNumber : 'ക്ലിനിക്കിൽ വരുമ്പോൾ ലഭിക്കും'
             };
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - Token: ${tokenNumber}`); // Redundant with META-DEBUG
         } else {
@@ -279,8 +305,8 @@ export async function sendWhatsAppAppointmentConfirmed(params: {
             contentVariables = {
                 "1": patientName,
                 "2": doctorName,
-                "3": date,
-                "4": '--' // No token
+                "3": getMalayalamFriendlyDateTime(date, arriveByTime || time),
+                "4": 'ക്ലിനിക്കിൽ വരുമ്പോൾ ലഭിക്കും' // No token
             };
             // console.log(`[WhatsApp] 📄 Using Meta Template (${templateName}) - No Token`); // Redundant with META-DEBUG
         }
@@ -326,7 +352,7 @@ export async function sendWhatsAppArrivalConfirmed(params: {
             // Safety: Never show 'A' tokens in classic mode
             displayToken = (classicTokenNumber && !String(classicTokenNumber).startsWith('A'))
                 ? String(classicTokenNumber)
-                : '--';
+                : 'ക്ലിനിക്കിൽ വരുമ്പോൾ ലഭിക്കും';
         }
 
         if (isWalkIn) {

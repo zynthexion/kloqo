@@ -129,7 +129,7 @@ function LoginContent() {
 
     // ** MAGIC LOGIN LOGIC **
     useEffect(() => {
-        const magicToken = searchParams.get('magicToken');
+        const magicToken = searchParams.get('magicToken') || searchParams.get('token');
         if (magicToken && auth) {
             handleMagicLogin(magicToken);
         }

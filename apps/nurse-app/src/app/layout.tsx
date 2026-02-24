@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+
 import './globals.css';
 import { cn } from '@/lib/utils';
 import { Toaster } from "@/components/ui/toaster";
@@ -21,6 +23,24 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   useDoctorStatusUpdater();
   // Hook to automatically update appointment statuses (Pending → Skipped → No-show)
   useAppointmentStatusUpdater();
+
+  useEffect(() => {
+    const handleError = (message: any, source: any, lineno: any, colno: any, error: any) => {
+      alert(`Error: ${message}\nSource: ${source}\nLine: ${lineno}\nColumn: ${colno}\nError: ${error}`);
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      alert(`Promise Rejection: ${event.reason}`);
+    };
+
+    window.onerror = handleError;
+    window.addEventListener('unhandledrejection', handleRejection);
+
+    return () => {
+      window.onerror = null;
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
 
   return (
     <>

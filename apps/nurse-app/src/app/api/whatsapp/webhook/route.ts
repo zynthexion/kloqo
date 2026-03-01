@@ -90,43 +90,52 @@ export async function POST(request: NextRequest) {
                     const greetingBase = patientName ? `നമസ്കാരം ${patientName}! ` : "നമസ്കാരം! ";
 
                     // 0a. ONE-TIME Tutorial Video Send (first reply ever)
-                    if (patient?.id && !patient?.tutorialVideoSentAt) {
+                    // IMPORTANT: Use adminDb (not client SDK) to reliably read tutorialVideoSentAt
+                    // (client SDK security rules may not return all fields)
+                    if (patient?.id) {
                         try {
-                            const mediaConfigSnap = await adminDb.collection('system-config').doc('whatsapp_media').get();
-                            const mediaId = mediaConfigSnap.data()?.tutorialVideoMediaId;
+                            const patientAdminSnap = await adminDb.collection('patients').doc(patient.id).get();
+                            const alreadySent = patientAdminSnap.data()?.tutorialVideoSentAt;
 
-                            if (mediaId) {
-                                const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
-                                const accessToken = process.env.WHATSAPP_ACCESS_TOKEN!;
-                                const { WhatsAppService } = await import('@kloqo/shared-core');
-                                const whatsappService = new WhatsAppService(phoneNumberId, accessToken);
+                            if (!alreadySent) {
+                                const mediaConfigSnap = await adminDb.collection('system-config').doc('whatsapp_media').get();
+                                const mediaId = mediaConfigSnap.data()?.tutorialVideoMediaId;
 
-                                // Send the tutorial video
-                                await whatsappService.sendVideoMessage(from, mediaId);
-                                console.log(`[WhatsApp Webhook] 🎬 Tutorial video sent to ${from}`);
+                                if (mediaId) {
+                                    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+                                    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN!;
+                                    const { WhatsAppService } = await import('@kloqo/shared-core');
+                                    const whatsappService = new WhatsAppService(phoneNumberId, accessToken);
 
-                                // Send magic link (plain text) for marketing tracking
-                                const { generateMarketingSuffix, MagicLinkService, sendWhatsAppText } = await import('@kloqo/shared-core');
-                                const magicToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
-                                const linkSuffix = await generateMarketingSuffix(db as any, {
-                                    magicToken,
-                                    ref: 'tutorial_sent',
-                                    campaign: 'onboarding',
-                                    medium: 'whatsapp',
-                                    clinicId: session?.clinicId || '',
-                                    phone: from,
-                                    patientName: patientName || 'Unknown',
-                                });
-                                const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
-                                await sendWhatsAppText({ to: from, text: magicLink });
+                                    // Send the tutorial video
+                                    await whatsappService.sendVideoMessage(from, mediaId);
+                                    console.log(`[WhatsApp Webhook] 🎬 Tutorial video sent to ${from}`);
 
-                                // Mark as sent — never send again
-                                await adminDb.collection('patients').doc(patient.id).update({
-                                    tutorialVideoSentAt: new Date(),
-                                });
-                                console.log(`[WhatsApp Webhook] ✅ Tutorial video + link sent. Marked tutorialVideoSentAt on patient ${patient.id}`);
+                                    // Send magic link (plain text) for marketing tracking
+                                    const { generateMarketingSuffix, MagicLinkService, sendWhatsAppText } = await import('@kloqo/shared-core');
+                                    const magicToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
+                                    const linkSuffix = await generateMarketingSuffix(db as any, {
+                                        magicToken,
+                                        ref: 'tutorial_sent',
+                                        campaign: 'onboarding',
+                                        medium: 'whatsapp',
+                                        clinicId: session?.clinicId || '',
+                                        phone: from,
+                                        patientName: patientName || 'Unknown',
+                                    });
+                                    const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
+                                    await sendWhatsAppText({ to: from, text: magicLink });
+
+                                    // Mark as sent — never send again
+                                    await adminDb.collection('patients').doc(patient.id).update({
+                                        tutorialVideoSentAt: new Date(),
+                                    });
+                                    console.log(`[WhatsApp Webhook] ✅ Tutorial video + link sent. Marked tutorialVideoSentAt on patient ${patient.id}`);
+                                } else {
+                                    console.warn('[WhatsApp Webhook] ⚠️ No tutorialVideoMediaId in system-config/whatsapp_media. Skipping video send.');
+                                }
                             } else {
-                                console.warn('[WhatsApp Webhook] ⚠️ No tutorialVideoMediaId in system-config/whatsapp_media. Skipping video send.');
+                                console.log(`[WhatsApp Webhook] ⏭️ Tutorial video already sent to ${from}. Skipping.`);
                             }
                         } catch (videoError) {
                             console.error('[WhatsApp Webhook] ❌ Error sending tutorial video:', videoError);

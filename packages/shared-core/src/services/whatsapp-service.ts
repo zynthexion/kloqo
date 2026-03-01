@@ -97,4 +97,49 @@ export class WhatsAppService {
         console.log('[WhatsAppService] Success:', data.messages[0].id);
         return data;
     }
+
+    /**
+     * Sends a video message using a pre-uploaded Meta media_id
+     * Used for sending the tutorial video (one-time per patient)
+     */
+    async sendVideoMessage(
+        to: string,
+        mediaId: string,
+        caption?: string
+    ): Promise<WhatsAppMessageResponse> {
+        const url = `${this.baseUrl}/${this.phoneId}/messages`;
+        const cleanTo = to.replace(/\D/g, '');
+
+        const body = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: cleanTo,
+            type: 'video',
+            video: {
+                id: mediaId,
+                ...(caption ? { caption } : {}),
+            },
+        };
+
+        console.log(`[WhatsAppService] Sending video to ${cleanTo} (media_id: ${mediaId})`);
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.accessToken}`,
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error('[WhatsAppService] Video Error:', JSON.stringify(errorData, null, 2));
+            throw new Error(`WhatsApp Video Error: ${response.statusText} - ${JSON.stringify(errorData)}`);
+        }
+
+        const data = (await response.json()) as WhatsAppMessageResponse;
+        console.log('[WhatsAppService] Video sent:', data.messages[0].id);
+        return data;
+    }
 }

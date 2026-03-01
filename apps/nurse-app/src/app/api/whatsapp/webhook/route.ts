@@ -89,6 +89,51 @@ export async function POST(request: NextRequest) {
                     const patientName = patient?.name;
                     const greetingBase = patientName ? `നമസ്കാരം ${patientName}! ` : "നമസ്കാരം! ";
 
+                    // 0a. ONE-TIME Tutorial Video Send (first reply ever)
+                    if (patient?.id && !patient?.tutorialVideoSentAt) {
+                        try {
+                            const mediaConfigSnap = await adminDb.collection('system-config').doc('whatsapp_media').get();
+                            const mediaId = mediaConfigSnap.data()?.tutorialVideoMediaId;
+
+                            if (mediaId) {
+                                const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+                                const accessToken = process.env.WHATSAPP_ACCESS_TOKEN!;
+                                const { WhatsAppService } = await import('@kloqo/shared-core');
+                                const whatsappService = new WhatsAppService(phoneNumberId, accessToken);
+
+                                // Send the tutorial video
+                                await whatsappService.sendVideoMessage(from, mediaId);
+                                console.log(`[WhatsApp Webhook] 🎬 Tutorial video sent to ${from}`);
+
+                                // Send magic link (plain text) for marketing tracking
+                                const { generateMarketingSuffix, MagicLinkService, sendWhatsAppText } = await import('@kloqo/shared-core');
+                                const magicToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
+                                const linkSuffix = await generateMarketingSuffix(db as any, {
+                                    magicToken,
+                                    ref: 'tutorial_sent',
+                                    campaign: 'onboarding',
+                                    medium: 'whatsapp',
+                                    clinicId: session?.clinicId || '',
+                                    phone: from,
+                                    patientName: patientName || 'Unknown',
+                                });
+                                const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
+                                await sendWhatsAppText({ to: from, text: magicLink });
+
+                                // Mark as sent — never send again
+                                await adminDb.collection('patients').doc(patient.id).update({
+                                    tutorialVideoSentAt: new Date(),
+                                });
+                                console.log(`[WhatsApp Webhook] ✅ Tutorial video + link sent. Marked tutorialVideoSentAt on patient ${patient.id}`);
+                            } else {
+                                console.warn('[WhatsApp Webhook] ⚠️ No tutorialVideoMediaId in system-config/whatsapp_media. Skipping video send.');
+                            }
+                        } catch (videoError) {
+                            console.error('[WhatsApp Webhook] ❌ Error sending tutorial video:', videoError);
+                            // Non-fatal: continue handling the message normally
+                        }
+                    }
+
                     // 1. Check for Clinic Code (KQ-XXXX)
                     const codeMatch = messageBody.match(/^KQ-?[A-Z0-9]{4}$/i);
                     if (codeMatch) {

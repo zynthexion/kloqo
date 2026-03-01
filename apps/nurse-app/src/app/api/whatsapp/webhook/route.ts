@@ -127,8 +127,8 @@ export async function POST(request: NextRequest) {
                                 await whatsappService.sendVideoMessage(from, mediaId);
 
                                 // 2. Send Magic Link
-                                const mToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
-                                const linkSuffix = await generateMarketingSuffix(adminDb as any, {
+                                const mToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, '/live-token');
+                                const linkSuffix = await generateMarketingSuffix(db, {
                                     magicToken: mToken,
                                     ref: 'tutorial_sent',
                                     campaign: 'onboarding',

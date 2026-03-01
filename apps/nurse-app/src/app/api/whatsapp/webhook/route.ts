@@ -111,10 +111,11 @@ export async function POST(request: NextRequest) {
                                     await whatsappService.sendVideoMessage(from, mediaId);
                                     console.log(`[WhatsApp Webhook] 🎬 Tutorial video sent to ${from}`);
 
-                                    // Send magic link (plain text) for marketing tracking
-                                    const { generateMarketingSuffix, MagicLinkService, sendWhatsAppText } = await import('@kloqo/shared-core');
+                                    // Send magic link as plain text immediately after the video
+                                    // Use adminDb for generateMarketingSuffix to avoid client SDK security rule failures
+                                    const { generateMarketingSuffix, MagicLinkService } = await import('@kloqo/shared-core');
                                     const magicToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
-                                    const linkSuffix = await generateMarketingSuffix(db as any, {
+                                    const linkSuffix = await generateMarketingSuffix(adminDb as any, {
                                         magicToken,
                                         ref: 'tutorial_sent',
                                         campaign: 'onboarding',
@@ -124,7 +125,12 @@ export async function POST(request: NextRequest) {
                                         patientName: patientName || 'Unknown',
                                     });
                                     const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
-                                    await sendWhatsAppText({ to: from, text: magicLink });
+
+                                    // Send text directly via WhatsApp service (not via API route, to avoid server-to-server issues)
+                                    await whatsappService.sendTemplateMessage(from, 'text_message', 'ml', [
+                                        { type: 'body', parameters: [{ type: 'text', text: magicLink }] }
+                                    ]);
+                                    console.log(`[WhatsApp Webhook] 🔗 Magic link sent to ${from}: ${magicLink}`);
 
                                     // Mark as sent — never send again
                                     await adminDb.collection('patients').doc(patient.id).update({

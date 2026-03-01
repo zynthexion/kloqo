@@ -147,14 +147,6 @@ export async function POST(request: NextRequest) {
                                     tutorialVideoSentAt: new Date(),
                                 });
 
-                                // 4. Log to campaign_sends for analytics
-                                await adminDb.collection('campaign_sends').add({
-                                    ref: 'tutorial_sent',
-                                    campaign: 'onboarding',
-                                    phone: from,
-                                    sentAt: new Date(),
-                                    patientName: pName || 'Unknown'
-                                });
 
                                 console.log(`[WhatsApp Webhook] ✅ Tutorial video + link sent and logged for ${from}`);
                             }

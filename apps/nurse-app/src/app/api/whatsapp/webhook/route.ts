@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
                 }
 
                 // Helper for One-Time Tutorial Video Send
-                const sendTutorialVideoIfEligible = async (patientId: string, pName: string) => {
+                const sendTutorialVideoIfEligible = async (patientId: string, pName: string, appointmentId?: string, overrideClinicId?: string) => {
                     try {
                         const pAdminSnap = await adminDb.collection('patients').doc(patientId).get();
                         const alreadySent = pAdminSnap.data()?.tutorialVideoSentAt;
@@ -127,17 +127,19 @@ export async function POST(request: NextRequest) {
                                 await whatsappService.sendVideoMessage(from, mediaId);
 
                                 // 2. Send Magic Link
-                                const mToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, '/live-token');
+                                const redirectPath = appointmentId ? `/live-token/${appointmentId}` : '/live-token';
+                                const mToken = await MagicLinkAdminService.generateTokenAdmin(adminDb, from, redirectPath);
                                 const linkSuffix = await generateMarketingSuffix(db, {
                                     magicToken: mToken,
                                     ref: 'tutorial_sent',
                                     campaign: 'onboarding',
                                     medium: 'whatsapp',
-                                    clinicId: session?.clinicId || '',
+                                    clinicId: overrideClinicId || session?.clinicId || '',
                                     phone: from,
                                     patientName: pName || 'Unknown',
+                                    appointmentId: appointmentId
                                 });
-                                const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
+                                const magicLink = `https://app.kloqo.com${redirectPath}?${linkSuffix}`;
                                 await whatsappService.sendTemplateMessage(from, 'text_message', 'ml', [
                                     { type: 'body', parameters: [{ type: 'text', text: magicLink }] }
                                 ]);
@@ -160,7 +162,24 @@ export async function POST(request: NextRequest) {
                 if (buttonText === 'ഞാൻ വരും' || buttonText === 'ഞാൻ വരില്ല') {
                     console.log(`[WhatsApp Webhook] ✅ Reminder reply detected: ${buttonText} for ${from}`);
                     if (patient?.id) {
-                        await sendTutorialVideoIfEligible(patient.id, patientName || 'Patient');
+                        // For reminders, try to find today's appointment to make the link better
+                        let apptId = undefined;
+                        let clinicId = undefined;
+                        try {
+                            const now = getClinicNow();
+                            const today = getClinicDateString(now);
+                            const q = query(collection(db, 'appointments'),
+                                where('patientId', '==', patient.id),
+                                where('date', '==', today)
+                            );
+                            const snap = await getDocs(q);
+                            if (!snap.empty) {
+                                apptId = snap.docs[0].id;
+                                clinicId = snap.docs[0].data().clinicId;
+                            }
+                        } catch (e) { }
+
+                        await sendTutorialVideoIfEligible(patient.id, patientName || 'Patient', apptId, clinicId);
                     }
                     // Continue to other logic if needed, or return
                 }
@@ -170,11 +189,6 @@ export async function POST(request: NextRequest) {
                     console.log(`[WhatsApp Webhook] 🕒 Handle Status Check button click for ${from}`);
                     const session = await WhatsAppSessionService.getSession(from);
                     const patient = await getPatientByPhone(from);
-
-                    // Trigger Video if eligible
-                    if (patient?.id) {
-                        await sendTutorialVideoIfEligible(patient.id, patientName || 'Patient');
-                    }
 
                     if (session?.clinicId && patient) {
                         try {
@@ -192,9 +206,15 @@ export async function POST(request: NextRequest) {
                                 where('date', '==', today)
                             );
                             const aSnap = await getDocs(aQuery);
+                            const activeAppt = aSnap.empty ? null : aSnap.docs[0];
 
-                            if (!aSnap.empty) {
-                                const appointment = aSnap.docs[0].data();
+                            // Trigger Video if eligible (now with appointment ID context)
+                            if (patient?.id) {
+                                await sendTutorialVideoIfEligible(patient.id, patientName || 'Patient', activeAppt?.id, session?.clinicId);
+                            }
+
+                            if (activeAppt) {
+                                const appointment = activeAppt.data();
                                 const doctorName = appointment.doctor;
 
                                 // Get Queue Status

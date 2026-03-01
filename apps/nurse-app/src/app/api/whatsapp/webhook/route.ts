@@ -88,67 +88,6 @@ export async function POST(request: NextRequest) {
                     const patient = await getPatientByPhone(from);
                     const patientName = patient?.name;
                     const greetingBase = patientName ? `നമസ്കാരം ${patientName}! ` : "നമസ്കാരം! ";
-
-                    // 0a. ONE-TIME Tutorial Video Send (first reply ever)
-                    // IMPORTANT: Use adminDb (not client SDK) to reliably read tutorialVideoSentAt
-                    // (client SDK security rules may not return all fields)
-                    if (patient?.id) {
-                        try {
-                            const patientAdminSnap = await adminDb.collection('patients').doc(patient.id).get();
-                            const alreadySent = patientAdminSnap.data()?.tutorialVideoSentAt;
-
-                            if (!alreadySent) {
-                                const mediaConfigSnap = await adminDb.collection('system-config').doc('whatsapp_media').get();
-                                const mediaId = mediaConfigSnap.data()?.tutorialVideoMediaId;
-
-                                if (mediaId) {
-                                    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
-                                    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN!;
-                                    const { WhatsAppService } = await import('@kloqo/shared-core');
-                                    const whatsappService = new WhatsAppService(phoneNumberId, accessToken);
-
-                                    // Send the tutorial video
-                                    await whatsappService.sendVideoMessage(from, mediaId);
-                                    console.log(`[WhatsApp Webhook] 🎬 Tutorial video sent to ${from}`);
-
-                                    // Send magic link as plain text immediately after the video
-                                    // Use adminDb for generateMarketingSuffix to avoid client SDK security rule failures
-                                    const { generateMarketingSuffix, MagicLinkService } = await import('@kloqo/shared-core');
-                                    const magicToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
-                                    const linkSuffix = await generateMarketingSuffix(adminDb as any, {
-                                        magicToken,
-                                        ref: 'tutorial_sent',
-                                        campaign: 'onboarding',
-                                        medium: 'whatsapp',
-                                        clinicId: session?.clinicId || '',
-                                        phone: from,
-                                        patientName: patientName || 'Unknown',
-                                    });
-                                    const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
-
-                                    // Send text directly via WhatsApp service (not via API route, to avoid server-to-server issues)
-                                    await whatsappService.sendTemplateMessage(from, 'text_message', 'ml', [
-                                        { type: 'body', parameters: [{ type: 'text', text: magicLink }] }
-                                    ]);
-                                    console.log(`[WhatsApp Webhook] 🔗 Magic link sent to ${from}: ${magicLink}`);
-
-                                    // Mark as sent — never send again
-                                    await adminDb.collection('patients').doc(patient.id).update({
-                                        tutorialVideoSentAt: new Date(),
-                                    });
-                                    console.log(`[WhatsApp Webhook] ✅ Tutorial video + link sent. Marked tutorialVideoSentAt on patient ${patient.id}`);
-                                } else {
-                                    console.warn('[WhatsApp Webhook] ⚠️ No tutorialVideoMediaId in system-config/whatsapp_media. Skipping video send.');
-                                }
-                            } else {
-                                console.log(`[WhatsApp Webhook] ⏭️ Tutorial video already sent to ${from}. Skipping.`);
-                            }
-                        } catch (videoError) {
-                            console.error('[WhatsApp Webhook] ❌ Error sending tutorial video:', videoError);
-                            // Non-fatal: continue handling the message normally
-                        }
-                    }
-
                     // 1. Check for Clinic Code (KQ-XXXX)
                     const codeMatch = messageBody.match(/^KQ-?[A-Z0-9]{4}$/i);
                     if (codeMatch) {
@@ -213,10 +152,82 @@ export async function POST(request: NextRequest) {
                         }
                     }
 
-                    if (buttonText === 'സമയം അറിയണം') {
-                        console.log(`[WhatsApp Webhook] 🕒 Handle 'Know Time' button click for ${from}`);
+                    // Helper for One-Time Tutorial Video Send
+                    const sendTutorialVideoIfEligible = async (patientId: string, pName: string) => {
+                        try {
+                            const pAdminSnap = await adminDb.collection('patients').doc(patientId).get();
+                            const alreadySent = pAdminSnap.data()?.tutorialVideoSentAt;
+
+                            if (!alreadySent) {
+                                const mediaConfigSnap = await adminDb.collection('system-config').doc('whatsapp_media').get();
+                                const mediaId = mediaConfigSnap.data()?.tutorialVideoMediaId;
+
+                                if (mediaId) {
+                                    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!;
+                                    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN!;
+                                    const { WhatsAppService, generateMarketingSuffix, MagicLinkService } = await import('@kloqo/shared-core');
+                                    const whatsappService = new WhatsAppService(phoneNumberId, accessToken);
+
+                                    // 1. Send Video
+                                    await whatsappService.sendVideoMessage(from, mediaId);
+
+                                    // 2. Send Magic Link
+                                    const mToken = await MagicLinkService.generateToken(adminDb as any, from, 'live-token');
+                                    const linkSuffix = await generateMarketingSuffix(adminDb as any, {
+                                        magicToken: mToken,
+                                        ref: 'tutorial_sent',
+                                        campaign: 'onboarding',
+                                        medium: 'whatsapp',
+                                        clinicId: session?.clinicId || '',
+                                        phone: from,
+                                        patientName: pName || 'Unknown',
+                                    });
+                                    const magicLink = `https://app.kloqo.com/live-token?${linkSuffix}`;
+                                    await whatsappService.sendTemplateMessage(from, 'text_message', 'ml', [
+                                        { type: 'body', parameters: [{ type: 'text', text: magicLink }] }
+                                    ]);
+
+                                    // 3. Update Patient
+                                    await adminDb.collection('patients').doc(patientId).update({
+                                        tutorialVideoSentAt: new Date(),
+                                    });
+
+                                    // 4. Log to campaign_sends for analytics
+                                    await adminDb.collection('campaign_sends').add({
+                                        ref: 'tutorial_sent',
+                                        campaign: 'onboarding',
+                                        phone: from,
+                                        sentAt: new Date(),
+                                        patientName: pName || 'Unknown'
+                                    });
+
+                                    console.log(`[WhatsApp Webhook] ✅ Tutorial video + link sent and logged for ${from}`);
+                                }
+                            }
+                        } catch (e) {
+                            console.error('[WhatsApp Webhook] Error in tutorial video send:', e);
+                        }
+                    };
+
+                    // Handler for Trigger 1: Reminder Replies
+                    if (buttonText === 'ഞാൻ വരും' || buttonText === 'ഞാൻ വരില്ല') {
+                        console.log(`[WhatsApp Webhook] ✅ Reminder reply detected: ${buttonText} for ${from}`);
+                        if (patient?.id) {
+                            await sendTutorialVideoIfEligible(patient.id, patientName || 'Patient');
+                        }
+                        // Continue to other logic if needed, or return
+                    }
+
+                    // Handler for Trigger 2: Arrival Confirmation / Status Checks
+                    if (buttonText === 'സമയം പരിശോധിക്കുക' || buttonText === 'സമയം അറിയണം') {
+                        console.log(`[WhatsApp Webhook] 🕒 Handle Status Check button click for ${from}`);
                         const session = await WhatsAppSessionService.getSession(from);
                         const patient = await getPatientByPhone(from);
+
+                        // Trigger Video if eligible
+                        if (patient?.id) {
+                            await sendTutorialVideoIfEligible(patient.id, patientName || 'Patient');
+                        }
 
                         if (session?.clinicId && patient) {
                             try {
@@ -249,10 +260,7 @@ export async function POST(request: NextRequest) {
                                         const doctorDoc = dSnap.docs[0];
                                         const dData = doctorDoc.data();
 
-                                        // Fetch all appointments for today to compute queue (Server Side)
-                                        const adminApp = getFirebaseAdmin();
-                                        const adminDb = adminApp.firestore();
-
+                                        // Use Admin SDK to computed queues
                                         const allAptsQuery = query(appointmentsRef, where('clinicId', '==', session.clinicId), where('doctor', '==', doctorName), where('date', '==', today));
                                         const allAptsSnap = await getDocs(allAptsQuery);
                                         const allApts = allAptsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));

@@ -36,6 +36,10 @@ export async function generateAndTrackMarketingLink(
     url.searchParams.set('medium', params.medium);
     url.searchParams.set('campaign', params.campaign);
     url.searchParams.set('clinic', params.clinicId);
+    url.searchParams.set('phone', params.phone);
+    if (params.patientName) {
+        url.searchParams.set('pname', params.patientName);
+    }
 
     if (params.appointmentId) {
         url.searchParams.set('appt', params.appointmentId);
@@ -93,6 +97,10 @@ export async function generateMarketingSuffix(
     searchParams.set('medium', params.medium);
     searchParams.set('campaign', params.campaign);
     searchParams.set('clinic', params.clinicId);
+    searchParams.set('phone', params.phone);
+    if (params.patientName) {
+        searchParams.set('pname', params.patientName);
+    }
 
     if (params.appointmentId) {
         searchParams.set('appt', params.appointmentId);
@@ -112,6 +120,8 @@ export function extractCampaignParams(searchParams: URLSearchParams) {
         campaign: searchParams.get('campaign') || '',
         clinicId: searchParams.get('clinic') || '',
         appointmentId: searchParams.get('appt') || undefined,
+        phone: searchParams.get('phone') || undefined,
+        patientName: searchParams.get('pname') || undefined,
     };
 }
 

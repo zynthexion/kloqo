@@ -32,6 +32,7 @@ interface SessionData {
     appointmentId?: string;
     phone?: string;
     patientId?: string;
+    patientName?: string;
 }
 
 class MarketingAnalytics {
@@ -78,6 +79,8 @@ class MarketingAnalytics {
             campaign,
             clinicId: urlParams.get('clinic') || '',
             appointmentId: urlParams.get('appt') || undefined,
+            phone: urlParams.get('phone') || undefined,
+            patientName: urlParams.get('pname') || undefined,
         };
 
         // Set up beacon on page unload
@@ -184,6 +187,7 @@ class MarketingAnalytics {
             patientId: this.sessionData.patientId,
             clinicId: this.sessionData.clinicId,
             appointmentId: this.sessionData.appointmentId,
+            patientName: this.sessionData.patientName,
 
             // Campaign
             ref: this.sessionData.ref,

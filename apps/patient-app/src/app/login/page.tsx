@@ -15,6 +15,7 @@ import Image from 'next/image';
 import { LottieAnimation } from '@/components/lottie-animation';
 import loadingDotsAnimation from '@/lib/animations/loading-dots.json';
 import { marketingAnalytics } from '@/lib/marketing-analytics';
+import { MagicLinkOverlay } from '@/components/magic-link-overlay';
 
 
 function LoginContent() {
@@ -29,6 +30,7 @@ function LoginContent() {
     const [phoneNumber, setPhoneNumber] = useState('+91');
     const [otp, setOtp] = useState(new Array(6).fill(''));
     const [isLoading, setIsLoading] = useState(false);
+    const [isMagicLoading, setIsMagicLoading] = useState(false);
     const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
     const firestore = useFirestore();
 
@@ -136,7 +138,7 @@ function LoginContent() {
     }, [auth, searchParams]);
 
     const handleMagicLogin = async (token: string) => {
-        setIsLoading(true);
+        setIsMagicLoading(true);
         try {
             console.log('[MagicLogin] Attempting silent login with token...');
             const response = await fetch('/api/auth/magic-login', {
@@ -173,7 +175,7 @@ function LoginContent() {
                 title: 'Login Failed',
                 description: 'The magic link was invalid or has expired. Please log in normally.'
             });
-            setIsLoading(false);
+            setIsMagicLoading(false);
         }
     };
 
@@ -603,6 +605,7 @@ function LoginContent() {
     return (
         <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-blue-50 via-white to-green-50 font-body p-4 relative">
             <div id="recaptcha-container"></div>
+            {isMagicLoading && <MagicLinkOverlay />}
 
             <div className="w-full max-w-md">
                 <div className="relative rounded-2xl border-0 bg-white shadow-2xl p-8 sm:p-10">

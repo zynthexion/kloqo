@@ -174,13 +174,18 @@ export default function MarketingDashboard() {
                 const totalSent = sendsForRef.length;
 
                 const refSessions = (sessionsByRef.get(ref) || []).filter((s: any) => !s.isBot);
-                const totalClicks = refSessions.length;
+
+                // --- FIX: Count UNIQUE Session IDs to prevent CTR inflation from multiple saves ---
+                const uniqueSessionIds = new Set(refSessions.map((s: any) => s.sessionId));
+                const totalClicks = uniqueSessionIds.size;
 
                 const validSessions = refSessions.filter((s: any) => s.sessionDuration > 5);
-                const totalSessions = validSessions.length;
+                const uniqueValidSessions = new Set(validSessions.map((s: any) => s.sessionId));
+                const totalSessions = uniqueValidSessions.size;
 
                 const sessionsWithActions = refSessions.filter((s: any) => s.actions && s.actions.length > 0);
-                const totalActions = sessionsWithActions.length;
+                const uniqueSessionsWithActions = new Set(sessionsWithActions.map((s: any) => s.sessionId));
+                const totalActions = uniqueSessionsWithActions.size;
 
                 const ctr = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
                 const conversionRate = totalClicks > 0 ? (totalActions / totalClicks) * 100 : 0;

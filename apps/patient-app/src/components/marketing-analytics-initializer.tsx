@@ -26,7 +26,8 @@ export function MarketingAnalyticsInitializer() {
             marketingAnalytics.init(searchParams);
 
             if (user?.phoneNumber) {
-                marketingAnalytics.identify(user.phoneNumber, user.patientId);
+                // Pass phone, patientId, AND patientName for full attribution
+                marketingAnalytics.identify(user.phoneNumber, user.patientId, user.name);
             }
         } else {
             // Check sessionStorage for params persisted during magic-link redirect
@@ -43,7 +44,7 @@ export function MarketingAnalyticsInitializer() {
                     console.log('[Analytics] Restored campaign params from sessionStorage:', params);
 
                     if (user?.phoneNumber) {
-                        marketingAnalytics.identify(user.phoneNumber, user.patientId);
+                        marketingAnalytics.identify(user.phoneNumber, user.patientId, user.name);
                     }
                 }
             } catch (e) {

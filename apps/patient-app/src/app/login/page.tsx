@@ -165,6 +165,18 @@ function LoginContent() {
                 }
             }
 
+            // Persist marketing params to sessionStorage before redirect
+            // (URL params are lost after window.location.href redirect)
+            const trackingParams: Record<string, string> = {};
+            ['ref', 'campaign', 'medium', 'clinic', 'appt', 'source'].forEach(key => {
+                const val = searchParams.get(key);
+                if (val) trackingParams[key] = val;
+            });
+            if (Object.keys(trackingParams).length > 0) {
+                sessionStorage.setItem('kloqo_campaign_params', JSON.stringify(trackingParams));
+                console.log('[MagicLogin] Persisted campaign params to sessionStorage:', trackingParams);
+            }
+
             // Redirect to target path
             const finalRedirect = searchParams.get('redirect') || redirectPath || '/live-token';
             window.location.href = finalRedirect;

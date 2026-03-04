@@ -1,19 +1,32 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { LottieAnimation } from './lottie-animation';
-import catAnimation from '@/lib/animations/cat_sneaking.json';
 
 export function MagicLinkOverlay() {
+    const [animationData, setAnimationData] = useState<any>(null);
+
+    useEffect(() => {
+        // Dynamically import animation to avoid static JSON module resolution issues in PWA/webpack builds
+        import('@/lib/animations/cat_sneaking.json').then((mod) => {
+            setAnimationData(mod.default ?? mod);
+        });
+    }, []);
+
     return (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white/80 backdrop-blur-md animate-in fade-in duration-500">
             <div className="flex flex-col items-center space-y-8 p-6 text-center max-w-sm">
-                <div className="relative">
-                    <LottieAnimation
-                        animationData={catAnimation}
-                        size={250}
-                        autoplay={true}
-                        loop={true}
-                    />
+                <div className="relative min-h-[250px] flex items-center justify-center">
+                    {animationData ? (
+                        <LottieAnimation
+                            animationData={animationData}
+                            size={250}
+                            autoplay={true}
+                            loop={true}
+                        />
+                    ) : (
+                        <div className="w-[250px] h-[250px] animate-pulse bg-gray-100 rounded-full" />
+                    )}
                 </div>
 
                 <div className="space-y-4">

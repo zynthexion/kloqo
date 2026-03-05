@@ -63,7 +63,7 @@ export default function TrafficAnalyticsPage() {
     // Metrics
     const metrics = useMemo(() => {
         const sessions = filteredData.length;
-        const uniqueVisitors = new Set(filteredData.map((d) => d.phone || d.sessionId)).size;
+        const uniqueVisitors = new Set(filteredData.map((d) => d.phone || d.visitorId || d.sessionId)).size;
         const totalDuration = filteredData.reduce((acc, d) => acc + (d.sessionDuration || 0), 0);
         const avgDuration = sessions > 0 ? totalDuration / sessions : 0;
 
@@ -197,7 +197,7 @@ export default function TrafficAnalyticsPage() {
                                     data={deviceData}
                                     cx="50%"
                                     cy="50%"
-                                    label={({ name, percent }: { name: string, percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    label={({ name, percent }: { name?: string, percent: number }) => `${name || 'Unknown'} ${(percent * 100).toFixed(0)}%`}
                                     outerRadius={80}
                                     fill="#8884d8"
                                     dataKey="value"
@@ -239,7 +239,14 @@ export default function TrafficAnalyticsPage() {
                                         <tr key={session.id} className="border-b hover:bg-muted/50 transition-colors">
                                             <td className="py-3 px-2">{format(date, 'MMM d, HH:mm')}</td>
                                             <td className="py-3 px-2 font-medium">
-                                                {session.phone || <span className="text-muted-foreground text-xs">{session.sessionId.split('_')[1]}</span>}
+                                                {session.phone || (
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm">Visitor</span>
+                                                        <span className="text-muted-foreground text-[10px] font-mono leading-tight">
+                                                            {(session.visitorId || session.sessionId).split('_')[1]?.substring(0, 8) || (session.visitorId || session.sessionId).substring(0, 8)}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="py-3 px-2">{session.sessionDuration}s</td>
                                             <td className="py-3 px-2">

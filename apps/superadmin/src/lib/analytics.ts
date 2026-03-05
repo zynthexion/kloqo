@@ -77,6 +77,7 @@ export interface User {
 export interface TrafficData {
   id: string;
   sessionId: string;
+  visitorId: string;
   patientId?: string;
   phone?: string;
   deviceType: 'mobile' | 'tablet' | 'desktop';

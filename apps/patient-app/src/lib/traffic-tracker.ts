@@ -6,6 +6,7 @@
 
 interface TrafficSession {
     sessionId: string;
+    visitorId: string;
     sessionStart: Date;
     patientId?: string;
     phone?: string;
@@ -24,8 +25,16 @@ class TrafficTracker {
         // Skip bots
         if (this.isBot()) return;
 
+        // Get or create persistent visitor ID
+        let visitorId = localStorage.getItem('kloqo_visitor_id');
+        if (!visitorId) {
+            visitorId = `v_${Math.random().toString(36).substring(2, 11)}${Date.now().toString(36)}`;
+            localStorage.setItem('kloqo_visitor_id', visitorId);
+        }
+
         this.session = {
             sessionId: `${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+            visitorId,
             sessionStart: new Date(),
             deviceType: this.getDeviceType(),
             entryPage: pathname,

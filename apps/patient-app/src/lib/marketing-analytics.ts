@@ -17,6 +17,7 @@ interface PageView {
 
 interface SessionData {
     sessionId: string;
+    visitorId: string;
     sessionStart: Date;
     pages: PageView[];
     actions: string[];
@@ -63,9 +64,20 @@ class MarketingAnalytics {
             return;
         }
 
+        // Create or get persistent visitor ID
+        let visitorId = 'unknown';
+        if (typeof window !== 'undefined') {
+            visitorId = localStorage.getItem('kloqo_visitor_id') || '';
+            if (!visitorId) {
+                visitorId = `v_${Math.random().toString(36).substring(2, 11)}${Date.now().toString(36)}`;
+                localStorage.setItem('kloqo_visitor_id', visitorId);
+            }
+        }
+
         // Initialize session data
         this.sessionData = {
             sessionId: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            visitorId,
             sessionStart: new Date(),
             pages: [],
             actions: [],
@@ -182,6 +194,7 @@ class MarketingAnalytics {
         // Build payload
         const payload = {
             sessionId: this.sessionData.sessionId,
+            visitorId: this.sessionData.visitorId,
 
             // Attribution
             phone: this.sessionData.phone,

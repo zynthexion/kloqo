@@ -218,16 +218,55 @@ export default function MarketingDashboard() {
             setCampaigns(computed);
 
             // ------------------------------------------------------------------
-            // 5. Combined activity feed (limited to last 150 across all types)
+            // 5. Combined activity feed (with deduplication & ghost filtering)
             // ------------------------------------------------------------------
-            const combined = [...sends, ...sessions, ...interactions].sort((a: any, b: any) => {
+            const rawCombined = [...sends, ...sessions, ...interactions].sort((a: any, b: any) => {
                 const timeA = a.sentAt || a.sessionStart || a.timestamp;
                 const timeB = b.sentAt || b.sessionStart || b.timestamp;
                 const dateA = typeof timeA === 'string' ? new Date(timeA) : timeA?.toDate?.();
                 const dateB = typeof timeB === 'string' ? new Date(timeB) : timeB?.toDate?.();
                 return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-            }).slice(0, 150);
-            setRecentActivity(combined);
+            });
+
+            // Filtering & Deduplication
+            const deduplicated: any[] = [];
+            const TWO_MINUTES = 2 * 60 * 1000;
+
+            rawCombined.forEach((current) => {
+                // 1. Ghost Filter: Ignore short "Unknown" sessions (< 3s)
+                if (current.type === 'click' && !current.patientName && !current.phone) {
+                    if (current.sessionDuration <= 2) return;
+                }
+
+                // 2. Deduplication: Group rapid hits from same user/visitor
+                const last = deduplicated[deduplicated.length - 1];
+                if (last) {
+                    const currentTime = current.sentAt || current.sessionStart || current.timestamp;
+                    const lastTime = last.sentAt || last.sessionStart || last.timestamp;
+                    const currentDate = typeof currentTime === 'string' ? new Date(currentTime) : currentTime?.toDate?.();
+                    const lastDate = typeof lastTime === 'string' ? new Date(lastTime) : lastTime?.toDate?.();
+
+                    const timeDiff = Math.abs((lastDate?.getTime() || 0) - (currentDate?.getTime() || 0));
+                    const sameIdentity = current.phone && last.phone ? current.phone === last.phone :
+                        (current.visitorId && last.visitorId ? current.visitorId === last.visitorId : false);
+
+                    // If same type and same identity within 2 mins, skip or merge
+                    if (sameIdentity && timeDiff < TWO_MINUTES && current.type === last.type) {
+                        // For sessions, merge page count if current is larger
+                        if (current.type === 'click') {
+                            last.pageCount = Math.max(last.pageCount || 0, current.pageCount || 0);
+                            last.sessionDuration = Math.max(last.sessionDuration || 0, current.sessionDuration || 0);
+                            return; // Skip duplicate
+                        }
+                        // For sends, if exact same campaign, skip
+                        if (current.type === 'send' && current.campaign === last.campaign) return;
+                    }
+                }
+
+                deduplicated.push({ ...current });
+            });
+
+            setRecentActivity(deduplicated.slice(0, 150));
 
             // ------------------------------------------------------------------
             // 6. Window statuses
@@ -535,8 +574,19 @@ export default function MarketingDashboard() {
                                                 }) : 'Unknown'}
                                             </TableCell>
                                             <TableCell>
-                                                <div className="font-medium">{act.patientName || 'Unknown'}</div>
-                                                <div className="text-xs text-muted-foreground">{act.phone}</div>
+                                                <div className="font-medium">
+                                                    {act.patientName && act.patientName !== 'Sinsha' ? act.patientName : (
+                                                        act.phone ? act.phone : (
+                                                            <div className="flex flex-col">
+                                                                <span className="text-sm">Visitor</span>
+                                                                <span className="text-muted-foreground text-[10px] font-mono">
+                                                                    {(act.visitorId || act.sessionId)?.split('_')[1]?.substring(0, 8) || (act.visitorId || act.sessionId)?.substring(0, 8) || 'unknown'}
+                                                                </span>
+                                                            </div>
+                                                        )
+                                                    )}
+                                                </div>
+                                                {act.patientName && <div className="text-xs text-muted-foreground">{act.phone}</div>}
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex flex-col gap-1">

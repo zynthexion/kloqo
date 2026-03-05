@@ -74,6 +74,20 @@ export interface User {
   pwaInstalled?: boolean;
 }
 
+export interface TrafficData {
+  id: string;
+  sessionId: string;
+  patientId?: string;
+  phone?: string;
+  deviceType: 'mobile' | 'tablet' | 'desktop';
+  entryPage: string;
+  referrer: string;
+  sessionStart: string;
+  sessionEnd?: string;
+  sessionDuration?: number;
+  createdAt: any;
+}
+
 /**
  * Fetch all users
  */
@@ -381,6 +395,24 @@ export async function fetchPunctualityLogsByDoctorId(doctorId: string): Promise<
     });
   } catch (error) {
     console.error('Error fetching doctor punctuality logs:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch all app traffic data
+ */
+export async function fetchTrafficData(): Promise<TrafficData[]> {
+  try {
+    const trafficRef = collection(db, 'app_traffic');
+    const snapshot = await getDocs(trafficRef);
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as TrafficData[];
+  } catch (error) {
+    console.error('Error fetching traffic data:', error);
     return [];
   }
 }

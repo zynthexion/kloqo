@@ -15,12 +15,14 @@ import {
   User,
   CreditCard,
   Bell,
+  Globe,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const menuItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Overview' },
   { href: '/dashboard/growth', icon: TrendingUp, label: 'Growth Analytics' },
+  { href: '/dashboard/traffic', icon: Globe, label: 'Traffic Analytics' },
   { href: '/dashboard/notifications', icon: Bell, label: 'Notifications' },
   { href: '/dashboard/marketing', icon: TrendingUp, label: 'Marketing Analytics' },
   { href: '/dashboard/clinics', icon: Building2, label: 'Clinics' },

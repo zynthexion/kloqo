@@ -15,6 +15,7 @@ import { ReviewChecker, AppointmentReminderHandler } from '@/components/deferred
 import { PwaTracker } from '@/components/pwa-tracker';
 import { AttributionTracker } from '@/components/attribution/attribution-tracker';
 import { MarketingAnalyticsInitializer } from '@/components/marketing-analytics-initializer';
+import { TrafficTrackerInitializer } from '@/components/traffic-tracker-initializer';
 
 
 export const metadata: Metadata = {
@@ -126,6 +127,7 @@ export default function RootLayout({
             <NotificationOnboard />
             <AttributionTracker />
             <MarketingAnalyticsInitializer />
+            <TrafficTrackerInitializer />
           </LanguageProvider>
         </FirebaseClientProvider>
       </body>

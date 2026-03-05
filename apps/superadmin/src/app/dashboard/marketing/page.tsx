@@ -125,7 +125,7 @@ export default function MarketingDashboard() {
                 sendsQ = query(sendsQuery, orderBy('sentAt', 'desc'));
             }
             const sendsSnap = await getDocs(sendsQ);
-            const sends = sendsSnap.docs.map(d => ({ id: d.id, type: 'send', ...d.data() }));
+            const sends = sendsSnap.docs.map(d => ({ id: d.id, type: 'send', ...(d.data() as object) }));
 
             // ------------------------------------------------------------------
             // 2. Fetch marketing_analytics with optional date filter
@@ -139,7 +139,7 @@ export default function MarketingDashboard() {
                 analyticsQ = query(collection(db, 'marketing_analytics'), orderBy('sessionStart', 'desc'));
             }
             const analyticsSnap = await getDocs(analyticsQ);
-            const sessions = analyticsSnap.docs.map(d => ({ id: d.id, type: 'click', ...d.data() }));
+            const sessions = analyticsSnap.docs.map(d => ({ id: d.id, type: 'click', ...(d.data() as object) }));
 
             // ------------------------------------------------------------------
             // 3. Fetch button interactions with optional date filter
@@ -153,7 +153,7 @@ export default function MarketingDashboard() {
                 interactionsQ = query(collection(db, 'marketing_interactions'), orderBy('timestamp', 'desc'));
             }
             const interactionsSnap = await getDocs(interactionsQ);
-            const interactions = interactionsSnap.docs.map(d => ({ id: d.id, type: 'button', ...d.data() }));
+            const interactions = interactionsSnap.docs.map(d => ({ id: d.id, type: 'button', ...(d.data() as object) }));
 
             // ------------------------------------------------------------------
             // 4. Compute per-campaign metrics

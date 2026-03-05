@@ -95,9 +95,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
 
         {/* Microsoft Clarity Tracking */}
-        <Script
-          id="microsoft-clarity"
-          strategy="afterInteractive"
+        <script
           dangerouslySetInnerHTML={{
             __html: `
               (function(c,l,a,r,i,t,y){

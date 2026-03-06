@@ -1,5 +1,5 @@
 'use client';
-import { ArrowLeft, Home, Calendar, Radio, User, Users, ChevronRight, LogOut, FileText, Shield, HelpCircle, Download, Share, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Home, Calendar, Radio, User, Users, ChevronRight, LogOut, FileText, Shield, HelpCircle, Download, Share, CheckCircle2, MapPin } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -97,11 +97,32 @@ function ProfilePage() {
 
     const menuItems = [
         { icon: Users, label: t.profile?.friendsAndFamily || 'Your Friends and Family', href: '/profile/relatives' },
+        { icon: MapPin, label: t.profile?.allowLocation || 'Allow Location', href: '#', key: 'location' },
         { icon: FileText, label: t.profile.terms, href: '#', key: 'terms' },
         { icon: Shield, label: t.profile.privacyPolicy, href: '#', key: 'privacy' },
         { icon: Download, label: t.profile.installAppMenu, href: '#', key: 'install' },
         { icon: HelpCircle, label: t.profile.help, href: '/contact' },
     ];
+
+    const handleAllowLocation = () => {
+        if (!navigator.geolocation) {
+            alert(t.consultToday.geolocationNotSupported || 'Geolocation not supported');
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            () => {
+                // Success - permission granted
+            },
+            (error) => {
+                console.error('Error requesting location:', error);
+                if (error.code === error.PERMISSION_DENIED) {
+                    alert(t.consultToday.locationDenied || 'Location access denied');
+                }
+            },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+    };
 
     const iosSteps = useMemo(() => [
         {
@@ -193,7 +214,24 @@ function ProfilePage() {
                     <NotificationSettings />
                     <LanguageSettings />
                     {menuItems.map((item, index) => {
-                        if (item.key === 'terms') {
+                        if (item.key === 'location') {
+                            return (
+                                <button
+                                    key={index}
+                                    type="button"
+                                    onClick={handleAllowLocation}
+                                    className="w-full text-left"
+                                >
+                                    <div className="flex items-center justify-between p-4 border-b last:border-b-0 hover:bg-muted/50 transition-colors">
+                                        <div className="flex items-center gap-4">
+                                            <item.icon className="h-6 w-6 text-primary" />
+                                            <span className="font-semibold">{item.label}</span>
+                                        </div>
+                                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                                    </div>
+                                </button>
+                            );
+                        } else if (item.key === 'terms') {
                             return (
                                 <button
                                     key={index}

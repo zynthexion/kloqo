@@ -179,8 +179,8 @@ export function NotificationHistory() {
     const { language } = useLanguage();
     const router = useRouter();
 
-    console.log('🔔 [HISTORY-RENDER] Component Rendered. Auth User:', user ? `UID: ${user.uid}, DB_ID: ${user.dbUserId}` : 'NULL');
-    console.log('🔔 [HISTORY-RENDER] Current Notifications State:', notifications.length);
+    // console.log('🔔 [HISTORY-RENDER] Component Rendered. Auth User:', user ? `UID: ${user.uid}, DB_ID: ${user.dbUserId}` : 'NULL');
+    // console.log('🔔 [HISTORY-RENDER] Current Notifications State:', notifications.length);
 
     // Use centralized dbUserId from useUser hook
     const resolvedUserId = user?.dbUserId;
@@ -188,23 +188,23 @@ export function NotificationHistory() {
     // Effect: Listen for Notifications using dbUserId
     useEffect(() => {
         if (!firestore || !resolvedUserId) {
-            console.log('🔔 [HISTORY-DEBUG] Waiting for firestore or resolvedUserId...', { firestore: !!firestore, resolvedUserId });
+            // console.log('🔔 [HISTORY-DEBUG] Waiting for firestore or resolvedUserId...', { firestore: !!firestore, resolvedUserId });
             return;
         }
 
-        console.log(`🔔 [HISTORY-DEBUG] Listening to users/${resolvedUserId}/notifications`);
+        // console.log(`🔔 [HISTORY-DEBUG] Listening to users/${resolvedUserId}/notifications`);
         const notificationsRef = collection(firestore, 'users', resolvedUserId, 'notifications');
 
         const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(50));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            console.log(`🔔 [HISTORY-DEBUG] Snapshot received. Docs: ${snapshot.size}`);
+            // console.log(`🔔 [HISTORY-DEBUG] Snapshot received. Docs: ${snapshot.size}`);
             const newNotifications = snapshot.docs.map(doc => {
                 const data = doc.data();
                 // DEBUG: Log first notification to see structure
-                if (snapshot.docs.indexOf(doc) === 0) {
-                    console.log('🔔 [HISTORY-DEBUG] Sample Notification Data:', { id: doc.id, ...data });
-                }
+                // if (snapshot.docs.indexOf(doc) === 0) {
+                //     console.log('🔔 [HISTORY-DEBUG] Sample Notification Data:', { id: doc.id, ...data });
+                // }
                 return {
                     id: doc.id,
                     ...data,
@@ -213,7 +213,7 @@ export function NotificationHistory() {
                     timestamp: data.timestamp || Date.now()
                 };
             });
-            console.log(`🔔 [HISTORY-DEBUG] Processed ${newNotifications.length} notifications`);
+            // console.log(`🔔 [HISTORY-DEBUG] Processed ${newNotifications.length} notifications`);
             setNotifications(newNotifications);
 
 

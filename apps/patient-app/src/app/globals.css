@@ -13,6 +13,21 @@
   }
 }
 
+@keyframes location-waves {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.animate-location-waves {
+  animation: location-waves 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
 @keyframes shimmer {
   0% {
     transform: translateX(-100%);

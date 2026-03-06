@@ -1361,7 +1361,11 @@ function HomePageContent() {
                                 role="button"
                                 aria-label={language === 'ml' ? 'സ്ഥലം പുതുക്കുക' : 'Refresh location'}
                             >
-                                <MapPin className={`w-4 h-4 flex-shrink-0 ${isRefreshingLocation ? 'animate-bounce' : ''}`} />
+                                <div className="relative flex items-center justify-center w-5 h-5">
+                                    <span className="absolute inset-0 rounded-full bg-primary-foreground/40 animate-location-waves"></span>
+                                    <span className="absolute inset-0 rounded-full bg-primary-foreground/40 animate-location-waves [animation-delay:0.7s]"></span>
+                                    <MapPin className={`relative w-4 h-4 flex-shrink-0 z-10 ${isRefreshingLocation ? 'animate-bounce' : ''}`} />
+                                </div>
                                 <span className="min-w-0 flex-1">{location}</span>
                             </div>
                         </div>

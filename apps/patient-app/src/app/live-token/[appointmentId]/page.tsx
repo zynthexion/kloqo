@@ -1189,10 +1189,7 @@ const AppointmentStatusCard = ({ yourAppointment, allTodaysAppointments, doctors
             }
         }
 
-        let locationOk = locationComplete;
-        if (!locationOk) {
-            locationOk = await handleLocationCheck();
-        }
+        let locationOk = await handleLocationCheck();
         if (!locationOk) {
             setIsConfirmingInline(false);
             return;

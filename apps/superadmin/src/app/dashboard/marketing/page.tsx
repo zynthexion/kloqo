@@ -125,7 +125,7 @@ export default function MarketingDashboard() {
                 sendsQ = query(sendsQuery, orderBy('sentAt', 'desc'));
             }
             const sendsSnap = await getDocs(sendsQ);
-            const sends = sendsSnap.docs.map(d => ({ id: d.id, type: 'send', ...(d.data() as object) }));
+            const sends = sendsSnap.docs.map(d => ({ id: d.id, type: 'send', ...(d.data() as any) }));
 
             // ------------------------------------------------------------------
             // 2. Fetch marketing_analytics with optional date filter
@@ -139,7 +139,7 @@ export default function MarketingDashboard() {
                 analyticsQ = query(collection(db, 'marketing_analytics'), orderBy('sessionStart', 'desc'));
             }
             const analyticsSnap = await getDocs(analyticsQ);
-            const sessions = analyticsSnap.docs.map(d => ({ id: d.id, type: 'click', ...(d.data() as object) }));
+            const sessions = analyticsSnap.docs.map(d => ({ id: d.id, type: 'click', ...(d.data() as any) }));
 
             // ------------------------------------------------------------------
             // 3. Fetch button interactions with optional date filter
@@ -153,7 +153,7 @@ export default function MarketingDashboard() {
                 interactionsQ = query(collection(db, 'marketing_interactions'), orderBy('timestamp', 'desc'));
             }
             const interactionsSnap = await getDocs(interactionsQ);
-            const interactions = interactionsSnap.docs.map(d => ({ id: d.id, type: 'button', ...(d.data() as object) }));
+            const interactions = interactionsSnap.docs.map(d => ({ id: d.id, type: 'button', ...(d.data() as any) }));
 
             // ------------------------------------------------------------------
             // 4. Compute per-campaign metrics
@@ -247,8 +247,10 @@ export default function MarketingDashboard() {
                     const lastDate = typeof lastTime === 'string' ? new Date(lastTime) : lastTime?.toDate?.();
 
                     const timeDiff = Math.abs((lastDate?.getTime() || 0) - (currentDate?.getTime() || 0));
-                    const sameIdentity = current.phone && last.phone ? current.phone === last.phone :
-                        (current.visitorId && last.visitorId ? current.visitorId === last.visitorId : false);
+
+                    const currentKey = getIdentityKey(current.phone, current.visitorId, current.sessionId);
+                    const lastKey = getIdentityKey(last.phone, last.visitorId, last.sessionId);
+                    const sameIdentity = currentKey === lastKey;
 
                     // If same type and same identity within 2 mins, skip or merge
                     if (sameIdentity && timeDiff < TWO_MINUTES && current.type === last.type) {
@@ -271,7 +273,7 @@ export default function MarketingDashboard() {
             // ------------------------------------------------------------------
             // 6. Window statuses
             // ------------------------------------------------------------------
-            const uniquePhones = Array.from(new Set(combined.map((a: any) => a.phone).filter(Boolean)));
+            const uniquePhones = Array.from(new Set(deduplicated.map((a: any) => a.phone).filter(Boolean)));
             if (uniquePhones.length > 0) {
                 const statuses: Record<string, boolean> = {};
                 for (let i = 0; i < uniquePhones.length; i += 30) {

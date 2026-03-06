@@ -74,6 +74,18 @@ function normalizePhone(p: string) {
     return '+' + clean;
 }
 
+function normalizePhoneIdentity(p?: string) {
+    if (!p) return null;
+    return p.trim().replace(/\D/g, '').replace(/^91/, '');
+}
+
+function getIdentityKey(phone?: string, visitorId?: string, sessionId?: string) {
+    const p = normalizePhoneIdentity(phone);
+    if (p) return `p_${p}`;
+    if (visitorId && visitorId !== 'unknown') return `v_${visitorId}`;
+    return `s_${sessionId}`;
+}
+
 function toTimestamp(d: Date | null) {
     return d ? Timestamp.fromDate(d) : null;
 }
@@ -175,17 +187,17 @@ export default function MarketingDashboard() {
 
                 const refSessions = (sessionsByRef.get(ref) || []).filter((s: any) => !s.isBot);
 
-                // --- FIX: Count UNIQUE Session IDs to prevent CTR inflation from multiple saves ---
-                const uniqueSessionIds = new Set(refSessions.map((s: any) => s.sessionId));
-                const totalClicks = uniqueSessionIds.size;
+                // --- FIX: Count UNIQUE Visitors/Phones to prevent CTR inflation from redirects ---
+                const uniqueClks = new Set(refSessions.map((s: any) => getIdentityKey(s.phone, s.visitorId, s.sessionId)));
+                const totalClicks = uniqueClks.size;
 
-                const validSessions = refSessions.filter((s: any) => s.sessionDuration > 5);
-                const uniqueValidSessions = new Set(validSessions.map((s: any) => s.sessionId));
-                const totalSessions = uniqueValidSessions.size;
+                const validSessions = refSessions.filter((s: any) => s.sessionDuration > 4);
+                const uniqueSessions = new Set(validSessions.map((s: any) => getIdentityKey(s.phone, s.visitorId, s.sessionId)));
+                const totalSessions = uniqueSessions.size;
 
                 const sessionsWithActions = refSessions.filter((s: any) => s.actions && s.actions.length > 0);
-                const uniqueSessionsWithActions = new Set(sessionsWithActions.map((s: any) => s.sessionId));
-                const totalActions = uniqueSessionsWithActions.size;
+                const uniqueActions = new Set(sessionsWithActions.map((s: any) => getIdentityKey(s.phone, s.visitorId, s.sessionId)));
+                const totalActions = uniqueActions.size;
 
                 const ctr = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
                 const conversionRate = totalClicks > 0 ? (totalActions / totalClicks) * 100 : 0;

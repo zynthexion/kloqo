@@ -34,6 +34,11 @@ export default function AddToHomeScreenPrompt() {
       hasUser: !!user
     });
 
+    // Don't show install prompt if user arrived via a magic link
+    // — it would overlap with the silent auth lottie animation
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('magicToken') || params.get('token')) return;
+
     // Show prompt when installable (works for Android, desktop browsers)
     if (!isStandalone && isInstallable) {
       const dismissedDate = localStorage.getItem('pwaPromptDismissedDate');
@@ -57,6 +62,7 @@ export default function AddToHomeScreenPrompt() {
       }
     }
   }, [showPrompt, isIOS, isStandalone, isInstallable, user]);
+
 
   const handleInstall = async () => {
     // For Android, desktop browsers (Chrome, Edge) with native install prompt

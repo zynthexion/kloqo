@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
+
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -130,9 +131,16 @@ function LoginContent() {
     }, [step, phoneNumber, confirmationResult]);
 
     // ** MAGIC LOGIN LOGIC **
+    // Use a ref to ensure magic login is attempted exactly once,
+    // guarding against the race condition where auth is null on first render.
+    // Previously the effect fired with auth=null, failed silently, and never re-ran
+    // once auth became ready because searchParams hadn't changed.
+    const magicLoginAttemptedRef = useRef(false);
     useEffect(() => {
+        if (!auth) return; // Wait until Firebase auth is fully initialized
         const magicToken = searchParams.get('magicToken') || searchParams.get('token');
-        if (magicToken && auth) {
+        if (magicToken && !magicLoginAttemptedRef.current) {
+            magicLoginAttemptedRef.current = true;
             handleMagicLogin(magicToken);
         }
     }, [auth, searchParams]);

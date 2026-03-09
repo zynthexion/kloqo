@@ -11,26 +11,36 @@ export function LanguagePrompt() {
   const [showPrompt, setShowPrompt] = useState(false); // Start with false, check after mount
   const [isMounted, setIsMounted] = useState(false);
   const { setLanguage } = useLanguage();
-  
+
   // Use English translations as default since language isn't selected yet
   const t = translations.en;
 
   useEffect(() => {
     // Wait for client-side to ensure localStorage is available
     setIsMounted(true);
-    
+
     // Check if language has been selected before
     const savedLanguage = localStorage.getItem('app-language');
-    
+
     // If language is already selected, don't show prompt
     if (savedLanguage && (savedLanguage === 'en' || savedLanguage === 'ml')) {
       setShowPrompt(false);
       return;
     }
-    
+
+    // If the user arrived via a magic link, auto-select Malayalam and skip the prompt
+    // so it doesn't block the silent authentication flow
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('magicToken') || params.get('token')) {
+      localStorage.setItem('app-language', 'ml');
+      setShowPrompt(false);
+      return;
+    }
+
     // Language not selected - show prompt
     setShowPrompt(true);
   }, []);
+
 
   // Don't render until mounted to avoid hydration issues
   if (!isMounted) {
